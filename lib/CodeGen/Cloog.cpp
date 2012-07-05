@@ -35,7 +35,9 @@
 #include "cloog/isl/domain.h"
 #include "cloog/isl/cloog.h"
 
-#include <unistd.h>
+//#include <unistd.h>
+#include <io.h>
+#include <fcntl.h>
 
 using namespace llvm;
 using namespace polly;
@@ -90,12 +92,12 @@ class FileToString {
 
 public:
   FileToString() {
-    pipe(FD);
+    _pipe(FD, 256, O_BINARY);
     input = fdopen(FD[1], "w");
   }
   ~FileToString() {
     close(FD[0]);
-    //close(FD[1]);
+    close(FD[1]);
   }
 
   FILE *getInputFile() {
@@ -136,7 +138,7 @@ void Cloog::dump(FILE *F) {
 /// Print a source code representation of the program.
 void Cloog::pprint(raw_ostream &OS) {
   FileToString *Output = new FileToString();
-  clast_pprint(Output->getInputFile(), ClastRoot, 0, Options);
+  clast_pprint(Output->getInputFile(), ClastRoot, 0, Options); //MK: Pipe has limited capacity, so writing and reading to it in the same process may cause a deadlock
   Output->closeInput();
   OS << Output->getOutput();
   delete (Output);

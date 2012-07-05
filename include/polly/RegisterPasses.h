@@ -15,5 +15,7 @@
 #define POLLY_REGISTER_PASSES_H
 namespace llvm {
   class PassManagerBase;
+
+  void intializePollyPass();
 }
 #endif

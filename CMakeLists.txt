@@ -123,7 +123,7 @@ macro(add_polly_library name)
   else()
     set(libkind)
   endif()
-  add_library( ${name} ${libkind} ${srcs} )
+  add_library( ${name} ${srcs} )
   if( LLVM_COMMON_DEPENDS )
     add_dependencies( ${name} ${LLVM_COMMON_DEPENDS} )
   endif( LLVM_COMMON_DEPENDS )
@@ -164,6 +164,8 @@ macro(add_polly_library name)
   install(TARGETS ${name}
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX})
+    
+  set_property( GLOBAL APPEND PROPERTY LLVM_LIBS ${name} )
 endmacro(add_polly_library)
 
 include_directories(

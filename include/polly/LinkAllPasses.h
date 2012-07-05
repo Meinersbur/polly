@@ -78,7 +78,7 @@ namespace {
       if (std::getenv("bar") != (char*) -1)
         return;
 
-       createAffSCEVItTesterPass();
+       //createAffSCEVItTesterPass();
 #ifdef CLOOG_FOUND
        createCloogExporterPass();
        createCloogInfoPass();
@@ -92,7 +92,7 @@ namespace {
        createDOTPrinterPass();
        createDOTViewerPass();
        createIndependentBlocksPass();
-       createIndVarSimplifyPass();
+       polly::createIndVarSimplifyPass();
        createJSONExporterPass();
        createJSONImporterPass();
        createRegionSimplifyPass();
