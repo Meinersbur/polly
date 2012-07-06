@@ -73,8 +73,3 @@ INITIALIZE_PASS_END(DeadCodeElim, "polly-dce",
 Pass* polly::createDeadCodeElimPass() {
   return new DeadCodeElim();
 }
-namespace llvm {
-void intializePollyPass() {
-	int x = 0;
-}
-}
