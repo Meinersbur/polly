@@ -1,7 +1,7 @@
 #!/bin/sh
 
-CLOOG_HASH="57470e76bfd58a0c38c598e816411663193e0f45"
-ISL_HASH="d7c0312c8f25c490e126c17b913532962ff66186"
+CLOOG_HASH="c7721fc941db89dd1afc6240eaceea46d0bcad17"
+ISL_HASH="9f82ab3cd18ac34f883c30594111e4eb17426e11"
 
 PWD=`pwd`
 
@@ -65,7 +65,11 @@ ISL_DIR=${CLOOG_DIR}/isl
 if [ ${IS_GIT} -eq 0 ]
 then
   echo :: Performing initial checkout
+  # Remove the existing CLooG and ISL dirs to avoid crashing older git versions.
+  cd ${CLOOG_DIR}/..
+  run rmdir "${CLOOG_DIR}"
   run git clone http://repo.or.cz/r/cloog.git ${CLOOG_DIR}
+  run rmdir "${ISL_DIR}"
   run git clone http://repo.or.cz/r/isl.git ${ISL_DIR}
 fi
 

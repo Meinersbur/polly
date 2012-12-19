@@ -145,9 +145,6 @@ public:
   /// instructions, but e.g. for address calculation instructions we currently
   /// generate scalar instructions for each vector lane.
   ///
-  /// @param Builder    The LLVM-IR Builder used to generate the statement. The
-  ///                   code is generated at the location, the builder points
-  ///                   to.
   /// @param Stmt       The statement to code generate.
   /// @param GlobalMaps A vector of maps that define for certain Values
   ///                   referenced from the original code new Values they should
@@ -155,12 +152,16 @@ public:
   ///                   used for one vector lane. The number of elements in the
   ///                   vector defines the width of the generated vector
   ///                   instructions.
+  /// @param Schedule   A map from the statement to a schedule where the
+  ///                   innermost dimension is the dimension of the innermost
+  ///                   loop containing the statemenet.
   /// @param P          A reference to the pass this function is called from.
   ///                   The pass is needed to update other analysis.
   static void generate(IRBuilder<> &B, ScopStmt &Stmt,
-                       VectorValueMapT &GlobalMaps, __isl_keep isl_set *Domain,
+                       VectorValueMapT &GlobalMaps,
+                       __isl_keep isl_map *Schedule,
                        Pass *P) {
-    VectorBlockGenerator Generator(B, GlobalMaps, Stmt, Domain, P);
+    VectorBlockGenerator Generator(B, GlobalMaps, Stmt, Schedule, P);
     Generator.copyBB();
   }
 
@@ -172,10 +173,13 @@ private:
   // all referenes to the old instructions with their recalculated values.
   VectorValueMapT &GlobalMaps;
 
-  isl_set *Domain;
+  // A map from the statement to a schedule where the innermost dimension is the
+  // dimension of the innermost loop containing the statemenet.
+  isl_map *Schedule;
 
   VectorBlockGenerator(IRBuilder<> &B, VectorValueMapT &GlobalMaps,
-                       ScopStmt &Stmt, __isl_keep isl_set *Domain, Pass *P);
+                       ScopStmt &Stmt, __isl_keep isl_map *Schedule,
+                       Pass *P);
 
   int getVectorWidth();
 

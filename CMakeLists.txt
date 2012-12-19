@@ -59,6 +59,14 @@ endif(NOT DEFINED LLVM_MAIN_SRC_DIR)
 set(POLLY_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(POLLY_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
+# Add path for custom modules
+set(CMAKE_MODULE_PATH
+  ${CMAKE_MODULE_PATH}
+  "${CMAKE_CURRENT_SOURCE_DIR}/cmake"
+  )
+
+include("polly_macros")
+
 # Add appropriate flags for GCC
 if (CMAKE_COMPILER_IS_GNUCXX)
   # FIXME: Turn off exceptions, RTTI:
@@ -195,7 +203,7 @@ include_directories(
   ${CMAKE_CURRENT_BINARY_DIR}/include
   )
 
-install(DIRECTORY include
+install(DIRECTORY ${POLLY_BINARY_DIR}/include
   DESTINATION .
   PATTERN ".svn" EXCLUDE
   )

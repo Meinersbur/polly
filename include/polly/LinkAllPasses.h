@@ -48,6 +48,8 @@ namespace polly {
   llvm::Pass *createRegionSimplifyPass();
   llvm::Pass *createScopDetectionPass();
   llvm::Pass *createScopInfoPass();
+  llvm::Pass *createIslAstInfoPass();
+  llvm::Pass *createIslCodeGenerationPass();
   llvm::Pass *createIslScheduleOptimizerPass();
   llvm::Pass *createTempScopInfoPass();
 
@@ -100,6 +102,8 @@ namespace {
 #ifdef PLUTO_FOUND
        createPlutoOptimizerPass();
 #endif
+       createIslAstInfoPass();
+       createIslCodeGenerationPass();
        createIslScheduleOptimizerPass();
        createTempScopInfoPass();
 
@@ -127,6 +131,8 @@ namespace llvm {
   void initializeIndependentBlocksPass(llvm::PassRegistry&);
   void initializeJSONExporterPass(llvm::PassRegistry&);
   void initializeJSONImporterPass(llvm::PassRegistry&);
+  void initializeIslAstInfoPass(llvm::PassRegistry&);
+  void initializeIslCodeGenerationPass(llvm::PassRegistry&);
   void initializeIslScheduleOptimizerPass(llvm::PassRegistry&);
 #ifdef PLUTO_FOUND
   void initializePlutoOptimizerPass(llvm::PassRegistry&);

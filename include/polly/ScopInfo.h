@@ -148,20 +148,27 @@ public:
   /// @brief Get the new access function imported from JSCOP file
   isl_map *getNewAccessRelation() const;
 
-  /// @brief Get the stride of this memory access in the specified domain
-  ///        subset.
-  isl_set *getStride(__isl_take const isl_set *domainSubset) const;
+  /// Get the stride of this memory access in the specified Schedule. Schedule
+  /// is a map from the statement to a schedule where the innermost dimension is
+  /// the dimension of the innermost loop containing the statemenet.
+  isl_set *getStride(__isl_take const isl_map *Schedule) const;
 
-  /// @brief Is the stride of the access equal to a certain width.
-  bool isStrideX(__isl_take const isl_set *DomainSubset, int StrideWidth) const;
+  /// Is the stride of the access equal to a certain width? Schedule is a map
+  /// from the statement to a schedule where the innermost dimension is the
+  /// dimension of the innermost loop containing the statemenet.
+  bool isStrideX(__isl_take const isl_map *Schedule, int StrideWidth) const;
 
-  /// @brief Is consecutive memory accessed for a given
-  ///        statement instance set?
-  bool isStrideOne(__isl_take const isl_set *domainSubset) const;
+  /// Is consecutive memory accessed for a given statement instance set?
+  /// Schedule is a map from the statement to a schedule where the innermost
+  /// dimension is the dimension of the innermost loop containing the
+  /// statemenet.
+  bool isStrideOne(__isl_take const isl_map *Schedule) const;
 
-  /// @brief Is always the same memory accessed for a given
-  ///        statement instance set?
-  bool isStrideZero(__isl_take const isl_set *domainSubset) const;
+  /// Is always the same memory accessed for a given statement instance set?
+  /// Schedule is a map from the statement to a schedule where the innermost
+  /// dimension is the dimension of the innermost loop containing the
+  /// statemenet.
+  bool isStrideZero(__isl_take const isl_map *Schedule) const;
 
   /// @brief Get the statement that contains this memory access.
   ScopStmt *getStatement() const { return statement; }
@@ -302,7 +309,7 @@ public:
   /// @brief Get the iteration domain of this ScopStmt.
   ///
   /// @return The iteration domain of this ScopStmt.
-  isl_set *getDomain() const;
+  __isl_give isl_set *getDomain() const;
 
   /// @brief Get the space of the iteration domain
   ///
@@ -320,7 +327,7 @@ public:
   /// @brief Get the scattering function of this ScopStmt.
   ///
   /// @return The scattering function of this ScopStmt.
-  isl_map *getScattering() const;
+  __isl_give isl_map *getScattering() const;
   void setScattering(isl_map *scattering);
 
   /// @brief Get an isl string representing this scattering.
@@ -366,9 +373,6 @@ public:
   /// @param Dimension The dimension of the induction variable
   /// @return The loop at a certain dimension.
   const Loop *getLoopForDimension(unsigned Dimension) const;
-
-  /// @brief Return the SCEV for a loop dimension.
-  const SCEVAddRecExpr *getSCEVForDimension(unsigned Dimension) const;
 
   /// @brief Align the parameters in the statement to the scop context
   void realignParams();

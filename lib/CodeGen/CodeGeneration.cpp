@@ -42,6 +42,7 @@
 #include "llvm/Analysis/ScalarEvolutionExpander.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 
 #define CLOOG_INT_GMP 1
@@ -77,13 +78,6 @@ GPUTriple("polly-gpgpu-triple",
        cl::desc("Target triple for GPU code generation"),
        cl::Hidden, cl::init(""));
 #endif /* GPU_CODEGEN */
-
-static cl::opt<bool>
-AtLeastOnce("enable-polly-atLeastOnce",
-       cl::desc("Give polly the hint, that every loop is executed at least"
-                "once"), cl::Hidden,
-       cl::value_desc("OpenMP code generation enabled if true"),
-       cl::init(false), cl::ZeroOrMore);
 
 typedef DenseMap<const char*, Value*> CharMapT;
 
@@ -282,14 +276,12 @@ private:
   ///
   /// Create a list of values that has to be stored into the OpenMP subfuncition
   /// structure.
-  SetVector<Value*> getOMPValues();
+  SetVector<Value*> getOMPValues(const clast_stmt *Body);
 
-  /// @brief Update the internal structures according to a Value Map.
+  /// @brief Update ClastVars and ValueMap according to a value map.
   ///
-  /// @param VMap     A map from old to new values.
-  /// @param Reverse  If true, we assume the update should be reversed.
-  void updateWithValueMap(OMPGenerator::ValueToValueMapTy &VMap,
-                          bool Reverse);
+  /// @param VMap A map from old to new values.
+  void updateWithValueMap(OMPGenerator::ValueToValueMapTy &VMap);
 
   /// @brief Create an OpenMP parallel for loop.
   ///
@@ -322,7 +314,7 @@ private:
   ///
   /// Detect if a clast_for loop can be executed in parallel.
   ///
-  /// @param f The clast for loop to check.
+  /// @param For The clast for loop to check.
   ///
   /// @return bool Returns true if the incoming clast_for statement can
   ///              execute in parallel.
@@ -402,6 +394,19 @@ void ClastStmtCodeGen::codegenSubstitutions(const clast_stmt *Assignment,
   }
 }
 
+// Takes the cloog specific domain and translates it into a map Statement ->
+// PartialSchedule, where the PartialSchedule contains all the dimensions that
+// have been code generated up to this point.
+static __isl_give isl_map *extractPartialSchedule(ScopStmt *Statement,
+                                                  isl_set *Domain) {
+  isl_map *Schedule = Statement->getScattering();
+  int ScheduledDimensions = isl_set_dim(Domain, isl_dim_set);
+  int UnscheduledDimensions = isl_map_dim(Schedule, isl_dim_out) - ScheduledDimensions;
+
+  return isl_map_project_out(Schedule, isl_dim_out, ScheduledDimensions,
+                             UnscheduledDimensions);
+}
+
 void ClastStmtCodeGen::codegen(const clast_user_stmt *u,
                                std::vector<Value*> *IVS , const char *iterator,
                                isl_set *Domain) {
@@ -430,7 +435,9 @@ void ClastStmtCodeGen::codegen(const clast_user_stmt *u,
     }
   }
 
-  VectorBlockGenerator::generate(Builder, *Statement, VectorMap, Domain, P);
+  isl_map *Schedule = extractPartialSchedule(Statement, Domain);
+  VectorBlockGenerator::generate(Builder, *Statement, VectorMap, Schedule, P);
+  isl_map_free(Schedule);
 }
 
 void ClastStmtCodeGen::codegen(const clast_block *b) {
@@ -447,7 +454,8 @@ void ClastStmtCodeGen::codegenForSequential(const clast_for *f) {
   UpperBound = ExpGen.codegen(f->UB, IntPtrTy);
   Stride = Builder.getInt(APInt_from_MPZ(f->stride));
 
-  IV = createLoop(LowerBound, UpperBound, Stride, Builder, P, AfterBB);
+  IV = createLoop(LowerBound, UpperBound, Stride, Builder, P, AfterBB,
+                  CmpInst::ICMP_SLE);
 
   // Add loop iv to symbols.
   ClastVars[f->iterator] = IV;
@@ -460,7 +468,42 @@ void ClastStmtCodeGen::codegenForSequential(const clast_for *f) {
   Builder.SetInsertPoint(AfterBB->begin());
 }
 
-SetVector<Value*> ClastStmtCodeGen::getOMPValues() {
+// Helper class to determine all scalar parameters used in the basic blocks of a
+// clast. Scalar parameters are scalar variables defined outside of the SCoP.
+class ParameterVisitor : public ClastVisitor {
+  std::set<Value *> Values;
+public:
+  ParameterVisitor() : ClastVisitor(), Values() { }
+
+  void visitUser(const clast_user_stmt *Stmt) {
+    const ScopStmt *S = static_cast<const ScopStmt *>(Stmt->statement->usr);
+    const BasicBlock *BB = S->getBasicBlock();
+
+    // Check all the operands of instructions in the basic block.
+    for (BasicBlock::const_iterator BI = BB->begin(), BE = BB->end(); BI != BE;
+         ++BI) {
+      const Instruction &Inst = *BI;
+      for (Instruction::const_op_iterator II = Inst.op_begin(),
+           IE = Inst.op_end(); II != IE; ++II) {
+        Value *SrcVal = *II;
+
+        if (Instruction *OpInst = dyn_cast<Instruction>(SrcVal))
+          if (S->getParent()->getRegion().contains(OpInst))
+            continue;
+
+        if (isa<Instruction>(SrcVal) || isa<Argument>(SrcVal))
+          Values.insert(SrcVal);
+      }
+    }
+  }
+
+  // Iterator to iterate over the values found.
+  typedef std::set<Value *>::const_iterator const_iterator;
+  inline const_iterator begin() const { return Values.begin(); }
+  inline const_iterator end()   const { return Values.end();   }
+};
+
+SetVector<Value*> ClastStmtCodeGen::getOMPValues(const clast_stmt *Body) {
   SetVector<Value*> Values;
 
   // The clast variables
@@ -468,41 +511,26 @@ SetVector<Value*> ClastStmtCodeGen::getOMPValues() {
        I != E; I++)
     Values.insert(I->second);
 
-  // The memory reference base addresses
-  for (Scop::iterator SI = S->begin(), SE = S->end(); SI != SE; ++SI) {
-    ScopStmt *Stmt = *SI;
-    for (SmallVector<MemoryAccess*, 8>::iterator I = Stmt->memacc_begin(),
-         E = Stmt->memacc_end(); I != E; ++I) {
-      Value *BaseAddr = const_cast<Value*>((*I)->getBaseAddr());
-      Values.insert((BaseAddr));
-    }
+  // Find the temporaries that are referenced in the clast statements'
+  // basic blocks but are not defined by these blocks (e.g., references
+  // to function arguments or temporaries defined before the start of
+  // the SCoP).
+  ParameterVisitor Params;
+  Params.visit(Body);
+
+  for (ParameterVisitor::const_iterator PI = Params.begin(), PE = Params.end();
+       PI != PE; ++PI) {
+    Value *V = *PI;
+    Values.insert(V);
+    DEBUG(dbgs() << "Adding temporary for OMP copy-in: " << *V << "\n");
   }
 
   return Values;
 }
 
-void ClastStmtCodeGen::updateWithValueMap(OMPGenerator::ValueToValueMapTy &VMap,
-                                          bool Reverse) {
+void ClastStmtCodeGen::updateWithValueMap(
+  OMPGenerator::ValueToValueMapTy &VMap) {
   std::set<Value*> Inserted;
-
-  if (Reverse) {
-    OMPGenerator::ValueToValueMapTy ReverseMap;
-
-    for (std::map<Value*, Value*>::iterator I = VMap.begin(), E = VMap.end();
-         I != E; ++I)
-       ReverseMap.insert(std::make_pair(I->second, I->first));
-
-    for (CharMapT::iterator I = ClastVars.begin(), E = ClastVars.end();
-         I != E; I++) {
-      ClastVars[I->first] = ReverseMap[I->second];
-      Inserted.insert(I->second);
-    }
-
-    /// FIXME: At the moment we do not reverse the update of the ValueMap.
-    ///        This is incomplet, but the failure should be obvious, such that
-    ///        we can fix this later.
-    return;
-  }
 
   for (CharMapT::iterator I = ClastVars.begin(), E = ClastVars.end();
        I != E; I++) {
@@ -510,8 +538,8 @@ void ClastStmtCodeGen::updateWithValueMap(OMPGenerator::ValueToValueMapTy &VMap,
     Inserted.insert(I->second);
   }
 
-  for (std::map<Value*, Value*>::iterator I = VMap.begin(), E = VMap.end();
-       I != E; ++I) {
+  for (OMPGenerator::ValueToValueMapTy::iterator I = VMap.begin(),
+       E = VMap.end(); I != E; ++I) {
     if (Inserted.count(I->first))
       continue;
 
@@ -543,20 +571,25 @@ void ClastStmtCodeGen::codegenForOpenMP(const clast_for *For) {
   LB = ExpGen.codegen(For->LB, IntPtrTy);
   UB = ExpGen.codegen(For->UB, IntPtrTy);
 
-  Values = getOMPValues();
+  Values = getOMPValues(For->body);
 
   IV = OMPGen.createParallelLoop(LB, UB, Stride, Values, VMap, &LoopBody);
   BasicBlock::iterator AfterLoop = Builder.GetInsertPoint();
   Builder.SetInsertPoint(LoopBody);
 
-  updateWithValueMap(VMap, /* reverse */ false);
+  // Save the current values.
+  const ValueMapT ValueMapCopy = ValueMap;
+  const CharMapT ClastVarsCopy = ClastVars;
+
+  updateWithValueMap(VMap);
   ClastVars[For->iterator] = IV;
 
   if (For->body)
     codegen(For->body);
 
-  ClastVars.erase(For->iterator);
-  updateWithValueMap(VMap, /* reverse */ true);
+  // Restore the original values.
+  ValueMap = ValueMapCopy;
+  ClastVars = ClastVarsCopy;
 
   clearDomtree((*LoopBody).getParent()->getParent(),
                P->getAnalysis<DominatorTree>());
@@ -689,15 +722,16 @@ void ClastStmtCodeGen::codegenForGPGPU(const clast_for *F) {
     LowerBound = ExpGen.codegen(InnerFor->LB, IntPtrTy);
     UpperBound = ExpGen.codegen(InnerFor->UB, IntPtrTy);
     Stride = Builder.getInt(APInt_from_MPZ(InnerFor->stride));
-    IV = createLoop(LowerBound, UpperBound, Stride, Builder, P, AfterBB);
+    IV = createLoop(LowerBound, UpperBound, Stride, Builder, P, AfterBB,
+                    CmpInst::ICMP_SLE);
     const Value *OldIV_ = Statement->getInductionVariableForDimension(2);
     Value *OldIV = const_cast<Value *>(OldIV_);
     VMap.insert(std::make_pair<Value*, Value*>(OldIV, IV));
   }
 
-  updateWithValueMap(VMap, /* reverse */ false);
+  updateWithValueMap(VMap);
+
   BlockGenerator::generate(Builder, *Statement, ValueMap, P);
-  updateWithValueMap(VMap, /* reverse */ true);
 
   if (AfterBB)
     Builder.SetInsertPoint(AfterBB->begin());
@@ -734,45 +768,12 @@ bool ClastStmtCodeGen::isInnermostLoop(const clast_for *f) {
   return true;
 }
 
-int ClastStmtCodeGen::getNumberOfIterations(const clast_for *f) {
-  isl_set *loopDomain = isl_set_copy(isl_set_from_cloog_domain(f->domain));
-  isl_set *tmp = isl_set_copy(loopDomain);
-
-  // Calculate a map similar to the identity map, but with the last input
-  // and output dimension not related.
-  //  [i0, i1, i2, i3] -> [i0, i1, i2, o0]
-  isl_space *Space = isl_set_get_space(loopDomain);
-  Space = isl_space_drop_outputs(Space,
-                                 isl_set_dim(loopDomain, isl_dim_set) - 2, 1);
-  Space = isl_space_map_from_set(Space);
-  isl_map *identity = isl_map_identity(Space);
-  identity = isl_map_add_dims(identity, isl_dim_in, 1);
-  identity = isl_map_add_dims(identity, isl_dim_out, 1);
-
-  isl_map *map = isl_map_from_domain_and_range(tmp, loopDomain);
-  map = isl_map_intersect(map, identity);
-
-  isl_map *lexmax = isl_map_lexmax(isl_map_copy(map));
-  isl_map *lexmin = isl_map_lexmin(map);
-  isl_map *sub = isl_map_sum(lexmax, isl_map_neg(lexmin));
-
-  isl_set *elements = isl_map_range(sub);
-
-  if (!isl_set_is_singleton(elements)) {
-    isl_set_free(elements);
+int ClastStmtCodeGen::getNumberOfIterations(const clast_for *For) {
+  isl_set *LoopDomain = isl_set_copy(isl_set_from_cloog_domain(For->domain));
+  int NumberOfIterations = polly::getNumberOfIterations(LoopDomain);
+  if (NumberOfIterations == -1)
     return -1;
-  }
-
-  isl_point *p = isl_set_sample_point(elements);
-
-  isl_int v;
-  isl_int_init(v);
-  isl_point_get_coordinate(p, isl_dim_set, isl_set_n_dim(loopDomain) - 1, &v);
-  int numberIterations = isl_int_get_si(v);
-  isl_int_clear(v);
-  isl_point_free(p);
-
-  return (numberIterations) / isl_int_get_si(f->stride) + 1;
+  return NumberOfIterations / isl_int_get_si(For->stride) + 1;
 }
 
 void ClastStmtCodeGen::codegenForVector(const clast_for *F) {
