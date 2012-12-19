@@ -125,6 +125,9 @@ public:
   /// @brief Is this a read memory access?
   bool isRead() const { return Type == MemoryAccess::Read; }
 
+  /// @brief Is this a write memory access?
+  bool isWrite() const { return Type == MemoryAccess::Write; }
+
   isl_map *getAccessRelation() const;
 
   /// @brief Get an isl string representing this access function.
@@ -305,6 +308,11 @@ public:
   ///
   /// @return The space of the iteration domain
   isl_space *getDomainSpace() const;
+
+  /// @brief Get the id of the iteration domain space
+  ///
+  /// @return The id of the iteration domain space
+  isl_id *getDomainId() const;
 
   /// @brief Get an isl string representing this domain.
   std::string getDomainStr() const;

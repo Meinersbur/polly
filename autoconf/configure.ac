@@ -93,6 +93,14 @@ CXXFLAGS=$saved_CXXFLAGS
 AS_IF([test "x$cloog_found" = "xyes"],
   [AC_DEFINE([CLOOG_FOUND],[1],[Define if cloog found])])
 
+dnl Check that we have libpluto.
+saved_CXXFLAGS=$CXXFLAGS
+CXXFLAGS="$CXXFLAGS $gmp_inc $isl_inc"
+find_lib_and_headers([pluto], [pluto/libpluto.h], [pluto])
+CXXFLAGS=$saved_CXXFLAGS
+AS_IF([test "x$pluto_found" = "xyes"],
+  [AC_DEFINE([PLUTO_FOUND],[1],[Define if pluto found])])
+
 dnl Check that we have openscop.
 find_lib_and_headers([openscop], [openscop/scop.h], [openscop])
 AS_IF([test "x$openscop_found" = "xyes"],
@@ -112,7 +120,20 @@ fi
 AC_SUBST(scoplib_rpath)
 
 dnl Check if CUDA lib there
+dnl Disable the build of polly, even if it is checked out into tools/polly.
+AC_ARG_ENABLE(polly_gpu_codegen,
+              AS_HELP_STRING([--enable-polly-gpu-codegen],
+                             [Enable GPU code generation in Polly(default is NO)]),,
+                             enableval=default)
+case "$enableval" in
+  yes) AC_DEFINE([GPU_CODEGEN],[1], [Define if gpu codegen is enabled]) ;;
+  no) ;;
+  default) ;;
+  *) AC_MSG_ERROR([Invalid setting for --enable-polly-gpu-codegen. Use "yes" or "no"]) ;;
+esac
+
 find_lib_and_headers([cuda], [cuda.h], [cuda])
+
 AS_IF([test "x$cuda_found" = "xyes"],
   [AC_DEFINE([CUDALIB_FOUND],[1],[Define if cudalib found])])
 

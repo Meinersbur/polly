@@ -74,7 +74,15 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${POLLY_SOURCE_DIR}/cmake")
 FIND_PACKAGE(Cloog REQUIRED)
 FIND_PACKAGE(Isl REQUIRED)
 FIND_PACKAGE(Gmp REQUIRED)
-FIND_PACKAGE(CUDA)
+FIND_PACKAGE(Pluto)
+
+option(POLLY_ENABLE_GPGPU_CODEGEN "Enable GPGPU code generation feature" OFF)
+if (POLLY_ENABLE_GPGPU_CODEGEN)
+  # Do not require CUDA, as GPU code generation test cases can be run without
+  # a cuda library.
+  FIND_PACKAGE(CUDA)
+  set(GPU_CODEGEN TRUE)
+endif(POLLY_ENABLE_GPGPU_CODEGEN)
 
 option(POLLY_ENABLE_OPENSCOP "Enable Openscop library for scop import/export" ON)
 if (POLLY_ENABLE_OPENSCOP)
@@ -89,6 +97,9 @@ endif(POLLY_ENABLE_SCOPLIB)
 if (CLOOG_FOUND)
   INCLUDE_DIRECTORIES( ${CLOOG_INCLUDE_DIR} )
 endif(CLOOG_FOUND)
+if (PLUTO_FOUND)
+  INCLUDE_DIRECTORIES( ${PLUTO_INCLUDE_DIR} )
+endif(PLUTO_FOUND)
 INCLUDE_DIRECTORIES( ${ISL_INCLUDE_DIR} )
 INCLUDE_DIRECTORIES( ${GMP_INCLUDE_DIR} )
 
@@ -167,6 +178,16 @@ macro(add_polly_library name)
     
   set_property( GLOBAL APPEND PROPERTY LLVM_LIBS ${name} )
 endmacro(add_polly_library)
+
+macro(add_polly_loadable_module name)
+  set(srcs ${ARGN})
+  add_polly_library(${name} ${srcs})
+  if (APPLE)
+    # Darwin-specific linker flags for loadable modules.
+    set_target_properties(${name} PROPERTIES
+      LINK_FLAGS "-Wl,-flat_namespace -Wl,-undefined -Wl,suppress")
+  endif()
+endmacro(add_polly_loadable_module)
 
 include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/include

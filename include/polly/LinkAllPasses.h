@@ -25,41 +25,41 @@ namespace llvm {
   class RegionPass;
 }
 
-using namespace llvm;
-
 namespace polly {
-  Pass *createAffSCEVItTesterPass();
 #ifdef CLOOG_FOUND
-  Pass *createCloogExporterPass();
-  Pass *createCloogInfoPass();
-  Pass *createCodeGenerationPass();
+  llvm::Pass *createCloogExporterPass();
+  llvm::Pass *createCloogInfoPass();
+  llvm::Pass *createCodeGenerationPass();
 #endif
-  Pass *createCodePreparationPass();
-  Pass *createDeadCodeElimPass();
-  Pass *createDependencesPass();
-  Pass *createDOTOnlyPrinterPass();
-  Pass *createDOTOnlyViewerPass();
-  Pass *createDOTPrinterPass();
-  Pass *createDOTViewerPass();
-  Pass *createIndependentBlocksPass();
-  Pass *createIndVarSimplifyPass();
-  Pass *createJSONExporterPass();
-  Pass *createJSONImporterPass();
-  Pass *createRegionSimplifyPass();
-  Pass *createScopDetectionPass();
-  Pass *createScopInfoPass();
-  Pass *createIslScheduleOptimizerPass();
-  Pass *createTempScopInfoPass();
+  llvm::Pass *createCodePreparationPass();
+  llvm::Pass *createDeadCodeElimPass();
+  llvm::Pass *createDependencesPass();
+  llvm::Pass *createDOTOnlyPrinterPass();
+  llvm::Pass *createDOTOnlyViewerPass();
+  llvm::Pass *createDOTPrinterPass();
+  llvm::Pass *createDOTViewerPass();
+  llvm::Pass *createIndependentBlocksPass();
+  llvm::Pass *createIndVarSimplifyPass();
+  llvm::Pass *createJSONExporterPass();
+  llvm::Pass *createJSONImporterPass();
+#ifdef PLUTO_FOUND
+  llvm::Pass *createPlutoOptimizerPass();
+#endif
+  llvm::Pass *createRegionSimplifyPass();
+  llvm::Pass *createScopDetectionPass();
+  llvm::Pass *createScopInfoPass();
+  llvm::Pass *createIslScheduleOptimizerPass();
+  llvm::Pass *createTempScopInfoPass();
 
 #ifdef OPENSCOP_FOUND
-  Pass *createScopExporterPass();
-  Pass *createScopImporterPass();
+  llvm::Pass *createScopExporterPass();
+  llvm::Pass *createScopImporterPass();
 #endif
 
 #ifdef SCOPLIB_FOUND
-  Pass *createPoccPass();
-  Pass *createScopLibExporterPass();
-  Pass *createScopLibImporterPass();
+  llvm::Pass *createPoccPass();
+  llvm::Pass *createScopLibExporterPass();
+  llvm::Pass *createScopLibImporterPass();
 #endif
 
   extern char &IndependentBlocksID;
@@ -78,7 +78,6 @@ namespace {
       if (std::getenv("bar") != (char*) -1)
         return;
 
-       //createAffSCEVItTesterPass();
 #ifdef CLOOG_FOUND
        createCloogExporterPass();
        createCloogInfoPass();
@@ -98,6 +97,9 @@ namespace {
        createRegionSimplifyPass();
        createScopDetectionPass();
        createScopInfoPass();
+#ifdef PLUTO_FOUND
+       createPlutoOptimizerPass();
+#endif
        createIslScheduleOptimizerPass();
        createTempScopInfoPass();
 
@@ -126,6 +128,9 @@ namespace llvm {
   void initializeJSONExporterPass(llvm::PassRegistry&);
   void initializeJSONImporterPass(llvm::PassRegistry&);
   void initializeIslScheduleOptimizerPass(llvm::PassRegistry&);
+#ifdef PLUTO_FOUND
+  void initializePlutoOptimizerPass(llvm::PassRegistry&);
+#endif
 #ifdef SCOPLIB_FOUND
   void initializePoccPass(llvm::PassRegistry&);
 #endif

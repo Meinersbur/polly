@@ -17,8 +17,8 @@
 
 #include "llvm/Module.h"
 #include "llvm/Analysis/Dominators.h"
-#include "llvm/Target/TargetData.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include "llvm/DataLayout.h"
 
 using namespace llvm;
 using namespace polly;
@@ -179,7 +179,7 @@ void OMPGenerator::createCallLoopEndNowait() {
 }
 
 IntegerType *OMPGenerator::getIntPtrTy() {
-  return P->getAnalysis<TargetData>().getIntPtrType(Builder.getContext());
+  return P->getAnalysis<DataLayout>().getIntPtrType(Builder.getContext());
 }
 
 Module *OMPGenerator::getModule() {

@@ -16,7 +16,9 @@
 #cmakedefine CLOOG_FOUND
 #cmakedefine ISL_CODEGEN_FOUND
 #cmakedefine OPENSCOP_FOUND
+#cmakedefine PLUTO_FOUND
 #cmakedefine SCOPLIB_FOUND
 #cmakedefine CUDALIB_FOUND
+#cmakedefine GPU_CODEGEN
 
 #endif
