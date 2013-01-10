@@ -19,7 +19,6 @@
 #include "llvm/Analysis/Dominators.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
-#include "llvm/DataLayout.h"
 
 using namespace llvm;
 using namespace polly;
