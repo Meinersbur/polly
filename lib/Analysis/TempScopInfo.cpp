@@ -22,7 +22,7 @@
 
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/RegionIterator.h"
-#include "llvm/DataLayout.h"
+#include "llvm/IR/DataLayout.h"
 #include "llvm/Assembly/Writer.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
@@ -146,7 +146,7 @@ void TempScopInfo::buildLoopBounds(TempScop &Scop) {
 }
 
 void TempScopInfo::buildAffineCondition(Value &V, bool inverted,
-                                         Comparison **Comp) const {
+                                        Comparison **Comp) const {
   if (ConstantInt *C = dyn_cast<ConstantInt>(&V)) {
     // If this is always true condition, we will create 1 >= 0,
     // otherwise we will create 1 == 0.

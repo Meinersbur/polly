@@ -31,13 +31,13 @@
 #include "polly/CodeGen/Utils.h"
 #include "polly/Support/GICHelper.h"
 
-#include "llvm/Module.h"
+#include "llvm/IR/Module.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ScalarEvolutionExpander.h"
 #define DEBUG_TYPE "polly-codegen-isl"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/DataLayout.h"
+#include "llvm/IR/DataLayout.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 
 #include "isl/union_map.h"
@@ -171,8 +171,8 @@ Type *IslExprBuilder::getWidestType(Type *T1, Type *T2) {
 }
 
 Value *IslExprBuilder::createOpUnary(__isl_take isl_ast_expr *Expr) {
-  assert (isl_ast_expr_get_op_type(Expr) == isl_ast_op_minus
-          && "Unsupported unary operation");
+  assert(isl_ast_expr_get_op_type(Expr) == isl_ast_op_minus &&
+         "Unsupported unary operation");
 
   Value *V;
   Type *MaxType = getType(Expr);
@@ -188,10 +188,10 @@ Value *IslExprBuilder::createOpUnary(__isl_take isl_ast_expr *Expr) {
 }
 
 Value *IslExprBuilder::createOpNAry(__isl_take isl_ast_expr *Expr) {
-  assert(isl_ast_expr_get_type(Expr) == isl_ast_expr_op
-         && "isl ast expression not of type isl_ast_op");
-  assert(isl_ast_expr_get_op_n_arg(Expr) >= 2
-         && "We need at least two operands in an n-ary operation");
+  assert(isl_ast_expr_get_type(Expr) == isl_ast_expr_op &&
+         "isl ast expression not of type isl_ast_op");
+  assert(isl_ast_expr_get_op_n_arg(Expr) >= 2 &&
+         "We need at least two operands in an n-ary operation");
 
   Value *V;
 
@@ -241,10 +241,10 @@ Value *IslExprBuilder::createOpBin(__isl_take isl_ast_expr *Expr) {
   Type *MaxType;
   isl_ast_op_type OpType;
 
-  assert(isl_ast_expr_get_type(Expr) == isl_ast_expr_op
-         && "isl ast expression not of type isl_ast_op");
-  assert(isl_ast_expr_get_op_n_arg(Expr) == 2
-         && "not a binary isl ast expression");
+  assert(isl_ast_expr_get_type(Expr) == isl_ast_expr_op &&
+         "isl ast expression not of type isl_ast_op");
+  assert(isl_ast_expr_get_op_n_arg(Expr) == 2 &&
+         "not a binary isl ast expression");
 
   OpType = isl_ast_expr_get_op_type(Expr);
 
@@ -261,7 +261,7 @@ Value *IslExprBuilder::createOpBin(__isl_take isl_ast_expr *Expr) {
   // result type cannot be larger than the type of the individual operand. isl
   // does not calculate correct types for these operations and we consequently
   // exclude those operations here.
-  switch(OpType) {
+  switch (OpType) {
   case isl_ast_op_pdiv_q:
   case isl_ast_op_pdiv_r:
   case isl_ast_op_div:
@@ -328,8 +328,8 @@ Value *IslExprBuilder::createOpBin(__isl_take isl_ast_expr *Expr) {
 }
 
 Value *IslExprBuilder::createOpSelect(__isl_take isl_ast_expr *Expr) {
-  assert (isl_ast_expr_get_op_type(Expr) == isl_ast_op_select
-          && "Unsupported unary isl ast expression");
+  assert(isl_ast_expr_get_op_type(Expr) == isl_ast_op_select &&
+         "Unsupported unary isl ast expression");
   Value *LHS, *RHS, *Cond;
   Type *MaxType = getType(Expr);
 
@@ -440,8 +440,8 @@ Value *IslExprBuilder::createOpBoolean(__isl_take isl_ast_expr *Expr) {
 }
 
 Value *IslExprBuilder::createOp(__isl_take isl_ast_expr *Expr) {
-  assert(isl_ast_expr_get_type(Expr) == isl_ast_expr_op
-         && "Expression not of type isl_ast_expr_op");
+  assert(isl_ast_expr_get_type(Expr) == isl_ast_expr_op &&
+         "Expression not of type isl_ast_expr_op");
   switch (isl_ast_expr_get_op_type(Expr)) {
   case isl_ast_op_error:
   case isl_ast_op_cond:
@@ -479,8 +479,8 @@ Value *IslExprBuilder::createOp(__isl_take isl_ast_expr *Expr) {
 }
 
 Value *IslExprBuilder::createId(__isl_take isl_ast_expr *Expr) {
-  assert(isl_ast_expr_get_type(Expr) == isl_ast_expr_id
-         && "Expression not of type isl_ast_expr_ident");
+  assert(isl_ast_expr_get_type(Expr) == isl_ast_expr_id &&
+         "Expression not of type isl_ast_expr_ident");
 
   isl_id *Id;
   Value *V;
@@ -506,8 +506,8 @@ IntegerType *IslExprBuilder::getType(__isl_keep isl_ast_expr *Expr) {
 }
 
 Value *IslExprBuilder::createInt(__isl_take isl_ast_expr *Expr) {
-  assert(isl_ast_expr_get_type(Expr) == isl_ast_expr_int
-         && "Expression not of type isl_ast_expr_int");
+  assert(isl_ast_expr_get_type(Expr) == isl_ast_expr_int &&
+         "Expression not of type isl_ast_expr_int");
   isl_int Int;
   Value *V;
   APInt APValue;
@@ -611,8 +611,8 @@ __isl_give isl_ast_expr *IslNodeBuilder::getUpperBound(
   Iterator = isl_ast_node_for_get_iterator(For);
   Type = isl_ast_expr_get_op_type(Cond);
 
-  assert(isl_ast_expr_get_type(Cond) == isl_ast_expr_op
-         && "conditional expression is not an atomic upper bound");
+  assert(isl_ast_expr_get_type(Cond) == isl_ast_expr_op &&
+         "conditional expression is not an atomic upper bound");
 
   switch (Type) {
     case isl_ast_op_le:
@@ -627,18 +627,18 @@ __isl_give isl_ast_expr *IslNodeBuilder::getUpperBound(
 
   Arg0 = isl_ast_expr_get_op_arg(Cond, 0);
 
-  assert(isl_ast_expr_get_type(Arg0) == isl_ast_expr_id
-         && "conditional expression is not an atomic upper bound");
+  assert(isl_ast_expr_get_type(Arg0) == isl_ast_expr_id &&
+         "conditional expression is not an atomic upper bound");
 
   UBID = isl_ast_expr_get_id(Arg0);
 
-  assert(isl_ast_expr_get_type(Iterator) == isl_ast_expr_id
-         && "Could not get the iterator");
+  assert(isl_ast_expr_get_type(Iterator) == isl_ast_expr_id &&
+         "Could not get the iterator");
 
   IteratorID = isl_ast_expr_get_id(Iterator);
 
-  assert(UBID == IteratorID
-         && "conditional expression is not an atomic upper bound");
+  assert(UBID == IteratorID &&
+         "conditional expression is not an atomic upper bound");
 
   UB = isl_ast_expr_get_op_arg(Cond, 1);
 
@@ -690,10 +690,9 @@ void IslNodeBuilder::createUserVector(__isl_take isl_ast_node *User,
   isl_map *S = isl_map_from_union_map(Schedule);
 
   createSubstitutionsVector(isl_pw_multi_aff_copy(Info->PMA),
-                            isl_ast_build_copy(Info->Context),
-                            Stmt, VectorMap, IVS, IteratorID);
+                            isl_ast_build_copy(Info->Context), Stmt, VectorMap,
+                            IVS, IteratorID);
   VectorBlockGenerator::generate(Builder, *Stmt, VectorMap, S, P);
-
 
   isl_map_free(S);
   isl_id_free(Annotation);
@@ -754,8 +753,7 @@ void IslNodeBuilder::createForVector(__isl_take isl_ast_node *For,
 
     for (int i = 0; i < isl_ast_node_list_n_ast_node(List); ++i)
       createUserVector(isl_ast_node_list_get_ast_node(List, i), IVS,
-                       isl_id_copy(IteratorID),
-                       isl_union_map_copy(Schedule));
+                       isl_id_copy(IteratorID), isl_union_map_copy(Schedule));
 
     isl_ast_node_free(Body);
     isl_ast_node_list_free(List);
@@ -892,10 +890,9 @@ void IslNodeBuilder::createIf(__isl_take isl_ast_node *If) {
 }
 
 void IslNodeBuilder::createSubstitutions(__isl_take isl_pw_multi_aff *PMA,
-                         __isl_take isl_ast_build *Context,
-                         ScopStmt *Stmt, ValueMapT &VMap) {
-  for (unsigned i = 0; i < isl_pw_multi_aff_dim(PMA, isl_dim_out);
-       ++i) {
+                                         __isl_take isl_ast_build *Context,
+                                         ScopStmt *Stmt, ValueMapT &VMap) {
+  for (unsigned i = 0; i < isl_pw_multi_aff_dim(PMA, isl_dim_out); ++i) {
     isl_pw_aff *Aff;
     isl_ast_expr *Expr;
     const Value *OldIV;
@@ -926,8 +923,8 @@ void IslNodeBuilder::createSubstitutionsVector(__isl_take isl_pw_multi_aff *PMA,
   for (std::vector<Value*>::iterator II = IVS.begin(), IE = IVS.end();
       II != IE; ++II) {
     IDToValue[IteratorID] = *II;
-    createSubstitutions(isl_pw_multi_aff_copy(PMA),
-                        isl_ast_build_copy(Context), Stmt, VMap[i]);
+    createSubstitutions(isl_pw_multi_aff_copy(PMA), isl_ast_build_copy(Context),
+                        Stmt, VMap[i]);
     i++;
   }
 
@@ -1017,7 +1014,7 @@ void IslNodeBuilder::addParameters(__isl_take isl_set *Context) {
 
 namespace {
 class IslCodeGeneration : public ScopPass {
-  public:
+public:
   static char ID;
 
   IslCodeGeneration() : ScopPass(ID) {}

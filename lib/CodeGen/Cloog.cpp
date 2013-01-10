@@ -29,7 +29,7 @@
 
 #define DEBUG_TYPE "polly-cloog"
 #include "llvm/Assembly/Writer.h"
-#include "llvm/Module.h"
+#include "llvm/IR/Module.h"
 #include "llvm/Support/Debug.h"
 
 #include "cloog/isl/domain.h"
@@ -89,7 +89,6 @@ class FileToString {
 
   char buf[BUFFERSIZE + 1];
 
-
 public:
   FileToString() {
     _pipe(FD, 256, O_BINARY);
@@ -121,7 +120,6 @@ public:
 
       output += std::string(buf, readSize);
     }
-
 
     return output;
   }
@@ -175,7 +173,7 @@ CloogUnionDomain *Cloog::buildCloogUnionDomain() {
     CloogDomain *Domain;
 
     Scattering = cloog_scattering_from_isl_map(Stmt->getScattering());
-    Domain  = cloog_domain_from_isl_set(Stmt->getDomain());
+    Domain = cloog_domain_from_isl_set(Stmt->getDomain());
 
     std::string entryName = Stmt->getBaseName();
 
@@ -356,7 +354,7 @@ bool CloogInfo::runOnScop(Scop &S) {
   Function *F = S.getRegion().getEntry()->getParent();
 
   DEBUG(dbgs() << ":: " << F->getName());
-  DEBUG(dbgs() << " : " << S.getRegion().getNameStr() << "\n");;
+  DEBUG(dbgs() << " : " << S.getRegion().getNameStr() << "\n");
   DEBUG(C->pprint(dbgs()));
 
   return false;

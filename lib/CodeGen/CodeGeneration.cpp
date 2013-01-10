@@ -35,14 +35,14 @@
 #include "polly/CodeGen/Utils.h"
 #include "polly/Support/GICHelper.h"
 
-#include "llvm/Module.h"
+#include "llvm/IR/Module.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ScalarEvolutionExpander.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/DataLayout.h"
+#include "llvm/IR/DataLayout.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 
 #define CLOOG_INT_GMP 1
@@ -176,7 +176,7 @@ Value *ClastExpCodeGen::codegen(const clast_reduction *r, Type *Ty) {
          && "Clast reduction type not supported");
   Value *old = codegen(r->elts[0], Ty);
 
-  for (int i=1; i < r->n; ++i) {
+  for (int i = 1; i < r->n; ++i) {
     Value *exprValue = codegen(r->elts[i], Ty);
 
     switch (r->type) {
@@ -341,7 +341,7 @@ private:
 
   IntegerType *getIntPtrTy();
 
-  public:
+public:
   void codegen(const clast_root *r);
 
   ClastStmtCodeGen(Scop *scop, IRBuilder<> &B, Pass *P);
@@ -357,7 +357,7 @@ const std::vector<std::string> &ClastStmtCodeGen::getParallelLoops() {
 }
 
 void ClastStmtCodeGen::codegen(const clast_assignment *a) {
-  Value *V= ExpGen.codegen(a->RHS, getIntPtrTy());
+  Value *V = ExpGen.codegen(a->RHS, getIntPtrTy());
   ClastVars[a->LHS] = V;
 }
 
@@ -385,9 +385,9 @@ void ClastStmtCodeGen::codegenSubstitutions(const clast_stmt *Assignment,
   int Dimension = 0;
 
   while (Assignment) {
-    assert(CLAST_STMT_IS_A(Assignment, stmt_ass)
-           && "Substitions are expected to be assignments");
-    codegen((const clast_assignment *)Assignment, Statement, Dimension,
+    assert(CLAST_STMT_IS_A(Assignment, stmt_ass) &&
+           "Substitions are expected to be assignments");
+    codegen((const clast_assignment *) Assignment, Statement, Dimension,
             vectorDim, VectorVMap);
     Assignment = Assignment->next;
     Dimension++;
@@ -425,7 +425,7 @@ void ClastStmtCodeGen::codegen(const clast_user_stmt *u,
   VectorValueMapT VectorMap(VectorDimensions);
 
   if (IVS) {
-    assert (u->substitutions && "Substitutions expected!");
+    assert(u->substitutions && "Substitutions expected!");
     int i = 0;
     for (std::vector<Value*>::iterator II = IVS->begin(), IE = IVS->end();
          II != IE; ++II) {
@@ -684,8 +684,8 @@ void ClastStmtCodeGen::codegenForGPGPU(const clast_for *F) {
   std::vector<int> NumIterations;
   PTXGenerator::ValueToValueMapTy VMap;
 
-  assert(!GPUTriple.empty()
-         && "Target triple should be set properly for GPGPU code generation.");
+  assert(!GPUTriple.empty() &&
+         "Target triple should be set properly for GPGPU code generation.");
   PTXGenerator PTXGen(Builder, P, GPUTriple);
 
   // Get original IVS and ScopStmt
@@ -703,7 +703,7 @@ void ClastStmtCodeGen::codegenForGPGPU(const clast_for *F) {
   U = (const clast_user_stmt *) TmpStmt;
   ScopStmt *Statement = (ScopStmt *) U->statement->usr;
   for (unsigned i = 0; i < Statement->getNumIterators() - NonPLoopDepth; i++) {
-    const Value* IV = Statement->getInductionVariableForDimension(i);
+    const Value *IV = Statement->getInductionVariableForDimension(i);
     IVS.insert(const_cast<Value *>(IV));
   }
 
@@ -784,7 +784,7 @@ void ClastStmtCodeGen::codegenForVector(const clast_for *F) {
 
   APInt Stride = APInt_from_MPZ(F->stride);
   IntegerType *LoopIVType = dyn_cast<IntegerType>(LB->getType());
-  Stride =  Stride.zext(LoopIVType->getBitWidth());
+  Stride = Stride.zext(LoopIVType->getBitWidth());
   Value *StrideValue = ConstantInt::get(LoopIVType, Stride);
 
   std::vector<Value*> IVS(VectorWidth);
@@ -811,7 +811,6 @@ void ClastStmtCodeGen::codegenForVector(const clast_for *F) {
   ClastVars.erase(F->iterator);
 }
 
-
 bool ClastStmtCodeGen::isParallelFor(const clast_for *f) {
   isl_set *Domain = isl_set_from_cloog_domain(f->domain);
   assert(Domain && "Cannot access domain of loop");
@@ -824,8 +823,8 @@ bool ClastStmtCodeGen::isParallelFor(const clast_for *f) {
 void ClastStmtCodeGen::codegen(const clast_for *f) {
   bool Vector = PollyVectorizerChoice != VECTORIZER_NONE;
   if ((Vector || OpenMP) && isParallelFor(f)) {
-    if (Vector && isInnermostLoop(f) && (-1 != getNumberOfIterations(f))
-        && (getNumberOfIterations(f) <= 16)) {
+    if (Vector && isInnermostLoop(f) && (-1 != getNumberOfIterations(f)) &&
+        (getNumberOfIterations(f) <= 16)) {
       codegenForVector(f);
       return;
     }
@@ -952,14 +951,15 @@ void ClastStmtCodeGen::codegen(const clast_root *r) {
     codegen(stmt->next);
 }
 
-ClastStmtCodeGen::ClastStmtCodeGen(Scop *scop, IRBuilder<> &B, Pass *P) :
-    S(scop), P(P), Builder(B), ExpGen(Builder, ClastVars) {}
+ClastStmtCodeGen::ClastStmtCodeGen(Scop *scop, IRBuilder<> &B, Pass *P)
+    : S(scop), P(P), Builder(B), ExpGen(Builder, ClastVars) {
+}
 
 namespace {
 class CodeGeneration : public ScopPass {
   std::vector<std::string> ParallelLoops;
 
-  public:
+public:
   static char ID;
 
   CodeGeneration() : ScopPass(ID) {}

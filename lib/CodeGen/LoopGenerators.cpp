@@ -15,9 +15,9 @@
 #include "polly/ScopDetection.h"
 #include "polly/CodeGen/LoopGenerators.h"
 
-#include "llvm/Module.h"
+#include "llvm/IR/Module.h"
 #include "llvm/Analysis/Dominators.h"
-#include "llvm/DataLayout.h"
+#include "llvm/IR/DataLayout.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/DataLayout.h"
 
@@ -25,8 +25,7 @@ using namespace llvm;
 using namespace polly;
 
 Value *polly::createLoop(Value *LB, Value *UB, Value *Stride,
-                         IRBuilder<> &Builder, Pass *P,
-                         BasicBlock *&AfterBlock,
+                         IRBuilder<> &Builder, Pass *P, BasicBlock *&AfterBlock,
                          ICmpInst::Predicate Predicate) {
   DominatorTree &DT = P->getAnalysis<DominatorTree>();
   Function *F = Builder.GetInsertBlock()->getParent();
@@ -44,8 +43,8 @@ Value *polly::createLoop(Value *LB, Value *UB, Value *Stride,
   Builder.SetInsertPoint(HeaderBB);
 
   // Use the type of upper and lower bound.
-  assert(LB->getType() == UB->getType()
-         && "Different types for upper and lower bound.");
+  assert(LB->getType() == UB->getType() &&
+         "Different types for upper and lower bound.");
 
   IntegerType *LoopIVType = dyn_cast<IntegerType>(UB->getType());
   assert(LoopIVType && "UB is not integer?");
