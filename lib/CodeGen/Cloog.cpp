@@ -35,9 +35,12 @@
 #include "cloog/isl/domain.h"
 #include "cloog/isl/cloog.h"
 
-//#include <unistd.h>
+#ifdef _WIN32
 #include <io.h>
 #include <fcntl.h>
+#else
+#include <unistd.h>
+#endif
 
 using namespace llvm;
 using namespace polly;
@@ -91,7 +94,11 @@ class FileToString {
 
 public:
   FileToString() {
+#ifdef _WIN32
     _pipe(FD, 256, O_BINARY);
+#else
+    pipe(FD);
+#endif
     input = fdopen(FD[1], "w");
   }
   ~FileToString() {
