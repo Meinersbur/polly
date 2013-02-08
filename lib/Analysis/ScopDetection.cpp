@@ -70,9 +70,8 @@ using namespace llvm;
 using namespace polly;
 
 static cl::opt<std::string>
-OnlyFunction("polly-detect-only",
-             cl::desc("Only detect scops in function"), cl::Hidden,
-             cl::value_desc("The function name to detect scops in"),
+OnlyFunction("polly-detect-only", cl::desc("Only detect scops in function"),
+             cl::Hidden, cl::value_desc("The function name to detect scops in"),
              cl::ValueRequired, cl::init(""));
 
 static cl::opt<bool>
@@ -81,8 +80,7 @@ IgnoreAliasing("polly-ignore-aliasing",
                cl::Hidden, cl::init(false));
 
 static cl::opt<bool>
-ReportLevel("polly-report",
-            cl::desc("Print information about Polly"),
+ReportLevel("polly-report", cl::desc("Print information about Polly"),
             cl::Hidden, cl::init(false));
 
 static cl::opt<bool>
@@ -267,8 +265,8 @@ bool ScopDetection::isValidMemoryAccess(Instruction &Inst,
   // Check if the base pointer of the memory access does alias with
   // any other pointer. This cannot be handled at the moment.
   AliasSet &AS =
-    Context.AST.getAliasSetForPointer(BaseValue, AliasAnalysis::UnknownSize,
-                                      Inst.getMetadata(LLVMContext::MD_tbaa));
+      Context.AST.getAliasSetForPointer(BaseValue, AliasAnalysis::UnknownSize,
+                                        Inst.getMetadata(LLVMContext::MD_tbaa));
 
   // INVALID triggers an assertion in verifying mode, if it detects that a SCoP
   // was detected by SCoP detection and that this SCoP was invalidated by a pass
@@ -277,10 +275,39 @@ bool ScopDetection::isValidMemoryAccess(Instruction &Inst,
   // references which seem to alias, if -basicaa is not available. They actually
   // do not, but as we can not proof this without -basicaa we would fail. We
   // disable this check to not cause irrelevant verification failures.
-  if (!AS.isMustAlias() && !IgnoreAliasing)
-    INVALID_NOVERIFY(Alias,
-                     "Possible aliasing for value: " << BaseValue->getName()
-                     << "\n");
+  if (!AS.isMustAlias() && !IgnoreAliasing) {
+    std::string Message;
+    raw_string_ostream OS(Message);
+
+    OS << "Possible aliasing: ";
+
+    std::vector<Value *> Pointers;
+
+    for (AliasSet::iterator AI = AS.begin(), AE = AS.end(); AI != AE; ++AI)
+      Pointers.push_back(AI.getPointer());
+
+    std::sort(Pointers.begin(), Pointers.end());
+
+    for (std::vector<Value *>::iterator PI = Pointers.begin(),
+                                        PE = Pointers.end();
+         ;) {
+      Value *V = *PI;
+
+      if (V->getName().size() == 0)
+        OS << "\"" << *V << "\"";
+      else
+        OS << "\"" << V->getName() << "\"";
+
+      ++PI;
+
+      if (PI != PE)
+        OS << ", ";
+      else
+        break;
+    }
+
+    INVALID_NOVERIFY(Alias, OS.str())
+  }
 
   return true;
 }
@@ -448,13 +475,14 @@ void ScopDetection::findScops(Region &R) {
   // regions that form a Scop are not found. Therefore, those non canonical
   // regions are checked by expanding the canonical ones.
 
-  std::vector<Region*> ToExpand;
+  std::vector<Region *> ToExpand;
 
   for (Region::iterator I = R.begin(), E = R.end(); I != E; ++I)
     ToExpand.push_back(*I);
 
-  for (std::vector<Region*>::iterator RI = ToExpand.begin(),
-       RE = ToExpand.end(); RI != RE; ++RI) {
+  for (std::vector<Region *>::iterator RI = ToExpand.begin(),
+                                       RE = ToExpand.end();
+       RI != RE; ++RI) {
     Region *CurrentRegion = *RI;
 
     // Skip invalid regions. Regions may become invalid, if they are element of
@@ -571,7 +599,7 @@ void ScopDetection::printLocations() {
 
     if (FileName.empty()) {
       outs() << "Scop detected at unknown location. Compile with debug info "
-        "(-g) to get more precise information. \n";
+                "(-g) to get more precise information. \n";
       return;
     }
 
@@ -605,13 +633,14 @@ bool ScopDetection::runOnFunction(llvm::Function &F) {
 
 void polly::ScopDetection::verifyRegion(const Region &R) const {
   assert(isMaxRegionInScop(R) && "Expect R is a valid region.");
-  DetectionContext Context(const_cast<Region&>(R), *AA, true /*verifying*/);
+  DetectionContext Context(const_cast<Region &>(R), *AA, true /*verifying*/);
   isValidRegion(Context);
 }
 
 void polly::ScopDetection::verifyAnalysis() const {
   for (RegionSet::const_iterator I = ValidRegions.begin(),
-      E = ValidRegions.end(); I != E; ++I)
+                                 E = ValidRegions.end();
+       I != E; ++I)
     verifyRegion(**I);
 }
 
@@ -626,9 +655,10 @@ void ScopDetection::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.setPreservesAll();
 }
 
-void ScopDetection::print(raw_ostream &OS, const Module *) const {
+void ScopDetection::print(raw_ostream &OS, const Module *)const {
   for (RegionSet::const_iterator I = ValidRegions.begin(),
-      E = ValidRegions.end(); I != E; ++I)
+                                 E = ValidRegions.end();
+       I != E; ++I)
     OS << "Valid Region for Scop: " << (*I)->getNameStr() << '\n';
 
   OS << "\n";
