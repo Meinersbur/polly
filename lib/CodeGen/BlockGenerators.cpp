@@ -39,201 +39,6 @@ static cl::opt<bool>
 SCEVCodegen("polly-codegen-scev", cl::desc("Use SCEV based code generation."),
             cl::Hidden, cl::init(false), cl::ZeroOrMore);
 
-/// The SCEVRewriter takes a scalar evolution expression and updates the
-/// following components:
-///
-/// - SCEVUnknown
-///
-///   Values referenced in SCEVUnknown subexpressions are looked up in
-///   two Value to Value maps (GlobalMap and BBMap). If they are found they are
-///   replaced by a reference to the value they map to.
-///
-/// - SCEVAddRecExpr
-///
-///   Based on a Loop -> Value map {Loop_1: %Value}, an expression
-///   {%Base, +, %Step}<Loop_1> is rewritten to %Base + %Value * %Step.
-///   AddRecExpr's with more than two operands can not be translated.
-///
-///   FIXME: The comment above is not yet reality. At the moment we derive
-///   %Value by looking up the canonical IV of the loop and by defining
-///   %Value = GlobalMap[%IV]. This needs to be changed to remove the need for
-///   canonical induction variables.
-///
-///
-/// How can this be used?
-/// ====================
-///
-/// SCEVRewrite based code generation works on virtually independent blocks.
-/// This means we do not run the independent blocks pass to rewrite scalar
-/// instructions, but just ignore instructions that we can analyze with scalar
-/// evolution. Virtually independent blocks are blocks that only reference the
-/// following values:
-///
-/// o Values calculated within a basic block
-/// o Values representable by SCEV
-///
-/// During code generation we can ignore all instructions:
-///
-/// - Ignore all instructions except:
-///   - Load instructions
-///   - Instructions that reference operands already calculated within the
-///     basic block.
-///   - Store instructions
-struct SCEVRewriter : public SCEVVisitor<SCEVRewriter, const SCEV *> {
-public:
-  static const SCEV *rewrite(const SCEV *scev, Scop &S, ScalarEvolution &SE,
-                             ValueMapT &GlobalMap, ValueMapT &BBMap) {
-    SCEVRewriter Rewriter(S, SE, GlobalMap, BBMap);
-    return Rewriter.visit(scev);
-  }
-
-  SCEVRewriter(Scop &S, ScalarEvolution &SE, ValueMapT &GlobalMap,
-               ValueMapT &BBMap) : S(S), SE(SE), GlobalMap(GlobalMap),
-               BBMap(BBMap) {}
-
-  const SCEV *visit(const SCEV *Expr) {
-    // FIXME: The parameter handling is incorrect.
-    //
-    // Polly does only detect parameters in Access function and loop iteration
-    // counters, but it does not get parameters that are just used by
-    // instructions within the basic block.
-    //
-    // There are two options to solve this:
-    //  o Iterate over all instructions of the SCoP and find the actual
-    //    parameters.
-    //  o Just check within the SCEVRewriter if Values lay outside of the SCoP
-    //    and detect parameters on the fly.
-    //
-    // This is especially important for OpenMP and GPGPU code generation, as
-    // they require us to detect and possibly rewrite the corresponding
-    // parameters.
-    if (isl_id *Id = S.getIdForParam(Expr)) {
-      isl_id_free(Id);
-      return Expr;
-    }
-
-    return SCEVVisitor<SCEVRewriter, const SCEV *>::visit(Expr);
-  }
-
-  const SCEV *visitConstant(const SCEVConstant *Constant) { return Constant; }
-
-  const SCEV *visitTruncateExpr(const SCEVTruncateExpr *Expr) {
-    const SCEV *Operand = visit(Expr->getOperand());
-    return SE.getTruncateExpr(Operand, Expr->getType());
-  }
-
-  const SCEV *visitZeroExtendExpr(const SCEVZeroExtendExpr *Expr) {
-    const SCEV *Operand = visit(Expr->getOperand());
-    return SE.getZeroExtendExpr(Operand, Expr->getType());
-  }
-
-  const SCEV *visitSignExtendExpr(const SCEVSignExtendExpr *Expr) {
-    const SCEV *Operand = visit(Expr->getOperand());
-    return SE.getSignExtendExpr(Operand, Expr->getType());
-  }
-
-  const SCEV *visitAddExpr(const SCEVAddExpr *Expr) {
-    SmallVector<const SCEV *, 2> Operands;
-    for (int i = 0, e = Expr->getNumOperands(); i < e; ++i) {
-      const SCEV *Operand = visit(Expr->getOperand(i));
-      Operands.push_back(Operand);
-    }
-
-    return SE.getAddExpr(Operands);
-  }
-
-  const SCEV *visitMulExpr(const SCEVMulExpr *Expr) {
-    SmallVector<const SCEV *, 2> Operands;
-    for (int i = 0, e = Expr->getNumOperands(); i < e; ++i) {
-      const SCEV *Operand = visit(Expr->getOperand(i));
-      Operands.push_back(Operand);
-    }
-
-    return SE.getMulExpr(Operands);
-  }
-
-  const SCEV *visitUDivExpr(const SCEVUDivExpr *Expr) {
-    return SE.getUDivExpr(visit(Expr->getLHS()), visit(Expr->getRHS()));
-  }
-
-  // Return a new induction variable if the loop is within the original SCoP
-  // or NULL otherwise.
-  Value *getNewIV(const Loop *L) {
-    Value *IV = L->getCanonicalInductionVariable();
-    if (!IV)
-      return NULL;
-
-    ValueMapT::iterator NewIV = GlobalMap.find(IV);
-
-    if (NewIV == GlobalMap.end())
-      return NULL;
-
-    return NewIV->second;
-  }
-
-  const SCEV *visitAddRecExpr(const SCEVAddRecExpr *Expr) {
-    Value *IV;
-
-    IV = getNewIV(Expr->getLoop());
-
-    // The IV is not within the GlobalMaps. So do not rewrite it and also do
-    // not rewrite any descendants.
-    if (!IV)
-      return Expr;
-
-    assert(Expr->getNumOperands() == 2 &&
-           "An AddRecExpr with more than two operands can not be rewritten.");
-
-    const SCEV *Base, *Step, *IVExpr, *Product;
-
-    Base = visit(Expr->getStart());
-    Step = visit(Expr->getOperand(1));
-    IVExpr = SE.getUnknown(IV);
-    IVExpr = SE.getTruncateOrSignExtend(IVExpr, Step->getType());
-    Product = SE.getMulExpr(Step, IVExpr);
-
-    return SE.getAddExpr(Base, Product);
-  }
-
-  const SCEV *visitSMaxExpr(const SCEVSMaxExpr *Expr) {
-    SmallVector<const SCEV *, 2> Operands;
-    for (int i = 0, e = Expr->getNumOperands(); i < e; ++i) {
-      const SCEV *Operand = visit(Expr->getOperand(i));
-      Operands.push_back(Operand);
-    }
-
-    return SE.getSMaxExpr(Operands);
-  }
-
-  const SCEV *visitUMaxExpr(const SCEVUMaxExpr *Expr) {
-    SmallVector<const SCEV *, 2> Operands;
-    for (int i = 0, e = Expr->getNumOperands(); i < e; ++i) {
-      const SCEV *Operand = visit(Expr->getOperand(i));
-      Operands.push_back(Operand);
-    }
-
-    return SE.getUMaxExpr(Operands);
-  }
-
-  const SCEV *visitUnknown(const SCEVUnknown *Expr) {
-    Value *V = Expr->getValue();
-
-    if (GlobalMap.count(V))
-      return SE.getUnknown(GlobalMap[V]);
-
-    if (BBMap.count(V))
-      return SE.getUnknown(BBMap[V]);
-
-    return Expr;
-  }
-
-private:
-  Scop &S;
-  ScalarEvolution &SE;
-  ValueMapT &GlobalMap;
-  ValueMapT &BBMap;
-};
-
 // Helper class to generate memory location.
 namespace {
 class IslGenerator {
@@ -355,7 +160,7 @@ bool BlockGenerator::isSCEVIgnore(const Instruction *Inst) {
 }
 
 Value *BlockGenerator::getNewValue(const Value *Old, ValueMapT &BBMap,
-                                   ValueMapT &GlobalMap) {
+                                   ValueMapT &GlobalMap, LoopToScevMapT &LTS) {
   // We assume constants never change.
   // This avoids map lookups for many calls to this function.
   if (isa<Constant>(Old))
@@ -378,8 +183,11 @@ Value *BlockGenerator::getNewValue(const Value *Old, ValueMapT &BBMap,
   if (SCEVCodegen && SE.isSCEVable(Old->getType()))
     if (const SCEV *Scev = SE.getSCEV(const_cast<Value *>(Old)))
       if (!isa<SCEVCouldNotCompute>(Scev)) {
-        const SCEV *NewScev = SCEVRewriter::rewrite(
-            Scev, *Statement.getParent(), SE, GlobalMap, BBMap);
+        const SCEV *NewScev = apply(Scev, LTS, SE);
+        ValueToValueMap VTV;
+        VTV.insert(BBMap.begin(), BBMap.end());
+        VTV.insert(GlobalMap.begin(), GlobalMap.end());
+        NewScev = SCEVParameterRewriter::rewrite(NewScev, SE, VTV);
         SCEVExpander Expander(SE, "polly");
         Value *Expanded = Expander.expandCodeFor(NewScev, Old->getType(),
                                                  Builder.GetInsertPoint());
@@ -403,7 +211,7 @@ Value *BlockGenerator::getNewValue(const Value *Old, ValueMapT &BBMap,
 }
 
 void BlockGenerator::copyInstScalar(const Instruction *Inst, ValueMapT &BBMap,
-                                    ValueMapT &GlobalMap) {
+                                    ValueMapT &GlobalMap, LoopToScevMapT &LTS) {
   Instruction *NewInst = Inst->clone();
 
   // Replace old operands with the new ones.
@@ -411,7 +219,7 @@ void BlockGenerator::copyInstScalar(const Instruction *Inst, ValueMapT &BBMap,
                                       OE = Inst->op_end();
        OI != OE; ++OI) {
     Value *OldOperand = *OI;
-    Value *NewOperand = getNewValue(OldOperand, BBMap, GlobalMap);
+    Value *NewOperand = getNewValue(OldOperand, BBMap, GlobalMap, LTS);
 
     if (!NewOperand) {
       assert(!isa<StoreInst>(NewInst) &&
@@ -432,7 +240,7 @@ void BlockGenerator::copyInstScalar(const Instruction *Inst, ValueMapT &BBMap,
 
 std::vector<Value *> BlockGenerator::getMemoryAccessIndex(
     __isl_keep isl_map *AccessRelation, Value *BaseAddress, ValueMapT &BBMap,
-    ValueMapT &GlobalMap) {
+    ValueMapT &GlobalMap, LoopToScevMapT &LTS) {
 
   assert((isl_map_dim(AccessRelation, isl_dim_out) == 1) &&
          "Only single dimensional access functions supported");
@@ -440,7 +248,7 @@ std::vector<Value *> BlockGenerator::getMemoryAccessIndex(
   std::vector<Value *> IVS;
   for (unsigned i = 0; i < Statement.getNumIterators(); ++i) {
     const Value *OriginalIV = Statement.getInductionVariableForDimension(i);
-    Value *NewIV = getNewValue(OriginalIV, BBMap, GlobalMap);
+    Value *NewIV = getNewValue(OriginalIV, BBMap, GlobalMap, LTS);
     IVS.push_back(NewIV);
   }
 
@@ -460,9 +268,10 @@ std::vector<Value *> BlockGenerator::getMemoryAccessIndex(
 
 Value *BlockGenerator::getNewAccessOperand(
     __isl_keep isl_map *NewAccessRelation, Value *BaseAddress, ValueMapT &BBMap,
-    ValueMapT &GlobalMap) {
+    ValueMapT &GlobalMap, LoopToScevMapT &LTS) {
   std::vector<Value *> IndexArray =
-      getMemoryAccessIndex(NewAccessRelation, BaseAddress, BBMap, GlobalMap);
+      getMemoryAccessIndex(NewAccessRelation, BaseAddress, BBMap, GlobalMap,
+                           LTS);
   Value *NewOperand =
       Builder.CreateGEP(BaseAddress, IndexArray, "p_newarrayidx_");
   return NewOperand;
@@ -470,7 +279,7 @@ Value *BlockGenerator::getNewAccessOperand(
 
 Value *BlockGenerator::generateLocationAccessed(
     const Instruction *Inst, const Value *Pointer, ValueMapT &BBMap,
-    ValueMapT &GlobalMap) {
+    ValueMapT &GlobalMap, LoopToScevMapT &LTS) {
   MemoryAccess &Access = Statement.getAccessFor(Inst);
   isl_map *CurrentAccessRelation = Access.getAccessRelation();
   isl_map *NewAccessRelation = Access.getNewAccessRelation();
@@ -481,11 +290,12 @@ Value *BlockGenerator::generateLocationAccessed(
   Value *NewPointer;
 
   if (!NewAccessRelation) {
-    NewPointer = getNewValue(Pointer, BBMap, GlobalMap);
+    NewPointer = getNewValue(Pointer, BBMap, GlobalMap, LTS);
   } else {
     Value *BaseAddress = const_cast<Value *>(Access.getBaseAddr());
     NewPointer =
-        getNewAccessOperand(NewAccessRelation, BaseAddress, BBMap, GlobalMap);
+        getNewAccessOperand(NewAccessRelation, BaseAddress, BBMap, GlobalMap,
+                            LTS);
   }
 
   isl_map_free(CurrentAccessRelation);
@@ -494,27 +304,32 @@ Value *BlockGenerator::generateLocationAccessed(
 }
 
 Value *BlockGenerator::generateScalarLoad(
-    const LoadInst *Load, ValueMapT &BBMap, ValueMapT &GlobalMap) {
+    const LoadInst *Load, ValueMapT &BBMap, ValueMapT &GlobalMap,
+    LoopToScevMapT &LTS) {
   const Value *Pointer = Load->getPointerOperand();
   const Instruction *Inst = dyn_cast<Instruction>(Load);
-  Value *NewPointer = generateLocationAccessed(Inst, Pointer, BBMap, GlobalMap);
+  Value *NewPointer = generateLocationAccessed(Inst, Pointer, BBMap, GlobalMap,
+                                               LTS);
   Value *ScalarLoad =
       Builder.CreateLoad(NewPointer, Load->getName() + "_p_scalar_");
   return ScalarLoad;
 }
 
 Value *BlockGenerator::generateScalarStore(
-    const StoreInst *Store, ValueMapT &BBMap, ValueMapT &GlobalMap) {
+    const StoreInst *Store, ValueMapT &BBMap, ValueMapT &GlobalMap,
+    LoopToScevMapT &LTS) {
   const Value *Pointer = Store->getPointerOperand();
   Value *NewPointer =
-      generateLocationAccessed(Store, Pointer, BBMap, GlobalMap);
-  Value *ValueOperand = getNewValue(Store->getValueOperand(), BBMap, GlobalMap);
+      generateLocationAccessed(Store, Pointer, BBMap, GlobalMap, LTS);
+  Value *ValueOperand = getNewValue(Store->getValueOperand(), BBMap, GlobalMap,
+                                    LTS);
 
   return Builder.CreateStore(ValueOperand, NewPointer);
 }
 
 void BlockGenerator::copyInstruction(const Instruction *Inst, ValueMapT &BBMap,
-                                     ValueMapT &GlobalMap) {
+                                     ValueMapT &GlobalMap,
+                                     LoopToScevMapT &LTS) {
   // Terminator instructions control the control flow. They are explicitly
   // expressed in the clast and do not need to be copied.
   if (Inst->isTerminator())
@@ -524,19 +339,19 @@ void BlockGenerator::copyInstruction(const Instruction *Inst, ValueMapT &BBMap,
     return;
 
   if (const LoadInst *Load = dyn_cast<LoadInst>(Inst)) {
-    BBMap[Load] = generateScalarLoad(Load, BBMap, GlobalMap);
+    BBMap[Load] = generateScalarLoad(Load, BBMap, GlobalMap, LTS);
     return;
   }
 
   if (const StoreInst *Store = dyn_cast<StoreInst>(Inst)) {
-    BBMap[Store] = generateScalarStore(Store, BBMap, GlobalMap);
+    BBMap[Store] = generateScalarStore(Store, BBMap, GlobalMap, LTS);
     return;
   }
 
-  copyInstScalar(Inst, BBMap, GlobalMap);
+  copyInstScalar(Inst, BBMap, GlobalMap, LTS);
 }
 
-void BlockGenerator::copyBB(ValueMapT &GlobalMap) {
+void BlockGenerator::copyBB(ValueMapT &GlobalMap, LoopToScevMapT &LTS) {
   BasicBlock *BB = Statement.getBasicBlock();
   BasicBlock *CopyBB =
       SplitBlock(Builder.GetInsertBlock(), Builder.GetInsertPoint(), P);
@@ -547,13 +362,14 @@ void BlockGenerator::copyBB(ValueMapT &GlobalMap) {
 
   for (BasicBlock::const_iterator II = BB->begin(), IE = BB->end(); II != IE;
        ++II)
-    copyInstruction(II, BBMap, GlobalMap);
+    copyInstruction(II, BBMap, GlobalMap, LTS);
 }
 
 VectorBlockGenerator::VectorBlockGenerator(
-    IRBuilder<> &B, VectorValueMapT &GlobalMaps, ScopStmt &Stmt,
-    __isl_keep isl_map *Schedule, Pass *P)
-    : BlockGenerator(B, Stmt, P), GlobalMaps(GlobalMaps), Schedule(Schedule) {
+    IRBuilder<> &B, VectorValueMapT &GlobalMaps, std::vector<LoopToScevMapT> &VLTS,
+    ScopStmt &Stmt, __isl_keep isl_map *Schedule, Pass *P)
+    : BlockGenerator(B, Stmt, P), GlobalMaps(GlobalMaps), VLTS(VLTS),
+      Schedule(Schedule) {
   assert(GlobalMaps.size() > 1 && "Only one vector lane found");
   assert(Schedule && "No statement domain provided");
 }
@@ -569,8 +385,8 @@ Value *VectorBlockGenerator::getVectorValue(
 
   for (int Lane = 0; Lane < Width; Lane++)
     Vector = Builder.CreateInsertElement(
-        Vector, getNewValue(Old, ScalarMaps[Lane], GlobalMaps[Lane]),
-        Builder.getInt32(Lane));
+        Vector, getNewValue(Old, ScalarMaps[Lane], GlobalMaps[Lane],
+                            VLTS[Lane]), Builder.getInt32(Lane));
 
   VectorMap[Old] = Vector;
 
@@ -591,7 +407,7 @@ Value *VectorBlockGenerator::generateStrideOneLoad(const LoadInst *Load,
                                                    ValueMapT &BBMap) {
   const Value *Pointer = Load->getPointerOperand();
   Type *VectorPtrType = getVectorPtrTy(Pointer, getVectorWidth());
-  Value *NewPointer = getNewValue(Pointer, BBMap, GlobalMaps[0]);
+  Value *NewPointer = getNewValue(Pointer, BBMap, GlobalMaps[0], VLTS[0]);
   Value *VectorPtr =
       Builder.CreateBitCast(NewPointer, VectorPtrType, "vector_ptr");
   LoadInst *VecLoad =
@@ -606,7 +422,7 @@ Value *VectorBlockGenerator::generateStrideZeroLoad(const LoadInst *Load,
                                                     ValueMapT &BBMap) {
   const Value *Pointer = Load->getPointerOperand();
   Type *VectorPtrType = getVectorPtrTy(Pointer, 1);
-  Value *NewPointer = getNewValue(Pointer, BBMap, GlobalMaps[0]);
+  Value *NewPointer = getNewValue(Pointer, BBMap, GlobalMaps[0], VLTS[0]);
   Value *VectorPtr = Builder.CreateBitCast(NewPointer, VectorPtrType,
                                            Load->getName() + "_p_vec_p");
   LoadInst *ScalarLoad =
@@ -633,7 +449,8 @@ Value *VectorBlockGenerator::generateUnknownStrideLoad(
   Value *Vector = UndefValue::get(VectorType);
 
   for (int i = 0; i < VectorWidth; i++) {
-    Value *NewPointer = getNewValue(Pointer, ScalarMaps[i], GlobalMaps[i]);
+    Value *NewPointer = getNewValue(Pointer, ScalarMaps[i], GlobalMaps[i],
+                                    VLTS[i]);
     Value *ScalarLoad =
         Builder.CreateLoad(NewPointer, Load->getName() + "_p_scalar_");
     Vector = Builder.CreateInsertElement(
@@ -649,7 +466,7 @@ void VectorBlockGenerator::generateLoad(
       !VectorType::isValidElementType(Load->getType())) {
     for (int i = 0; i < getVectorWidth(); i++)
       ScalarMaps[i][Load] =
-          generateScalarLoad(Load, ScalarMaps[i], GlobalMaps[i]);
+          generateScalarLoad(Load, ScalarMaps[i], GlobalMaps[i], VLTS[i]);
     return;
   }
 
@@ -707,7 +524,8 @@ void VectorBlockGenerator::copyStore(
 
   if (Access.isStrideOne(isl_map_copy(Schedule))) {
     Type *VectorPtrType = getVectorPtrTy(Pointer, VectorWidth);
-    Value *NewPointer = getNewValue(Pointer, ScalarMaps[0], GlobalMaps[0]);
+    Value *NewPointer = getNewValue(Pointer, ScalarMaps[0], GlobalMaps[0],
+                                    VLTS[0]);
 
     Value *VectorPtr =
         Builder.CreateBitCast(NewPointer, VectorPtrType, "vector_ptr");
@@ -718,7 +536,8 @@ void VectorBlockGenerator::copyStore(
   } else {
     for (unsigned i = 0; i < ScalarMaps.size(); i++) {
       Value *Scalar = Builder.CreateExtractElement(Vector, Builder.getInt32(i));
-      Value *NewPointer = getNewValue(Pointer, ScalarMaps[i], GlobalMaps[i]);
+      Value *NewPointer = getNewValue(Pointer, ScalarMaps[i], GlobalMaps[i],
+                                      VLTS[i]);
       Builder.CreateStore(Scalar, NewPointer);
     }
   }
@@ -776,7 +595,8 @@ void VectorBlockGenerator::copyInstScalarized(const Instruction *Inst,
   HasVectorOperand = extractScalarValues(Inst, VectorMap, ScalarMaps);
 
   for (int VectorLane = 0; VectorLane < getVectorWidth(); VectorLane++)
-    copyInstScalar(Inst, ScalarMaps[VectorLane], GlobalMaps[VectorLane]);
+    copyInstScalar(Inst, ScalarMaps[VectorLane], GlobalMaps[VectorLane],
+                   VLTS[VectorLane]);
 
   if (!VectorType::isValidElementType(Inst->getType()) || !HasVectorOperand)
     return;
