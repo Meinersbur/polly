@@ -218,18 +218,31 @@ bool ScopDetection::isValidCFG(BasicBlock &BB,
 }
 
 bool ScopDetection::isValidCallInst(CallInst &CI) {
+  Function *CalledFunction = CI.getCalledFunction();
+  assert(CalledFunction);
+
+  auto attrset = CalledFunction->getAttributes();
+  if (attrset.hasAttribute(llvm::AttributeSet::FunctionIndex, "molly_length")) {
+    return true;
+  }
+  if (attrset.hasAttribute(llvm::AttributeSet::FunctionIndex, "molly_get")) {
+    return true;
+  }
+  if (attrset.hasAttribute(llvm::AttributeSet::FunctionIndex, "molly_set")) {
+    return true;
+  }
+
   if (CI.mayHaveSideEffects() || CI.doesNotReturn())
     return false;
 
   if (CI.doesNotAccessMemory())
     return true;
 
-  Function *CalledFunction = CI.getCalledFunction();
-
   // Indirect calls are not supported.
   if (CalledFunction == 0)
     return false;
 
+  //CalledFunction->getAttributes().hasAttribute<MollySetterFunc>()
   // TODO: Intrinsics.
   return false;
 }
@@ -609,6 +622,10 @@ void ScopDetection::printLocations() {
 }
 
 bool ScopDetection::runOnFunction(llvm::Function &F) {
+  if (F.getName() == "main") {
+    int a = 0;
+  }
+
   AA = &getAnalysis<AliasAnalysis>();
   SE = &getAnalysis<ScalarEvolution>();
   LI = &getAnalysis<LoopInfo>();

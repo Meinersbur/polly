@@ -185,6 +185,7 @@ macro(add_polly_library name)
     ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX})
     
   set_property( GLOBAL APPEND PROPERTY LLVM_LIBS ${name} )
+  set_target_properties(${name} PROPERTIES FOLDER "Polly")
 endmacro(add_polly_library)
 
 macro(add_polly_loadable_module name)
