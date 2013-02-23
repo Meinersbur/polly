@@ -33,6 +33,7 @@ add_polly_loadable_module(LLVMPolly
   RegionSimplify.cpp
   RegisterPasses.cpp
   ScheduleOptimizer.cpp
+  MollyMeta.cpp
   ${POLLY_SCOPLIB_FILES}
   ${POLLY_PLUTO_FILES}
   )

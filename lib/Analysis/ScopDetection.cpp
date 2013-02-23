@@ -61,6 +61,8 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Assembly/Writer.h"
 
+#include "polly/MollyMeta.h"
+
 #define DEBUG_TYPE "polly-detect"
 #include "llvm/Support/Debug.h"
 
@@ -222,15 +224,10 @@ bool ScopDetection::isValidCallInst(CallInst &CI) {
   assert(CalledFunction);
 
   auto attrset = CalledFunction->getAttributes();
-  if (attrset.hasAttribute(llvm::AttributeSet::FunctionIndex, "molly_length")) {
+  if (molly::isAccessFunc(CalledFunction))
     return true;
-  }
-  if (attrset.hasAttribute(llvm::AttributeSet::FunctionIndex, "molly_get")) {
+  if (molly::isLengthFunc(CalledFunction)) 
     return true;
-  }
-  if (attrset.hasAttribute(llvm::AttributeSet::FunctionIndex, "molly_set")) {
-    return true;
-  }
 
   if (CI.mayHaveSideEffects() || CI.doesNotReturn())
     return false;
@@ -618,7 +615,7 @@ void ScopDetection::printLocations() {
 
     outs() << FileName << ":" << LineEntry << ": Scop start\n";
     outs() << FileName << ":" << LineExit << ": Scop end\n";
-  }
+  } outs().flush();
 }
 
 bool ScopDetection::runOnFunction(llvm::Function &F) {

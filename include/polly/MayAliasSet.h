@@ -106,10 +106,10 @@ public:
 //===----------------------------------------------------------------------===//
 /// @brief Compute and manage the may-alias sets in a TempSCoP or SCoP.
 class MayAliasSetInfo {
-  // DO NOT IMPLEMENT
-  MayAliasSetInfo(const MayAliasSetInfo &);
-  // DO NOT IMPLEMENT
-  const MayAliasSetInfo &operator=(const MayAliasSetInfo &);
+
+  MayAliasSetInfo(const MayAliasSetInfo &) LLVM_DELETED_FUNCTION;
+  const MayAliasSetInfo &operator=(const MayAliasSetInfo &) LLVM_DELETED_FUNCTION;
+
 
   SpecificBumpPtrAllocator<MayAliasSet> MayASAllocator;
 

@@ -29,6 +29,8 @@
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include <polly/MollyMeta.h>
+
 #define DEBUG_TYPE "polly-analyze-ir"
 #include "llvm/Support/Debug.h"
 
@@ -76,8 +78,11 @@ void TempScop::printDetail(llvm::raw_ostream &OS, ScalarEvolution *SE,
                            unsigned ind) const {
 }
 
+
+
 void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {
   AccFuncSetType Functions;
+  auto &llvmContext = SE->getContext();
 
   for (BasicBlock::iterator I = BB.begin(), E = --BB.end(); I != E; ++I) {
     Instruction &Inst = *I;
@@ -88,18 +93,41 @@ void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {
       if (LoadInst *Load = dyn_cast<LoadInst>(&Inst)) {
         Size = TD->getTypeStoreSize(Load->getType());
         Type = IRAccess::READ;
-      } else {
-        StoreInst *Store = cast<StoreInst>(&Inst);
+      } else if (StoreInst *Store = dyn_cast<StoreInst>(&Inst)) {
         Size = TD->getTypeStoreSize(Store->getValueOperand()->getType());
         Type = IRAccess::WRITE;
+      } else {
+        llvm_unreachable("Must be load or store");
       }
+      Value *ptr = getPointerOperand(Inst);
+      if (molly::isRefCall(ptr)) {
+        auto call = cast<CallInst>(ptr);
+        auto func = call->getCalledFunction();
+        assert(func); // TODO: Handle virtual field->ref()
 
-      const SCEV *AccessFunction = SE->getSCEV(getPointerOperand(Inst));
-      const SCEVUnknown *BasePointer =
-          dyn_cast<SCEVUnknown>(SE->getPointerBase(AccessFunction));
+        auto &args = func->getArgumentList(); 
+        auto params = call->getNumArgOperands();
+        assert(params >= 2);
+        auto compute = SE->getConstant(TD->getIntPtrType(SE->getContext()), 0);
+        Value *fieldPtr = call->getArgOperand(0);
+        assert(fieldPtr);
+        bool isFirst = true;
+
+        for (auto i = 1; i <params; i+=1) {
+          auto arg = call->getArgOperand(i);
+          auto index = SE->getSCEV(arg);
+          compute = SE->getAddExpr(compute, index); //TODO: Have to multiply by Horner-Scheme
+        }
+
+        Functions.push_back(std::make_pair(IRAccess(Type, ptr, compute,  Size, true/*By what definition of affine?*/), &Inst));
+      } else {
+        //TODO: ptr might itself be computed like fields[i]->ref(); ScopDetection allows this, but we don't handle this here
+
+      const SCEV *AccessFunction = SE->getSCEV(ptr); // A[i] -> &A + i*N
+      const SCEVUnknown *BasePointer = dyn_cast<SCEVUnknown>(SE->getPointerBase(AccessFunction)); // &A + i*N -> &A
 
       assert(BasePointer && "Could not find base pointer");
-      AccessFunction = SE->getMinusSCEV(AccessFunction, BasePointer);
+      AccessFunction = SE->getMinusSCEV(AccessFunction, BasePointer); // (&A + i*N) - (&A) = i*N 
 
       bool IsAffine =
           isAffineExpr(&R, AccessFunction, *SE, BasePointer->getValue());
@@ -107,6 +135,13 @@ void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {
       Functions.push_back(
           std::make_pair(IRAccess(Type, BasePointer->getValue(), AccessFunction,
                                   Size, IsAffine), &Inst));
+      }
+
+    } else if (molly::isGetterCall(&Inst) || molly::isSetterCall(&Inst)) {
+       CallInst *call = cast<CallInst>(&Inst);
+        auto Type = molly::isGetterCall(&Inst) ? IRAccess::READ : IRAccess::WRITE;
+        auto Size = TD->getTypeStoreSize(molly::getElementType(call->getCalledFunction()));  
+        llvm_unreachable("Not implemented");
     }
   }
 
