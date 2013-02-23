@@ -6,4 +6,5 @@ if( MSVC_IDE OR XCODE )
     # We need at least one source file:
     ${POLLY_SOURCE_DIR}/lib/Support/GICHelper.cpp
     ${headers})
+  set_target_properties(polly_headers_do_not_build PROPERTIES FOLDER "Polly")
 endif()

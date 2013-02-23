@@ -221,9 +221,13 @@ install(DIRECTORY ${POLLY_BINARY_DIR}/include/
 
 add_definitions( -D_GNU_SOURCE )
 
+option(POLLY_INCLUDE_TESTS "Generate build targets for the Polly tests." ON)
+
 add_subdirectory(include)
 add_subdirectory(lib)
-#add_subdirectory(test)
+if( LLVM_INCLUDE_TESTS )
+  add_subdirectory(test)
+endif( LLVM_INCLUDE_TESTS )
 add_subdirectory(tools)
 # TODO: docs.
 
@@ -236,3 +240,4 @@ file( GLOB_RECURSE files *.h *.cpp)
 add_custom_command( OUTPUT formatting COMMAND
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/check_format.sh ${files})
 add_custom_target(polly-check-format DEPENDS formatting)
+set_target_properties(polly-check-format PROPERTIES FOLDER "Polly")
