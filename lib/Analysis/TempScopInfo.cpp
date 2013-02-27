@@ -108,7 +108,7 @@ void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {
         auto &args = func->getArgumentList(); 
         auto params = call->getNumArgOperands();
         assert(params >= 2);
-        auto compute = SE->getConstant(TD->getIntPtrType(SE->getContext()), 0);
+        auto compute = SE->getConstant(Type::getInt32Ty(llvmContext), 0); // TODO: Match types, TD->getIntPtrType(SE->getContext())
         Value *fieldPtr = call->getArgOperand(0);
         assert(fieldPtr);
         bool isFirst = true;
