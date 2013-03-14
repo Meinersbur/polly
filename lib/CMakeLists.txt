@@ -23,6 +23,11 @@ set(LLVM_USED_LIBS
   PollyJSON
   )
 
+if ( MSVC_IDE OR XCODE )
+  file(GLOB polly_headers ${POLLY_SOURCE_DIR}/include/polly/*.h)
+endif ( MSVC_IDE OR XCODE )
+
+
 add_polly_loadable_module(LLVMPolly
   CodePreparation.cpp
   DeadCodeElimination.cpp
@@ -33,9 +38,10 @@ add_polly_loadable_module(LLVMPolly
   RegionSimplify.cpp
   RegisterPasses.cpp
   ScheduleOptimizer.cpp
-  MollyMeta.cpp
+  MollyFieldAccess.cpp
   ${POLLY_SCOPLIB_FILES}
   ${POLLY_PLUTO_FILES}
+  ${polly_headers}
   )
 
 if (TARGET intrinsics_gen)

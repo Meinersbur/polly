@@ -111,7 +111,7 @@ bool CodePreparation::eliminatePHINodes(Function &F) {
   if (PNtoDel.empty())
     return false;
 
-  // Eliminate the PHINodes that not an Induction variable.
+  // Eliminate the PHINodes that are not an induction variables.
   while (!PNtoDel.empty()) {
     PHINode *PN = PNtoDel.back();
     PNtoDel.pop_back();

@@ -29,13 +29,18 @@
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/ADT/STLExtras.h"
 
-#include <polly/MollyMeta.h>
+//#include <isl/aff.h>
+//#include "polly/ScopInfo.h" // class SCEVAffinator
+
+//#include <polly/MollyMeta.h>
+#include "polly/MollyFieldAccess.h"
 
 #define DEBUG_TYPE "polly-analyze-ir"
 #include "llvm/Support/Debug.h"
 
 using namespace llvm;
 using namespace polly;
+
 
 //===----------------------------------------------------------------------===//
 /// Helper Class
@@ -79,70 +84,55 @@ void TempScop::printDetail(llvm::raw_ostream &OS, ScalarEvolution *SE,
 }
 
 
-
 void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {
   AccFuncSetType Functions;
-  auto &llvmContext = SE->getContext();
 
   for (BasicBlock::iterator I = BB.begin(), E = --BB.end(); I != E; ++I) {
     Instruction &Inst = *I;
-    if (isa<LoadInst>(&Inst) || isa<StoreInst>(&Inst)) {
-      unsigned Size;
-      enum IRAccess::TypeKind Type;
+  
+    unsigned Size;
+    enum IRAccess::TypeKind Type;
+    if (LoadInst *Load = dyn_cast<LoadInst>(&Inst)) {
+      Size = TD->getTypeStoreSize(Load->getType());
+      Type = IRAccess::READ;
+    } else if (StoreInst *Store = dyn_cast<StoreInst>(&Inst)) {
+      Size = TD->getTypeStoreSize(Store->getValueOperand()->getType());
+      Type = IRAccess::WRITE;
+    } else
+      continue; // TODO: Support molly_set, molly_get
 
-      if (LoadInst *Load = dyn_cast<LoadInst>(&Inst)) {
-        Size = TD->getTypeStoreSize(Load->getType());
-        Type = IRAccess::READ;
-      } else if (StoreInst *Store = dyn_cast<StoreInst>(&Inst)) {
-        Size = TD->getTypeStoreSize(Store->getValueOperand()->getType());
-        Type = IRAccess::WRITE;
-      } else {
-        llvm_unreachable("Must be load or store");
-      }
-      Value *ptr = getPointerOperand(Inst);
-      if (molly::isRefCall(ptr)) {
-        auto call = cast<CallInst>(ptr);
-        auto func = call->getCalledFunction();
-        assert(func); // TODO: Handle virtual field->ref()
-
-        auto &args = func->getArgumentList(); 
-        auto params = call->getNumArgOperands();
-        assert(params >= 2);
-        auto compute = SE->getConstant(Type::getInt32Ty(llvmContext), 0); // TODO: Match types, TD->getIntPtrType(SE->getContext())
-        Value *fieldPtr = call->getArgOperand(0);
-        assert(fieldPtr);
-        bool isFirst = true;
-
-        for (auto i = 1; i <params; i+=1) {
-          auto arg = call->getArgOperand(i);
-          auto index = SE->getSCEV(arg);
-          compute = SE->getAddExpr(compute, index); //TODO: Have to multiply by Horner-Scheme
-        }
-
-        Functions.push_back(std::make_pair(IRAccess(Type, ptr, compute,  Size, true/*By what definition of affine?*/), &Inst));
-      } else {
-        //TODO: ptr might itself be computed like fields[i]->ref(); ScopDetection allows this, but we don't handle this here
-
-      const SCEV *AccessFunction = SE->getSCEV(ptr); // A[i] -> &A + i*N
-      const SCEVUnknown *BasePointer = dyn_cast<SCEVUnknown>(SE->getPointerBase(AccessFunction)); // &A + i*N -> &A
-
-      assert(BasePointer && "Could not find base pointer");
-      AccessFunction = SE->getMinusSCEV(AccessFunction, BasePointer); // (&A + i*N) - (&A) = i*N 
-
-      bool IsAffine =
-          isAffineExpr(&R, AccessFunction, *SE, BasePointer->getValue());
-
-      Functions.push_back(
-          std::make_pair(IRAccess(Type, BasePointer->getValue(), AccessFunction,
-                                  Size, IsAffine), &Inst));
+    // Handle Molly field accesses specially
+    auto fieldAcc = molly::FieldAccess::fromAccessInstruction(&Inst); 
+    if (fieldAcc.isValid()) {
+      SmallVector<const SCEV*, 4> accFuncs;
+      bool IsAffine = true;
+      auto nDims = fieldAcc.getNumDims();
+      for (auto dim = nDims-nDims; dim<nDims; dim+=1) {
+        auto coord = fieldAcc.getCoordinate(dim);
+        auto accFunc = SE->getSCEV(coord);
+        IsAffine = IsAffine && isAffineExpr(&R, accFunc, *SE, Constant::getNullValue(coord->getType()));
+        accFuncs.push_back(accFunc);
       }
 
-    } else if (molly::isGetterCall(&Inst) || molly::isSetterCall(&Inst)) {
-       CallInst *call = cast<CallInst>(&Inst);
-        auto Type = molly::isGetterCall(&Inst) ? IRAccess::READ : IRAccess::WRITE;
-        auto Size = TD->getTypeStoreSize(molly::getElementType(call->getCalledFunction()));  
-        llvm_unreachable("Not implemented");
-    }
+      IRAccess irAccess(Type, fieldAcc.getFieldPtr(), accFuncs, Size, IsAffine, true);
+      Functions.push_back(std::make_pair(irAccess, &Inst));
+      continue;
+    } 
+
+
+    const SCEV *AccessFunction = SE->getSCEV(getPointerOperand(Inst));
+    const SCEVUnknown *BasePointer =
+        dyn_cast<SCEVUnknown>(SE->getPointerBase(AccessFunction));
+
+    assert(BasePointer && "Could not find base pointer");
+    AccessFunction = SE->getMinusSCEV(AccessFunction, BasePointer);
+
+    bool IsAffine =
+      isAffineExpr(&R, AccessFunction, *SE, BasePointer->getValue());
+    
+    Functions.push_back(
+        std::make_pair(IRAccess(Type, BasePointer->getValue(), AccessFunction,
+                                Size, IsAffine, false), &Inst));
   }
 
   if (Functions.empty())

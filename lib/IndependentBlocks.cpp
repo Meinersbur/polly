@@ -154,7 +154,7 @@ void IndependentBlocks::moveOperandTree(Instruction *Inst, const Region *R,
   BasicBlock *CurBB = Inst->getParent();
 
   // Depth first traverse the operand tree (or operand dag, because we will
-  // stop at PHINodes, so there are no cycle).
+  // stop at PHINodes, so there are no cycles).
   typedef Instruction::op_iterator ChildIt;
   std::vector<std::pair<Instruction*, ChildIt> > WorkStack;
 
@@ -224,7 +224,7 @@ void IndependentBlocks::moveOperandTree(Instruction *Inst, const Region *R,
         continue;
       } else {
         // Note that NewOp is not inserted in any BB now, we will insert it when
-        // it popped form the work stack, so it will be inserted in topological
+        // it popped from the work stack, so it will be inserted in topological
         // order.
         Instruction *NewOp = Operand->clone();
         NewOp->setName(Operand->getName() + ".moved.to." + CurBB->getName());
@@ -383,7 +383,7 @@ bool IndependentBlocks::translateScalarToArray(Instruction *Inst,
   AllocaInst *Slot = new AllocaInst(Inst->getType(), 0,
                                     Inst->getName() + ".s2a",
                                     AllocaBlock->begin());
-  assert(!isa<InvokeInst>(Inst) && "Unexpect Invoke in Scop!");
+  assert(!isa<InvokeInst>(Inst) && "Unexpected Invoke in Scop!");
   // Store right after Inst.
   BasicBlock::iterator StorePos = Inst;
   (void) new StoreInst(Inst, Slot, ++StorePos);
@@ -402,7 +402,7 @@ bool IndependentBlocks::translateScalarToArray(Instruction *Inst,
 
   while (!LoadInside.empty()) {
     Instruction *U = LoadInside.pop_back_val();
-    assert(!isa<PHINode>(U) && "Can not handle PHI node outside!");
+    assert(!isa<PHINode>(U) && "Can not handle PHI node inside!");
     SE->forgetValue(U);
     LoadInst *L = new LoadInst(Slot, Inst->getName()+".loadarray",
                                false, U);

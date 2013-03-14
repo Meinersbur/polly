@@ -120,6 +120,8 @@ public:
   // @param Statement   The statement that contains this access.
   MemoryAccess(const Value *BaseAddress, ScopStmt *Statement);
 
+  MemoryAccess(AccessType type, const Value *base, __isl_take isl_map *accessRelation, const Instruction *AccInst, ScopStmt *Statement);
+
   ~MemoryAccess();
 
   /// @brief Is this a read memory access?
@@ -127,6 +129,8 @@ public:
 
   /// @brief Is this a write memory access?
   bool isWrite() const { return Type == MemoryAccess::Write; }
+
+  AccessType getAccessType() { return Type; }
 
   isl_map *getAccessRelation() const;
 
@@ -295,6 +299,8 @@ class ScopStmt {
   void buildAccesses(TempScop &tempScop, const Region &CurRegion);
   //@}
 
+  const Region *region;
+
   /// Create the ScopStmt from a BasicBlock.
   ScopStmt(Scop &parent, TempScop &tempScop, const Region &CurRegion,
            BasicBlock &bb, SmallVectorImpl<Loop*> &NestLoops,
@@ -302,6 +308,8 @@ class ScopStmt {
 
   friend class Scop;
 public:
+  ScopStmt(Scop &parent, const Region &CurRegion, BasicBlock &bb, SmallVectorImpl<Loop*> &NestLoops, isl_set *domain);
+  const Region *getRegion() { return this->region; }
 
   ~ScopStmt();
   /// @brief Get an isl_ctx pointer.
@@ -329,7 +337,7 @@ public:
   ///
   /// @return The scattering function of this ScopStmt.
   __isl_give isl_map *getScattering() const;
-  void setScattering(isl_map *scattering);
+  void setScattering(__isl_take isl_map *scattering);
 
   /// @brief Get an isl string representing this scattering.
   std::string getScatteringStr() const;
@@ -354,6 +362,11 @@ public:
   typedef MemoryAccessVec::iterator memacc_iterator;
   memacc_iterator memacc_begin() { return MemAccs.begin(); }
   memacc_iterator memacc_end() { return MemAccs.end(); }
+
+  // BEGIN Molly
+  void addAccess(MemoryAccess::AccessType type, const Value *base, __isl_take isl_map *accessRelation, const Instruction *AccInst);
+  void removeAccess(MemoryAccess *access);
+  // END Molly
 
   unsigned getNumParams() const;
   unsigned getNumIterators() const;
@@ -422,6 +435,8 @@ class Scop {
 
   /// The underlying Region.
   Region &R;
+
+  TempScop &tempScop;
 
   /// Max loop depth.
   unsigned MaxLoopDepth;
@@ -595,6 +610,12 @@ public:
 
   /// @brief Get a union set containing the iteration domains of all statements.
   __isl_give isl_union_set *getDomains();
+
+  TempScop &getTempScop() { return tempScop; }
+
+  // BEGIN Molly
+  ScopStmt *getScopStmtFor(BasicBlock *bb);
+  // END Molly
 };
 
 /// @brief Print Scop scop to raw_ostream O.

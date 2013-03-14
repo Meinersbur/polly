@@ -276,6 +276,38 @@ isl_basic_map *MemoryAccess::createBasicAccessMap(ScopStmt *Statement) {
       isl_basic_set_universe(Space));
 }
 
+MemoryAccess::MemoryAccess(AccessType type, const Value *base, __isl_take isl_map *accessRelation, const Instruction *AccInst, ScopStmt *Statement) : Inst(AccInst) {
+  this->newAccessRelation = NULL;
+  this->Type = type;
+  this->statement = Statement;
+
+  this->BaseAddr = base;
+  setBaseName();
+
+  this->AccessRelation = accessRelation;
+}
+
+
+// Missing in isl
+static __isl_give isl_map* isl_map_from_multi_pw_aff(__isl_take isl_multi_pw_aff *mpwaff) {
+	if (!mpwaff)
+		return NULL;
+
+	isl_space *space = isl_space_domain(isl_multi_pw_aff_get_space(mpwaff));
+  isl_map *map = isl_map_universe(isl_space_from_domain(space));
+
+  unsigned n = isl_multi_pw_aff_dim(mpwaff, isl_dim_out);
+	for (int i = 0; i < n; ++i) {
+    isl_pw_aff *pwaff = isl_multi_pw_aff_get_pw_aff(mpwaff, i); 
+		isl_map *map_i = isl_map_from_pw_aff(pwaff);
+		map = isl_map_flat_range_product(map, map_i);
+	}
+
+	isl_multi_pw_aff_free(mpwaff);
+	return map;
+}
+
+
 MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
                            ScopStmt *Statement)
     : Inst(AccInst) {
@@ -288,27 +320,47 @@ MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
 
   if (!Access.isAffine()) {
     Type = (Type == Read) ? Read : MayWrite;
-    AccessRelation = isl_map_from_basic_map(createBasicAccessMap(Statement));
+    AccessRelation = isl_map_from_basic_map(createBasicAccessMap(Statement)); //TODO: Does this also work for multi-dimensional arrays/fields?
     return;
   }
-
-  isl_pw_aff *Affine = SCEVAffinator::getPwAff(Statement, Access.getOffset());
-
-  // Divide the access function by the size of the elements in the array.
-  //
-  // A stride one array access in C expressed as A[i] is expressed in LLVM-IR
-  // as something like A[i * elementsize]. This hides the fact that two
-  // subsequent values of 'i' index two values that are stored next to each
-  // other in memory. By this division we make this characteristic obvious
-  // again.
-  isl_int v;
-  isl_int_init(v);
-  isl_int_set_si(v, Access.getElemSizeInBytes());
-  Affine = isl_pw_aff_scale_down(Affine, v);
-  isl_int_clear(v);
-
-  AccessRelation = isl_map_from_pw_aff(Affine);
+  // BEGIN Molly
   isl_space *Space = Statement->getDomainSpace();
+
+  auto &offsets = Access.getOffsets();
+  auto ctx = Statement->getIslCtx();
+  auto dims = offsets.size();
+  auto pwafflist = isl_pw_aff_list_alloc(ctx, dims);
+  for (auto it = offsets.begin(), end = offsets.end(); it!=end; ++it) {
+    auto offset = *it;
+    isl_pw_aff *Affine = SCEVAffinator::getPwAff(Statement, offset);
+    Affine = isl_pw_aff_align_params(Affine, isl_space_copy(Space));
+    Affine = isl_pw_aff_set_tuple_id(Affine, isl_dim_in, isl_dim_get_tuple_id(Space, isl_dim_set));
+
+    if (!Access.areCoordinates()) {
+      // Divide the access function by the size of the elements in the array.
+      //
+      // A stride one array access in C expressed as A[i] is expressed in LLVM-IR
+      // as something like A[i * elementsize]. This hides the fact that two
+      // subsequent values of 'i' index two values that are stored next to each
+      // other in memory. By this division we make this characteristic obvious
+      // again.
+      isl_int v;
+      isl_int_init(v);
+      isl_int_set_si(v, Access.getElemSizeInBytes());
+      Affine = isl_pw_aff_scale_down(Affine, v);
+      isl_int_clear(v);
+    }
+
+    pwafflist = isl_pw_aff_list_add(pwafflist, Affine);
+  }
+
+  isl_space *logical = isl_space_set_alloc(ctx, 0, dims);
+  logical = isl_space_align_params(logical, isl_space_copy(Space));
+  isl_space *range = isl_space_map_from_domain_and_range(isl_space_copy(Space), logical);
+  auto mpwaff = isl_multi_pw_aff_from_pw_aff_list(range, pwafflist); 
+  AccessRelation = isl_map_from_multi_pw_aff(mpwaff); 
+  //TODO: free isl objects
+  // END Molly
   AccessRelation = isl_map_set_tuple_id(
       AccessRelation, isl_dim_in, isl_space_get_tuple_id(Space, isl_dim_set));
   isl_space_free(Space);
@@ -438,7 +490,7 @@ void MemoryAccess::setNewAccessRelation(isl_map *newAccess) {
 
 isl_map *ScopStmt::getScattering() const { return isl_map_copy(Scattering); }
 
-void ScopStmt::setScattering(isl_map *NewScattering) {
+void ScopStmt::setScattering(__isl_take isl_map *NewScattering) {
   isl_map_free(Scattering);
   Scattering = NewScattering;
 }
@@ -467,6 +519,12 @@ void ScopStmt::buildScattering(SmallVectorImpl<unsigned> &Scatter) {
     Scattering = isl_map_fix_si(Scattering, isl_dim_out, i, 0);
 
   Scattering = isl_map_align_params(Scattering, Parent.getParamSpace());
+}
+
+void ScopStmt::addAccess(MemoryAccess::AccessType type, const Value *base, __isl_take isl_map *accessRelation, const Instruction *AccInst) {
+  auto access = new MemoryAccess(type, base, accessRelation, AccInst, this);
+  MemAccs.push_back(access);
+  InstructionToAccess[access->getAccessInstruction()] = access; 
 }
 
 void ScopStmt::buildAccesses(TempScop &tempScop, const Region &CurRegion) {
@@ -588,7 +646,7 @@ ScopStmt::buildDomain(TempScop &tempScop, const Region &CurRegion) {
 ScopStmt::ScopStmt(Scop &parent, TempScop &tempScop, const Region &CurRegion,
                    BasicBlock &bb, SmallVectorImpl<Loop *> &Nest,
                    SmallVectorImpl<unsigned> &Scatter)
-  : Parent(parent), BB(&bb), IVS(Nest.size()), NestLoops(Nest.size()) {
+  : Parent(parent), BB(&bb), IVS(Nest.size()), NestLoops(Nest.size()), region(&CurRegion) {
   // Setup the induction variables.
   for (unsigned i = 0, e = Nest.size(); i < e; ++i) {
     PHINode *PN = Nest[i]->getCanonicalInductionVariable();
@@ -609,11 +667,54 @@ ScopStmt::ScopStmt(Scop &parent, TempScop &tempScop, const Region &CurRegion,
   buildAccesses(tempScop, CurRegion);
 }
 
+
+ScopStmt::ScopStmt(Scop &parent, const Region &CurRegion, BasicBlock &bb, SmallVectorImpl<Loop*> &Nest, __isl_take isl_set *domain) : 
+    Parent(parent),
+    BB(&bb),
+    IVS(Nest.size()), 
+    NestLoops(Nest.size()), 
+    region(&CurRegion),
+    Scattering(NULL),
+    Domain(domain)
+  {
+  // Setup the induction variables.
+  for (unsigned i = 0, e = Nest.size(); i < e; ++i) {
+    PHINode *PN = Nest[i]->getCanonicalInductionVariable();
+    assert(PN && "Non canonical IV in Scop!");
+    IVS[i] = PN;
+    NestLoops[i] = Nest[i];
+  }
+
+  raw_string_ostream OS(BaseName);
+  WriteAsOperand(OS, &bb, false);
+  BaseName = OS.str();
+
+  makeIslCompatible(BaseName);
+  BaseName = "Stmt_" + BaseName;
+  }
+
+
 std::string ScopStmt::getDomainStr() const { return stringFromIslObj(Domain); }
 
 std::string ScopStmt::getScatteringStr() const {
   return stringFromIslObj(Scattering);
 }
+
+
+ void ScopStmt::removeAccess(MemoryAccess *access) {
+  // Search element; SmallVector has no find
+   for (auto it = MemAccs.begin(), end = MemAccs.end(); it!=end; ++it) {
+      if (*it != access)
+        continue;
+
+      InstructionToAccess.erase(access->getAccessInstruction());
+      MemAccs.erase(it);
+      delete access;
+      return;
+   }
+   llvm_unreachable("element does no exist");
+ }
+
 
 unsigned ScopStmt::getNumParams() const { return Parent.getNumParams(); }
 
@@ -785,7 +886,7 @@ void Scop::realignParams() {
 Scop::Scop(TempScop &tempScop, LoopInfo &LI, ScalarEvolution &ScalarEvolution,
            isl_ctx *Context)
     : SE(&ScalarEvolution), R(tempScop.getMaxRegion()),
-      MaxLoopDepth(tempScop.getMaxLoopDepth()) {
+      MaxLoopDepth(tempScop.getMaxLoopDepth()), tempScop(tempScop) {
   IslCtx = Context;
   buildContext();
 
@@ -911,7 +1012,7 @@ void Scop::buildScop(TempScop &tempScop, const Region &CurRegion,
                                       E = CurRegion.element_end();
        I != E; ++I)
     if (I->isSubRegion())
-      buildScop(tempScop, *(I->getNodeAs<Region>()), NestLoops, Scatter, LI);
+      buildScop(tempScop, *(I->getNodeAs<Region>()), NestLoops, Scatter, LI); // recurse
     else {
       BasicBlock *BB = I->getNodeAs<BasicBlock>();
 
@@ -934,6 +1035,20 @@ void Scop::buildScop(TempScop &tempScop, const Region &CurRegion,
   NestLoops.pop_back();
   ++Scatter[loopDepth - 1];
 }
+
+
+// BEGIN Molly
+ScopStmt *Scop::getScopStmtFor(BasicBlock *bb) {
+// TODO: Linear search, can also build a map
+  for (auto it = Stmts.begin(), end = Stmts.end(); it!=end; ++it) {
+    auto stmt = *it;
+    if (stmt->getBasicBlock() == bb)
+      return stmt;
+  }
+  return NULL;
+}
+// END Molly
+
 
 //===----------------------------------------------------------------------===//
 ScopInfo::ScopInfo() : RegionPass(ID), scop(0) {

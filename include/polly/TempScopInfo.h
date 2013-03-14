@@ -37,7 +37,10 @@ class IRAccess {
 public:
   const Value *BaseAddress;
 
-  const SCEV *Offset;
+  //const SCEV *Offset;
+  // A vector for multi-dimensional accesses
+  typedef SmallVector<const SCEV*, 4> OffsetsType; // So IRAccess is no POD anymore
+  OffsetsType Offsets;
 
   // The type of the scev affine function
   enum TypeKind { READ, WRITE };
@@ -47,21 +50,36 @@ private:
   TypeKind Type;
   bool IsAffine;
 
+  // If true, Offsets are coordinates to a molly field
+  // If false, Offsets contains a single value for a byte offset relative to the BaseAddress
+  bool offsetsAreCoords;
+
 public:
   explicit IRAccess (TypeKind Type, const Value *BaseAddress,
-                     const SCEV *Offset, unsigned elemBytes, bool Affine)
-    : BaseAddress(BaseAddress), Offset(Offset),
-      ElemBytes(elemBytes), Type(Type), IsAffine(Affine) {}
+                    const SCEV* offset, unsigned elemBytes, bool Affine, bool offsetsAreCoords)
+  : BaseAddress(BaseAddress),
+    ElemBytes(elemBytes), Type(Type), IsAffine(Affine), offsetsAreCoords(offsetsAreCoords) {
+      this->Offsets.push_back(offset);
+  }
+
+  explicit IRAccess (TypeKind Type, const Value *BaseAddress,
+                    SmallVectorImpl<const SCEV*> &offsets, unsigned elemBytes, bool Affine, bool offsetsAreCoords)
+  : BaseAddress(BaseAddress),
+    ElemBytes(elemBytes), Type(Type), IsAffine(Affine), offsetsAreCoords(offsetsAreCoords) {
+      this->Offsets.append(offsets.size(), *offsets.data());
+  }
 
   enum TypeKind getType() const { return Type; }
 
   const Value *getBase() const { return BaseAddress; }
 
-  const SCEV *getOffset() const { return Offset; }
+  //const SCEV *getOffset() const { return Offset; }
+  const OffsetsType &getOffsets() const { return Offsets; }
 
   unsigned getElemSizeInBytes() const { return ElemBytes; }
 
   bool isAffine() const { return IsAffine; }
+  bool areCoordinates() const { return offsetsAreCoords; }
 
   bool isRead() const { return Type == READ; }
 
@@ -172,7 +190,7 @@ public:
 
   /// @brief Get all access functions in a BasicBlock
   ///
-  /// @param  BB The BasicBlock that containing the access functions.
+  /// @param  BB The BasicBlock that contains the access functions.
   ///
   /// @return All access functions in BB
   ///
