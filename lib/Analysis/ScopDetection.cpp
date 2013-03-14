@@ -604,7 +604,12 @@ void ScopDetection::getDebugLocation(const Region *R, unsigned &LineBegin,
     }
 }
 
-void ScopDetection::printLocations() {
+void ScopDetection::printLocations(llvm::Function &F) {
+  int NumberOfScops = std::distance(begin(), end());
+
+  if (NumberOfScops)
+    outs() << ":: Static control regions in " << F.getName() << "\n";
+
   for (iterator RI = begin(), RE = end(); RI != RE; ++RI) {
     unsigned LineEntry, LineExit;
     std::string FileName;
@@ -617,9 +622,10 @@ void ScopDetection::printLocations() {
       return;
     }
 
-    outs() << FileName << ":" << LineEntry << ": Scop start\n";
-    outs() << FileName << ":" << LineExit << ": Scop end\n";
-  } outs().flush();
+    outs() << FileName << ":" << LineEntry
+           << ": Start of static control region\n";
+    outs() << FileName << ":" << LineExit << ": End of static control region\n";
+  }
 }
 
 bool ScopDetection::runOnFunction(llvm::Function &F) {
@@ -644,7 +650,7 @@ bool ScopDetection::runOnFunction(llvm::Function &F) {
   findScops(*TopRegion);
 
   if (ReportLevel >= 1)
-    printLocations();
+    printLocations(F);
 
   return false;
 }
