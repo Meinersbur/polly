@@ -22,9 +22,7 @@
 #include "llvm/Analysis/RegionPass.h"
 #include "llvm/IR/Instructions.h"
 
-namespace llvm {
-  class DataLayout;
-}
+namespace llvm { class DataLayout; }
 
 using namespace llvm;
 
@@ -43,7 +41,10 @@ public:
   OffsetsType Offsets;
 
   // The type of the scev affine function
-  enum TypeKind { READ, WRITE };
+  enum TypeKind {
+    READ,
+    WRITE
+  };
 
 private:
   unsigned ElemBytes;
@@ -95,7 +96,7 @@ class Comparison {
 
 public:
   Comparison(const SCEV *LHS, const SCEV *RHS, ICmpInst::Predicate Pred)
-    : LHS(LHS), RHS(RHS), Pred(Pred) {}
+      : LHS(LHS), RHS(RHS), Pred(Pred) {}
 
   const SCEV *getLHS() const { return LHS; }
   const SCEV *getRHS() const { return RHS; }
@@ -115,13 +116,13 @@ typedef SmallVector<Comparison, 4> BBCond;
 /// A canonical induction variable is:
 /// an integer recurrence that starts at 0 and increments by one each time
 /// through the loop.
-typedef std::map<const Loop*, const SCEV*> LoopBoundMapType;
+typedef std::map<const Loop *, const SCEV *> LoopBoundMapType;
 
 /// Mapping BBs to its condition constrains
-typedef std::map<const BasicBlock*, BBCond> BBCondMapType;
+typedef std::map<const BasicBlock *, BBCond> BBCondMapType;
 
-typedef std::vector<std::pair<IRAccess, Instruction*> > AccFuncSetType;
-typedef std::map<const BasicBlock*, AccFuncSetType> AccFuncMapType;
+typedef std::vector<std::pair<IRAccess, Instruction *> > AccFuncSetType;
+typedef std::map<const BasicBlock *, AccFuncSetType> AccFuncMapType;
 
 //===---------------------------------------------------------------------===//
 /// @brief Scop represent with llvm objects.
@@ -141,7 +142,7 @@ class TempScop {
 
   // Access function of bbs.
   const AccFuncMapType &AccFuncMap;
-  
+
   // The alias information about this SCoP.
   MayAliasSetInfo *MayASInfo;
 
@@ -149,8 +150,8 @@ class TempScop {
 
   explicit TempScop(Region &r, LoopBoundMapType &loopBounds,
                     BBCondMapType &BBCmps, AccFuncMapType &accFuncMap)
-    : R(r), MaxLoopDepth(0), LoopBounds(loopBounds), BBConds(BBCmps),
-    AccFuncMap(accFuncMap), MayASInfo(new MayAliasSetInfo()) {}
+      : R(r), MaxLoopDepth(0), LoopBounds(loopBounds), BBConds(BBCmps),
+        AccFuncMap(accFuncMap), MayASInfo(new MayAliasSetInfo()) {}
 
 public:
   ~TempScop();
@@ -173,7 +174,7 @@ public:
   ///
   const SCEV *getLoopBound(const Loop *L) const {
     LoopBoundMapType::const_iterator at = LoopBounds.find(L);
-    assert(at != LoopBounds.end() && "Only valid loop is allow!");
+    assert(at != LoopBounds.end() && "Bound for loop not available!");
     return at->second;
   }
 
@@ -194,9 +195,9 @@ public:
   ///
   /// @return All access functions in BB
   ///
-  const AccFuncSetType *getAccessFunctions(const BasicBlock* BB) const {
+  const AccFuncSetType *getAccessFunctions(const BasicBlock *BB) const {
     AccFuncMapType::const_iterator at = AccFuncMap.find(BB);
-    return at != AccFuncMap.end()? &(at->second) : 0;
+    return at != AccFuncMap.end() ? &(at->second) : 0;
   }
   //@}
 
@@ -213,11 +214,11 @@ public:
   /// @param OS The output stream the access functions is printed to.
   /// @param SE The ScalarEvolution that help printing the access functions.
   /// @param LI The LoopInfo that help printing the access functions.
-  void printDetail(raw_ostream &OS, ScalarEvolution *SE,
-                   LoopInfo *LI, const Region *Reg, unsigned ind) const;
+  void printDetail(raw_ostream &OS, ScalarEvolution *SE, LoopInfo *LI,
+                   const Region *Reg, unsigned ind) const;
 };
 
-typedef std::map<const Region*, TempScop*> TempScopMapType;
+typedef std::map<const Region *, TempScop *> TempScopMapType;
 //===----------------------------------------------------------------------===//
 /// @brief The Function Pass to extract temporary information for Static control
 ///        part in llvm function.
@@ -230,7 +231,7 @@ class TempScopInfo : public FunctionPass {
   const TempScopInfo &operator=(const TempScopInfo &) LLVM_DELETED_FUNCTION;
 
   // The ScalarEvolution to help building Scop.
-  ScalarEvolution* SE;
+  ScalarEvolution *SE;
 
   // LoopInfo for information about loops
   LoopInfo *LI;
@@ -308,8 +309,8 @@ public:
 } // end namespace polly
 
 namespace llvm {
-  class PassRegistry;
-  void initializeTempScopInfoPass(llvm::PassRegistry&);
+class PassRegistry;
+void initializeTempScopInfoPass(llvm::PassRegistry &);
 }
 
 #endif

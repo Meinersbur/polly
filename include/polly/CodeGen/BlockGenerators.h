@@ -25,16 +25,36 @@
 #include <vector>
 
 namespace llvm {
-  class Pass;
-  class ScalarEvolution;
+class Pass;
+class Region;
+class ScalarEvolution;
 }
 
 namespace polly {
+extern bool SCEVCodegen;
+
 using namespace llvm;
 class ScopStmt;
 
-typedef DenseMap<const Value*, Value*> ValueMapT;
+typedef DenseMap<const Value *, Value *> ValueMapT;
 typedef std::vector<ValueMapT> VectorValueMapT;
+
+/// @brief Check whether an instruction can be synthesized by the code
+///        generator.
+///
+/// Some instructions will be recalculated only from information that is code
+/// generated from the polyhedral representation. For such instructions we do
+/// not need to ensure that their operands are available during code generation.
+///
+/// @param I The instruction to check.
+/// @param LI The LoopInfo analysis.
+/// @param SE The scalar evolution database.
+/// @param R The region out of which SSA names are parameters.
+/// @return If the instruction I can be regenerated from its
+///         scalar evolution representation, return true,
+///         otherwise return false.
+bool canSynthesize(const llvm::Instruction *I, const llvm::LoopInfo *LI,
+                   llvm::ScalarEvolution *SE, const llvm::Region *R);
 
 /// @brief Generate a new basic block for a polyhedral statement.
 ///
@@ -64,12 +84,6 @@ protected:
 
   BlockGenerator(IRBuilder<> &B, ScopStmt &Stmt, Pass *P);
 
-  /// @brief Check if an instruction can be 'SCEV-ignored'
-  ///
-  /// An instruction can be ignored if we can recreate it from its scalar
-  /// evolution expression.
-  bool isSCEVIgnore(const Instruction *Inst);
-
   /// @brief Get the new version of a Value.
   ///
   /// @param Old       The old Value.
@@ -82,32 +96,46 @@ protected:
   ///                  variable to their new values
   ///                  (for values recalculated in the new ScoP, but not
   ///                   within this basic block).
+  /// @param L         The loop that surrounded the instruction that referenced
+  ///                  this value in the original code. This loop is used to
+  ///                  evaluate the scalar evolution at the right scope.
   ///
   /// @returns  o The old value, if it is still valid.
   ///           o The new value, if available.
   ///           o NULL, if no value is found.
   Value *getNewValue(const Value *Old, ValueMapT &BBMap, ValueMapT &GlobalMap,
-                     LoopToScevMapT &LTS);
+                     LoopToScevMapT &LTS, Loop *L);
 
   void copyInstScalar(const Instruction *Inst, ValueMapT &BBMap,
                       ValueMapT &GlobalMap, LoopToScevMapT &LTS);
 
+  /// @brief Get the innermost loop that surrounds an instruction.
+  ///
+  /// @param Inst The instruction for which we get the loop.
+  /// @return The innermost loop that surrounds the instruction.
+  Loop *getLoopForInst(const Instruction *Inst);
+
   /// @brief Get the memory access offset to be added to the base address
-  std::vector<Value*> getMemoryAccessIndex(__isl_keep isl_map *AccessRelation,
-                                           Value *BaseAddress, ValueMapT &BBMap,
-                                           ValueMapT &GlobalMap,
-                                           LoopToScevMapT &LTS);
+  ///
+  /// @param L The loop that surrounded the instruction that referenced this
+  ///          memory subscript in the original code.
+  std::vector<Value *> getMemoryAccessIndex(
+      __isl_keep isl_map *AccessRelation, Value *BaseAddress, ValueMapT &BBMap,
+      ValueMapT &GlobalMap, LoopToScevMapT &LTS, Loop *L);
 
   /// @brief Get the new operand address according to the changed access in
   ///        JSCOP file.
-  Value *getNewAccessOperand(__isl_keep isl_map *NewAccessRelation,
-                             Value *BaseAddress, ValueMapT &BBMap,
-                             ValueMapT &GlobalMap, LoopToScevMapT &LTS);
+  ///
+  /// @param L The loop that surrounded the instruction that used this operand
+  ///          in the original code.
+  Value *getNewAccessOperand(
+      __isl_keep isl_map *NewAccessRelation, Value *BaseAddress,
+      ValueMapT &BBMap, ValueMapT &GlobalMap, LoopToScevMapT &LTS, Loop *L);
 
   /// @brief Generate the operand address
-  Value *generateLocationAccessed(const Instruction *Inst,
-                                  const Value *Pointer, ValueMapT &BBMap,
-                                  ValueMapT &GlobalMap, LoopToScevMapT &LTS);
+  Value *generateLocationAccessed(const Instruction *Inst, const Value *Pointer,
+                                  ValueMapT &BBMap, ValueMapT &GlobalMap,
+                                  LoopToScevMapT &LTS);
 
   Value *generateScalarLoad(const LoadInst *load, ValueMapT &BBMap,
                             ValueMapT &GlobalMap, LoopToScevMapT &LTS);
@@ -164,11 +192,10 @@ public:
   ///                   loop containing the statemenet.
   /// @param P          A reference to the pass this function is called from.
   ///                   The pass is needed to update other analysis.
-  static void generate(IRBuilder<> &B, ScopStmt &Stmt,
-                       VectorValueMapT &GlobalMaps,
-                       std::vector<LoopToScevMapT> &VLTS,
-                       __isl_keep isl_map *Schedule,
-                       Pass *P) {
+  static void generate(
+      IRBuilder<> &B, ScopStmt &Stmt, VectorValueMapT &GlobalMaps,
+      std::vector<LoopToScevMapT> &VLTS, __isl_keep isl_map *Schedule,
+      Pass *P) {
     VectorBlockGenerator Generator(B, GlobalMaps, VLTS, Stmt, Schedule, P);
     Generator.copyBB();
   }
@@ -204,14 +231,13 @@ private:
   isl_map *Schedule;
 
   VectorBlockGenerator(IRBuilder<> &B, VectorValueMapT &GlobalMaps,
-                       std::vector<LoopToScevMapT> &VLTS,
-                       ScopStmt &Stmt, __isl_keep isl_map *Schedule,
-                       Pass *P);
+                       std::vector<LoopToScevMapT> &VLTS, ScopStmt &Stmt,
+                       __isl_keep isl_map *Schedule, Pass *P);
 
   int getVectorWidth();
 
   Value *getVectorValue(const Value *Old, ValueMapT &VectorMap,
-                        VectorValueMapT &ScalarMaps);
+                        VectorValueMapT &ScalarMaps, Loop *L);
 
   Type *getVectorPtrTy(const Value *V, int Width);
 
@@ -248,8 +274,8 @@ private:
   /// %scalar 2 = load double* %p_2
   /// %vec_2 = insertelement <2 x double> %vec_1, double %scalar_1, i32 1
   ///
-  Value *generateUnknownStrideLoad(const LoadInst *Load,
-                                   VectorValueMapT &ScalarMaps);
+  Value *
+  generateUnknownStrideLoad(const LoadInst *Load, VectorValueMapT &ScalarMaps);
 
   void generateLoad(const LoadInst *Load, ValueMapT &VectorMap,
                     VectorValueMapT &ScalarMaps);
@@ -279,4 +305,3 @@ private:
 
 }
 #endif
-

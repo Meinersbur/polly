@@ -29,13 +29,13 @@
 using namespace llvm;
 
 namespace llvm {
-  class Loop;
-  class LoopInfo;
-  class PHINode;
-  class ScalarEvolution;
-  class SCEV;
-  class SCEVAddRecExpr;
-  class Type;
+class Loop;
+class LoopInfo;
+class PHINode;
+class ScalarEvolution;
+class SCEV;
+class SCEVAddRecExpr;
+class Type;
 }
 
 struct isl_ctx;
@@ -96,7 +96,7 @@ private:
   isl_map *AccessRelation;
   enum AccessType Type;
 
-  const Value* BaseAddr;
+  const Value *BaseAddr;
   std::string BaseName;
   isl_basic_map *createBasicAccessMap(ScopStmt *Statement);
   void setBaseName();
@@ -112,7 +112,8 @@ public:
   // @param Access     The memory access.
   // @param Statement  The statement that contains the access.
   // @param SE         The ScalarEvolution analysis.
-  MemoryAccess(const IRAccess &Access, const Instruction *AccInst, ScopStmt *Statement);
+  MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
+               ScopStmt *Statement);
 
   // @brief Create a memory access that reads a complete memory object.
   //
@@ -137,17 +138,11 @@ public:
   /// @brief Get an isl string representing this access function.
   std::string getAccessRelationStr() const;
 
-  const Value *getBaseAddr() const {
-    return BaseAddr;
-  }
+  const Value *getBaseAddr() const { return BaseAddr; }
 
-  const std::string &getBaseName() const {
-    return BaseName;
-  }
+  const std::string &getBaseName() const { return BaseName; }
 
-  const Instruction *getAccessInstruction() const {
-    return Inst;
-  }
+  const Instruction *getAccessInstruction() const { return Inst; }
 
   /// @brief Get the new access function imported from JSCOP file
   isl_map *getNewAccessRelation() const;
@@ -206,7 +201,6 @@ class ScopStmt {
   ScopStmt(const ScopStmt &);
   // DO NOT IMPLEMENT
   const ScopStmt &operator=(const ScopStmt &);
-
 
   /// Polyhedral description
   //@{
@@ -268,9 +262,9 @@ class ScopStmt {
   /// The memory accesses of this statement.
   ///
   /// The only side effects of a statement are its memory accesses.
-  typedef SmallVector<MemoryAccess*, 8> MemoryAccessVec;
+  typedef SmallVector<MemoryAccess *, 8> MemoryAccessVec;
   MemoryAccessVec MemAccs;
-  std::map<const Instruction*, MemoryAccess*> InstructionToAccess;
+  std::map<const Instruction *, MemoryAccess *> InstructionToAccess;
 
   //@}
 
@@ -280,21 +274,19 @@ class ScopStmt {
   /// @brief The loop induction variables surrounding the statement.
   ///
   /// This information is only needed for final code generation.
-  std::vector<PHINode*> IVS;
-  std::vector<Loop*> NestLoops;
+  std::vector<PHINode *> IVS;
+  std::vector<Loop *> NestLoops;
 
   std::string BaseName;
 
   /// Build the statment.
   //@{
   __isl_give isl_set *buildConditionSet(const Comparison &Cmp);
-  __isl_give isl_set *addConditionsToDomain(__isl_take isl_set *Domain,
-                                            TempScop &tempScop,
-                                            const Region &CurRegion);
-  __isl_give isl_set *addLoopBoundsToDomain(__isl_take isl_set *Domain,
-                                            TempScop &tempScop);
-  __isl_give isl_set *buildDomain(TempScop &tempScop,
-                                           const Region &CurRegion);
+  __isl_give isl_set *addConditionsToDomain(
+      __isl_take isl_set *Domain, TempScop &tempScop, const Region &CurRegion);
+  __isl_give isl_set *
+  addLoopBoundsToDomain(__isl_take isl_set *Domain, TempScop &tempScop);
+  __isl_give isl_set *buildDomain(TempScop &tempScop, const Region &CurRegion);
   void buildScattering(SmallVectorImpl<unsigned> &Scatter);
   void buildAccesses(TempScop &tempScop, const Region &CurRegion);
   //@}
@@ -303,7 +295,7 @@ class ScopStmt {
 
   /// Create the ScopStmt from a BasicBlock.
   ScopStmt(Scop &parent, TempScop &tempScop, const Region &CurRegion,
-           BasicBlock &bb, SmallVectorImpl<Loop*> &NestLoops,
+           BasicBlock &bb, SmallVectorImpl<Loop *> &NestLoops,
            SmallVectorImpl<unsigned> &Scatter);
 
   friend class Scop;
@@ -352,8 +344,8 @@ public:
   }
 
   MemoryAccess *lookupAccessFor(const Instruction *Inst) const {
-    std::map<const Instruction*, MemoryAccess*>::const_iterator at
-      = InstructionToAccess.find(Inst);
+    std::map<const Instruction *, MemoryAccess *>::const_iterator at =
+        InstructionToAccess.find(Inst);
     return at == InstructionToAccess.end() ? NULL : at->second;
   }
 
@@ -401,7 +393,7 @@ public:
 };
 
 /// @brief Print ScopStmt S to raw_ostream O.
-static inline raw_ostream& operator<<(raw_ostream &O, const ScopStmt &S) {
+static inline raw_ostream &operator<<(raw_ostream &O, const ScopStmt &S) {
   S.print(O);
   return O;
 }
@@ -441,16 +433,16 @@ class Scop {
   /// Max loop depth.
   unsigned MaxLoopDepth;
 
-  typedef std::vector<ScopStmt*> StmtSet;
+  typedef std::vector<ScopStmt *> StmtSet;
   /// The Statments in this Scop.
   StmtSet Stmts;
 
   /// Parameters of this Scop
-  typedef SmallVector<const SCEV*, 8> ParamVecType;
+  typedef SmallVector<const SCEV *, 8> ParamVecType;
   ParamVecType Parameters;
 
   /// The isl_ids that are used to represent the parameters
-  typedef std::map<const SCEV*, int> ParamIdType;
+  typedef std::map<const SCEV *, int> ParamIdType;
   ParamIdType ParameterIds;
 
   // Isl context.
@@ -482,11 +474,10 @@ class Scop {
 
   /// Build the Scop and Statement with precalculate scop information.
   void buildScop(TempScop &TempScop, const Region &CurRegion,
-                  // Loops in Scop containing CurRegion
-                  SmallVectorImpl<Loop*> &NestLoops,
-                  // The scattering numbers
-                  SmallVectorImpl<unsigned> &Scatter,
-                  LoopInfo &LI);
+                 // Loops in Scop containing CurRegion
+                 SmallVectorImpl<Loop *> &NestLoops,
+                 // The scattering numbers
+                 SmallVectorImpl<unsigned> &Scatter, LoopInfo &LI);
 
   /// Helper function for printing the Scop.
   void printContext(raw_ostream &OS) const;
@@ -512,7 +503,7 @@ public:
   inline const ParamVecType &getParams() const { return Parameters; }
 
   /// @brief Take a list of parameters and add the new ones to the scop.
-  void addParams(std::vector<const SCEV*> NewParameters);
+  void addParams(std::vector<const SCEV *> NewParameters);
 
   /// @brief Return the isl_id that represents a certain parameter.
   ///
@@ -529,9 +520,9 @@ public:
   typedef ParamVecType::const_iterator const_param_iterator;
 
   param_iterator param_begin() { return Parameters.begin(); }
-  param_iterator param_end()   { return Parameters.end(); }
+  param_iterator param_end() { return Parameters.end(); }
   const_param_iterator param_begin() const { return Parameters.begin(); }
-  const_param_iterator param_end()   const { return Parameters.end(); }
+  const_param_iterator param_end() const { return Parameters.end(); }
   //@}
 
   /// @brief Get the maximum region of this static control part.
@@ -564,7 +555,7 @@ public:
   ///
   /// @return The constraint on parameter of this Scop.
   __isl_give isl_set *getContext() const;
-  __isl_give isl_space  *getParamSpace() const;
+  __isl_give isl_space *getParamSpace() const;
 
   /// @brief Get an isl string representing the context.
   std::string getContextStr() const;
@@ -577,20 +568,20 @@ public:
   typedef StmtSet::const_iterator const_iterator;
 
   iterator begin() { return Stmts.begin(); }
-  iterator end()   { return Stmts.end();   }
+  iterator end() { return Stmts.end(); }
   const_iterator begin() const { return Stmts.begin(); }
-  const_iterator end()   const { return Stmts.end();   }
+  const_iterator end() const { return Stmts.end(); }
 
   typedef StmtSet::reverse_iterator reverse_iterator;
   typedef StmtSet::const_reverse_iterator const_reverse_iterator;
 
   reverse_iterator rbegin() { return Stmts.rbegin(); }
-  reverse_iterator rend()   { return Stmts.rend();   }
+  reverse_iterator rend() { return Stmts.rend(); }
   const_reverse_iterator rbegin() const { return Stmts.rbegin(); }
-  const_reverse_iterator rend()   const { return Stmts.rend();   }
+  const_reverse_iterator rend() const { return Stmts.rend(); }
   //@}
 
-  void setContext(isl_set* NewContext);
+  void setContext(isl_set *NewContext);
 
   /// @brief Align the parameters in the statement to the scop context
   void realignParams();
@@ -619,7 +610,7 @@ public:
 };
 
 /// @brief Print Scop scop to raw_ostream O.
-static inline raw_ostream& operator<<(raw_ostream &O, const Scop &scop) {
+static inline raw_ostream &operator<<(raw_ostream &O, const Scop &scop) {
   scop.print(O);
   return O;
 }
@@ -676,8 +667,8 @@ public:
 } //end namespace polly
 
 namespace llvm {
-  class PassRegistry;
-  void initializeScopInfoPass(llvm::PassRegistry&);
+class PassRegistry;
+void initializeScopInfoPass(llvm::PassRegistry &);
 }
 
 #endif

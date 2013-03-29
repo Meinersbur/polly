@@ -17,6 +17,8 @@
 #include "polly/CodeGen/CodeGeneration.h"
 #include "polly/CodeGen/BlockGenerators.h"
 #include "polly/Support/GICHelper.h"
+#include "polly/Support/SCEVValidator.h"
+#include "polly/Support/ScopHelper.h"
 
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
@@ -35,9 +37,29 @@ Aligned("enable-polly-aligned", cl::desc("Assumed aligned memory accesses."),
         cl::Hidden, cl::value_desc("OpenMP code generation enabled if true"),
         cl::init(false), cl::ZeroOrMore);
 
-static cl::opt<bool>
-SCEVCodegen("polly-codegen-scev", cl::desc("Use SCEV based code generation."),
-            cl::Hidden, cl::init(false), cl::ZeroOrMore);
+static cl::opt<bool, true> SCEVCodegenF(
+    "polly-codegen-scev", cl::desc("Use SCEV based code generation."),
+    cl::Hidden, cl::location(SCEVCodegen), cl::init(false), cl::ZeroOrMore);
+
+bool polly::SCEVCodegen;
+
+bool polly::canSynthesize(const Instruction *I, const llvm::LoopInfo *LI,
+                          ScalarEvolution *SE, const Region *R) {
+  if (SCEVCodegen) {
+    if (!I || !SE->isSCEVable(I->getType()))
+      return false;
+
+    if (const SCEV *Scev = SE->getSCEV(const_cast<Instruction *>(I)))
+      if (!isa<SCEVCouldNotCompute>(Scev))
+        if (!hasScalarDepsInsideRegion(Scev, R))
+          return true;
+
+    return false;
+  }
+
+  Loop *L = LI->getLoopFor(I->getParent());
+  return L && I == L->getCanonicalInductionVariable();
+}
 
 // Helper class to generate memory location.
 namespace {
@@ -145,23 +167,9 @@ BlockGenerator::BlockGenerator(IRBuilder<> &B, ScopStmt &Stmt, Pass *P)
     : Builder(B), Statement(Stmt), P(P), SE(P->getAnalysis<ScalarEvolution>()) {
 }
 
-bool BlockGenerator::isSCEVIgnore(const Instruction *Inst) {
-  if (SCEVCodegen && SE.isSCEVable(Inst->getType()))
-    if (const SCEV *Scev = SE.getSCEV(const_cast<Instruction*>(Inst)))
-      if (!isa<SCEVCouldNotCompute>(Scev)) {
-        if (const SCEVUnknown *Unknown = dyn_cast<SCEVUnknown>(Scev)) {
-          if (Unknown->getValue() != Inst)
-            return true;
-        } else {
-          return true;
-        }
-      }
-
-  return false;
-}
-
 Value *BlockGenerator::getNewValue(const Value *Old, ValueMapT &BBMap,
-                                   ValueMapT &GlobalMap, LoopToScevMapT &LTS) {
+                                   ValueMapT &GlobalMap, LoopToScevMapT &LTS,
+                                   Loop *L) {
   // We assume constants never change.
   // This avoids map lookups for many calls to this function.
   if (isa<Constant>(Old))
@@ -171,7 +179,7 @@ Value *BlockGenerator::getNewValue(const Value *Old, ValueMapT &BBMap,
     Value *New = GlobalMap[Old];
 
     if (Old->getType()->getScalarSizeInBits() <
-        New->getType()->getScalarSizeInBits())
+            New->getType()->getScalarSizeInBits())
       New = Builder.CreateTruncOrBitCast(New, Old->getType());
 
     return New;
@@ -182,7 +190,7 @@ Value *BlockGenerator::getNewValue(const Value *Old, ValueMapT &BBMap,
   }
 
   if (SCEVCodegen && SE.isSCEVable(Old->getType()))
-    if (const SCEV *Scev = SE.getSCEV(const_cast<Value *>(Old)))
+    if (const SCEV *Scev = SE.getSCEVAtScope(const_cast<Value *>(Old), L)) {
       if (!isa<SCEVCouldNotCompute>(Scev)) {
         const SCEV *NewScev = apply(Scev, LTS, SE);
         ValueToValueMap VTV;
@@ -196,15 +204,13 @@ Value *BlockGenerator::getNewValue(const Value *Old, ValueMapT &BBMap,
         BBMap[Old] = Expanded;
         return Expanded;
       }
+    }
 
-  // 'Old' is within the original SCoP, but was not rewritten.
-  //
-  // Such values appear, if they only calculate information already available in
-  // the polyhedral description (e.g.  an induction variable increment). They
-  // can be safely ignored.
-  if (const Instruction *Inst = dyn_cast<Instruction>(Old))
-    if (Statement.getParent()->getRegion().contains(Inst->getParent()))
-      return NULL;
+  if (const Instruction *Inst = dyn_cast<Instruction>(Old)) {
+    (void) Inst;
+    assert(!Statement.getParent()->getRegion().contains(Inst->getParent()) &&
+           "unexpected scalar dependence in region");
+  }
 
   // Everything else is probably a scop-constant value defined as global,
   // function parameter or an instruction not within the scop.
@@ -220,7 +226,8 @@ void BlockGenerator::copyInstScalar(const Instruction *Inst, ValueMapT &BBMap,
                                       OE = Inst->op_end();
        OI != OE; ++OI) {
     Value *OldOperand = *OI;
-    Value *NewOperand = getNewValue(OldOperand, BBMap, GlobalMap, LTS);
+    Value *NewOperand =
+        getNewValue(OldOperand, BBMap, GlobalMap, LTS, getLoopForInst(Inst));
 
     if (!NewOperand) {
       assert(!isa<StoreInst>(NewInst) &&
@@ -241,7 +248,7 @@ void BlockGenerator::copyInstScalar(const Instruction *Inst, ValueMapT &BBMap,
 
 std::vector<Value *> BlockGenerator::getMemoryAccessIndex(
     __isl_keep isl_map *AccessRelation, Value *BaseAddress, ValueMapT &BBMap,
-    ValueMapT &GlobalMap, LoopToScevMapT &LTS) {
+    ValueMapT &GlobalMap, LoopToScevMapT &LTS, Loop *L) {
 
   assert((isl_map_dim(AccessRelation, isl_dim_out) == 1) &&
          "Only single dimensional access functions supported");
@@ -249,7 +256,7 @@ std::vector<Value *> BlockGenerator::getMemoryAccessIndex(
   std::vector<Value *> IVS;
   for (unsigned i = 0; i < Statement.getNumIterators(); ++i) {
     const Value *OriginalIV = Statement.getInductionVariableForDimension(i);
-    Value *NewIV = getNewValue(OriginalIV, BBMap, GlobalMap, LTS);
+    Value *NewIV = getNewValue(OriginalIV, BBMap, GlobalMap, LTS, L);
     IVS.push_back(NewIV);
   }
 
@@ -269,9 +276,9 @@ std::vector<Value *> BlockGenerator::getMemoryAccessIndex(
 
 Value *BlockGenerator::getNewAccessOperand(
     __isl_keep isl_map *NewAccessRelation, Value *BaseAddress, ValueMapT &BBMap,
-    ValueMapT &GlobalMap, LoopToScevMapT &LTS) {
+    ValueMapT &GlobalMap, LoopToScevMapT &LTS, Loop *L) {
   std::vector<Value *> IndexArray = getMemoryAccessIndex(
-      NewAccessRelation, BaseAddress, BBMap, GlobalMap, LTS);
+      NewAccessRelation, BaseAddress, BBMap, GlobalMap, LTS, L);
   Value *NewOperand =
       Builder.CreateGEP(BaseAddress, IndexArray, "p_newarrayidx_");
   return NewOperand;
@@ -290,16 +297,21 @@ Value *BlockGenerator::generateLocationAccessed(
   Value *NewPointer;
 
   if (!NewAccessRelation) {
-    NewPointer = getNewValue(Pointer, BBMap, GlobalMap, LTS);
+    NewPointer =
+        getNewValue(Pointer, BBMap, GlobalMap, LTS, getLoopForInst(Inst));
   } else {
     Value *BaseAddress = const_cast<Value *>(Access.getBaseAddr());
     NewPointer = getNewAccessOperand(NewAccessRelation, BaseAddress, BBMap,
-                                     GlobalMap, LTS);
+                                     GlobalMap, LTS, getLoopForInst(Inst));
   }
 
   isl_map_free(CurrentAccessRelation);
   isl_map_free(NewAccessRelation);
   return NewPointer;
+}
+
+Loop *BlockGenerator::getLoopForInst(const llvm::Instruction *Inst) {
+  return P->getAnalysis<LoopInfo>().getLoopFor(Inst->getParent());
 }
 
 Value *
@@ -320,8 +332,8 @@ BlockGenerator::generateScalarStore(const StoreInst *Store, ValueMapT &BBMap,
   const Value *Pointer = Store->getPointerOperand();
   Value *NewPointer =
       generateLocationAccessed(Store, Pointer, BBMap, GlobalMap, LTS);
-  Value *ValueOperand =
-      getNewValue(Store->getValueOperand(), BBMap, GlobalMap, LTS);
+  Value *ValueOperand = getNewValue(Store->getValueOperand(), BBMap, GlobalMap,
+                                    LTS, getLoopForInst(Store));
 
   return Builder.CreateStore(ValueOperand, NewPointer);
 }
@@ -334,7 +346,8 @@ void BlockGenerator::copyInstruction(const Instruction *Inst, ValueMapT &BBMap,
   if (Inst->isTerminator())
     return;
 
-  if (isSCEVIgnore(Inst))
+  if (canSynthesize(Inst, &P->getAnalysis<LoopInfo>(), &SE,
+                    &Statement.getParent()->getRegion()))
     return;
 
   if (const LoadInst *Load = dyn_cast<LoadInst>(Inst)) {
@@ -374,8 +387,9 @@ VectorBlockGenerator::VectorBlockGenerator(
   assert(Schedule && "No statement domain provided");
 }
 
-Value *VectorBlockGenerator::getVectorValue(
-    const Value *Old, ValueMapT &VectorMap, VectorValueMapT &ScalarMaps) {
+Value *
+VectorBlockGenerator::getVectorValue(const Value *Old, ValueMapT &VectorMap,
+                                     VectorValueMapT &ScalarMaps, Loop *L) {
   if (VectorMap.count(Old))
     return VectorMap[Old];
 
@@ -386,7 +400,7 @@ Value *VectorBlockGenerator::getVectorValue(
   for (int Lane = 0; Lane < Width; Lane++)
     Vector = Builder.CreateInsertElement(
         Vector,
-        getNewValue(Old, ScalarMaps[Lane], GlobalMaps[Lane], VLTS[Lane]),
+        getNewValue(Old, ScalarMaps[Lane], GlobalMaps[Lane], VLTS[Lane], L),
         Builder.getInt32(Lane));
 
   VectorMap[Old] = Vector;
@@ -408,7 +422,8 @@ Value *VectorBlockGenerator::generateStrideOneLoad(const LoadInst *Load,
                                                    ValueMapT &BBMap) {
   const Value *Pointer = Load->getPointerOperand();
   Type *VectorPtrType = getVectorPtrTy(Pointer, getVectorWidth());
-  Value *NewPointer = getNewValue(Pointer, BBMap, GlobalMaps[0], VLTS[0]);
+  Value *NewPointer =
+      getNewValue(Pointer, BBMap, GlobalMaps[0], VLTS[0], getLoopForInst(Load));
   Value *VectorPtr =
       Builder.CreateBitCast(NewPointer, VectorPtrType, "vector_ptr");
   LoadInst *VecLoad =
@@ -423,7 +438,8 @@ Value *VectorBlockGenerator::generateStrideZeroLoad(const LoadInst *Load,
                                                     ValueMapT &BBMap) {
   const Value *Pointer = Load->getPointerOperand();
   Type *VectorPtrType = getVectorPtrTy(Pointer, 1);
-  Value *NewPointer = getNewValue(Pointer, BBMap, GlobalMaps[0], VLTS[0]);
+  Value *NewPointer =
+      getNewValue(Pointer, BBMap, GlobalMaps[0], VLTS[0], getLoopForInst(Load));
   Value *VectorPtr = Builder.CreateBitCast(NewPointer, VectorPtrType,
                                            Load->getName() + "_p_vec_p");
   LoadInst *ScalarLoad =
@@ -450,8 +466,8 @@ Value *VectorBlockGenerator::generateUnknownStrideLoad(
   Value *Vector = UndefValue::get(VectorType);
 
   for (int i = 0; i < VectorWidth; i++) {
-    Value *NewPointer =
-        getNewValue(Pointer, ScalarMaps[i], GlobalMaps[i], VLTS[i]);
+    Value *NewPointer = getNewValue(Pointer, ScalarMaps[i], GlobalMaps[i],
+                                    VLTS[i], getLoopForInst(Load));
     Value *ScalarLoad =
         Builder.CreateLoad(NewPointer, Load->getName() + "_p_scalar_");
     Vector = Builder.CreateInsertElement(
@@ -488,8 +504,8 @@ void VectorBlockGenerator::copyUnaryInst(const UnaryInstruction *Inst,
                                          ValueMapT &VectorMap,
                                          VectorValueMapT &ScalarMaps) {
   int VectorWidth = getVectorWidth();
-  Value *NewOperand =
-      getVectorValue(Inst->getOperand(0), VectorMap, ScalarMaps);
+  Value *NewOperand = getVectorValue(Inst->getOperand(0), VectorMap, ScalarMaps,
+                                     getLoopForInst(Inst));
 
   assert(isa<CastInst>(Inst) && "Can not generate vector code for instruction");
 
@@ -501,12 +517,13 @@ void VectorBlockGenerator::copyUnaryInst(const UnaryInstruction *Inst,
 void VectorBlockGenerator::copyBinaryInst(const BinaryOperator *Inst,
                                           ValueMapT &VectorMap,
                                           VectorValueMapT &ScalarMaps) {
+  Loop *L = getLoopForInst(Inst);
   Value *OpZero = Inst->getOperand(0);
   Value *OpOne = Inst->getOperand(1);
 
   Value *NewOpZero, *NewOpOne;
-  NewOpZero = getVectorValue(OpZero, VectorMap, ScalarMaps);
-  NewOpOne = getVectorValue(OpOne, VectorMap, ScalarMaps);
+  NewOpZero = getVectorValue(OpZero, VectorMap, ScalarMaps, L);
+  NewOpOne = getVectorValue(OpOne, VectorMap, ScalarMaps, L);
 
   Value *NewInst = Builder.CreateBinOp(Inst->getOpcode(), NewOpZero, NewOpOne,
                                        Inst->getName() + "p_vec");
@@ -520,13 +537,13 @@ void VectorBlockGenerator::copyStore(
   MemoryAccess &Access = Statement.getAccessFor(Store);
 
   const Value *Pointer = Store->getPointerOperand();
-  Value *Vector =
-      getVectorValue(Store->getValueOperand(), VectorMap, ScalarMaps);
+  Value *Vector = getVectorValue(Store->getValueOperand(), VectorMap,
+                                 ScalarMaps, getLoopForInst(Store));
 
   if (Access.isStrideOne(isl_map_copy(Schedule))) {
     Type *VectorPtrType = getVectorPtrTy(Pointer, VectorWidth);
-    Value *NewPointer =
-        getNewValue(Pointer, ScalarMaps[0], GlobalMaps[0], VLTS[0]);
+    Value *NewPointer = getNewValue(Pointer, ScalarMaps[0], GlobalMaps[0],
+                                    VLTS[0], getLoopForInst(Store));
 
     Value *VectorPtr =
         Builder.CreateBitCast(NewPointer, VectorPtrType, "vector_ptr");
@@ -537,8 +554,8 @@ void VectorBlockGenerator::copyStore(
   } else {
     for (unsigned i = 0; i < ScalarMaps.size(); i++) {
       Value *Scalar = Builder.CreateExtractElement(Vector, Builder.getInt32(i));
-      Value *NewPointer =
-          getNewValue(Pointer, ScalarMaps[i], GlobalMaps[i], VLTS[i]);
+      Value *NewPointer = getNewValue(Pointer, ScalarMaps[i], GlobalMaps[i],
+                                      VLTS[i], getLoopForInst(Store));
       Builder.CreateStore(Scalar, NewPointer);
     }
   }
@@ -623,7 +640,8 @@ void VectorBlockGenerator::copyInstruction(const Instruction *Inst,
   if (Inst->isTerminator())
     return;
 
-  if (isSCEVIgnore(Inst))
+  if (canSynthesize(Inst, &P->getAnalysis<LoopInfo>(), &SE,
+                    &Statement.getParent()->getRegion()))
     return;
 
   if (const LoadInst *Load = dyn_cast<LoadInst>(Inst)) {

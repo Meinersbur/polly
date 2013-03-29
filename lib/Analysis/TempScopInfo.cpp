@@ -80,8 +80,7 @@ void TempScop::print(raw_ostream &OS, ScalarEvolution *SE, LoopInfo *LI) const {
 
 void TempScop::printDetail(llvm::raw_ostream &OS, ScalarEvolution *SE,
                            LoopInfo *LI, const Region *CurR,
-                           unsigned ind) const {
-}
+                           unsigned ind) const {}
 
 
 void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {
@@ -189,7 +188,7 @@ void TempScopInfo::buildAffineCondition(Value &V, bool inverted,
   assert(ICmp && "Only ICmpInst of constant as condition supported!");
 
   const SCEV *LHS = SE->getSCEV(ICmp->getOperand(0)),
-             *RHS = SE->getSCEV(ICmp->getOperand(1));
+              *RHS = SE->getSCEV(ICmp->getOperand(1));
 
   ICmpInst::Predicate Pred = ICmp->getPredicate();
 
@@ -270,7 +269,7 @@ TempScop *TempScopInfo::getTempScop(const Region *R) const {
   return at == TempScops.end() ? 0 : at->second;
 }
 
-void TempScopInfo::print(raw_ostream &OS, const Module *)const {
+void TempScopInfo::print(raw_ostream &OS, const Module *) const {
   for (TempScopMapType::const_iterator I = TempScops.begin(),
                                        E = TempScops.end();
        I != E; ++I)
@@ -320,20 +319,18 @@ void TempScopInfo::clear() {
 // TempScop information extraction pass implement
 char TempScopInfo::ID = 0;
 
+Pass *polly::createTempScopInfoPass() { return new TempScopInfo(); }
+
 INITIALIZE_PASS_BEGIN(TempScopInfo, "polly-analyze-ir",
                       "Polly - Analyse the LLVM-IR in the detected regions",
-                      false, false)
-INITIALIZE_AG_DEPENDENCY(AliasAnalysis)
-INITIALIZE_PASS_DEPENDENCY(DominatorTree)
-INITIALIZE_PASS_DEPENDENCY(LoopInfo)
-INITIALIZE_PASS_DEPENDENCY(PostDominatorTree)
-INITIALIZE_PASS_DEPENDENCY(RegionInfo)
-INITIALIZE_PASS_DEPENDENCY(ScalarEvolution)
-INITIALIZE_PASS_DEPENDENCY(DataLayout)
+                      false, false);
+INITIALIZE_AG_DEPENDENCY(AliasAnalysis);
+INITIALIZE_PASS_DEPENDENCY(DominatorTree);
+INITIALIZE_PASS_DEPENDENCY(LoopInfo);
+INITIALIZE_PASS_DEPENDENCY(PostDominatorTree);
+INITIALIZE_PASS_DEPENDENCY(RegionInfo);
+INITIALIZE_PASS_DEPENDENCY(ScalarEvolution);
+INITIALIZE_PASS_DEPENDENCY(DataLayout);
 INITIALIZE_PASS_END(TempScopInfo, "polly-analyze-ir",
                     "Polly - Analyse the LLVM-IR in the detected regions",
                     false, false)
-
-Pass *polly::createTempScopInfoPass() {
-  return new TempScopInfo();
-}

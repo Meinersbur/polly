@@ -17,13 +17,13 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "polly/ScopInfo.h"
-
-#include "polly/TempScopInfo.h"
+#include "polly/CodeGen/BlockGenerators.h"
 #include "polly/LinkAllPasses.h"
+#include "polly/ScopInfo.h"
 #include "polly/Support/GICHelper.h"
 #include "polly/Support/ScopHelper.h"
 #include "polly/Support/SCEVValidator.h"
+#include "polly/TempScopInfo.h"
 
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
@@ -95,8 +95,7 @@ public:
 
   SCEVAffinator(const ScopStmt *Stmt)
       : Ctx(Stmt->getIslCtx()), NbLoopSpaces(Stmt->getNumIterators()),
-        S(Stmt->getParent()) {
-  }
+        S(Stmt->getParent()) {}
 
   __isl_give isl_pw_aff *visitConstant(const SCEVConstant *Constant) {
     ConstantInt *Value = Constant->getValue();
@@ -646,12 +645,14 @@ ScopStmt::buildDomain(TempScop &tempScop, const Region &CurRegion) {
 ScopStmt::ScopStmt(Scop &parent, TempScop &tempScop, const Region &CurRegion,
                    BasicBlock &bb, SmallVectorImpl<Loop *> &Nest,
                    SmallVectorImpl<unsigned> &Scatter)
-  : Parent(parent), BB(&bb), IVS(Nest.size()), NestLoops(Nest.size()), region(&CurRegion) {
+    : Parent(parent), BB(&bb), IVS(Nest.size()), NestLoops(Nest.size()), region(&CurRegion) {
   // Setup the induction variables.
   for (unsigned i = 0, e = Nest.size(); i < e; ++i) {
-    PHINode *PN = Nest[i]->getCanonicalInductionVariable();
-    assert(PN && "Non canonical IV in Scop!");
-    IVS[i] = PN;
+    if (!SCEVCodegen) {
+      PHINode *PN = Nest[i]->getCanonicalInductionVariable();
+      assert(PN && "Non canonical IV in Scop!");
+      IVS[i] = PN;
+    }
     NestLoops[i] = Nest[i];
   }
 
@@ -1093,17 +1094,15 @@ bool ScopInfo::runOnRegion(Region *R, RGPassManager &RGM) {
 
 char ScopInfo::ID = 0;
 
+Pass *polly::createScopInfoPass() { return new ScopInfo(); }
+
 INITIALIZE_PASS_BEGIN(ScopInfo, "polly-scops",
                       "Polly - Create polyhedral description of Scops", false,
-                      true)
-INITIALIZE_PASS_DEPENDENCY(LoopInfo)
-INITIALIZE_PASS_DEPENDENCY(RegionInfo)
-INITIALIZE_PASS_DEPENDENCY(ScalarEvolution)
-INITIALIZE_PASS_DEPENDENCY(TempScopInfo)
+                      true);
+INITIALIZE_PASS_DEPENDENCY(LoopInfo);
+INITIALIZE_PASS_DEPENDENCY(RegionInfo);
+INITIALIZE_PASS_DEPENDENCY(ScalarEvolution);
+INITIALIZE_PASS_DEPENDENCY(TempScopInfo);
 INITIALIZE_PASS_END(ScopInfo, "polly-scops",
                     "Polly - Create polyhedral description of Scops", false,
                     true)
-
-Pass *polly::createScopInfoPass() {
-  return new ScopInfo();
-}
