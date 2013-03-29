@@ -5,4 +5,5 @@ add_polly_library(PollyAnalysis
   ScopGraphPrinter.cpp
   ScopPass.cpp
   TempScopInfo.cpp
+  ScopMemory.cpp
 )

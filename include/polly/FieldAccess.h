@@ -35,16 +35,14 @@ namespace isl {
 } // namespace isl
 
 
-namespace molly {
+namespace polly {
   class FieldAccess {
-    friend class FieldDetectionAnalysis;
-
     //MollyContext *mollyContext;
     //FieldDetection *detector;
     llvm::Instruction *accessor;
     llvm::CallInst *fieldCall;
     llvm::Function *mollyfunc;
-    FieldVariable *fieldvar;
+    llvm::Type *elttype;
     bool reads;
     bool writes;
 
@@ -73,11 +71,12 @@ namespace molly {
     llvm::CallInst *getFieldCall() { return fieldCall; }
     llvm::Function *getFieldFunc();
     bool isPtrCall();
-    FieldVariable *getFieldVariable() { return fieldvar; }
-    FieldType *getFieldType();
+    
+    
     bool isRead() { return reads; }
     bool isWrite() { return writes; }
     llvm::Value *getBaseField();
+    llvm::Type *getElementType() { return elttype; }
 
     polly::MemoryAccess *getScopAccess() { return scopAccess; }
     void setScopAccess(polly::MemoryAccess *memacc) { this->scopAccess = memacc; }
@@ -89,7 +88,6 @@ namespace molly {
     llvm::Value *getFieldPtr();
 
     __isl_give isl_space *isl_getLogicalSpace(isl_ctx *); 
-    isl::Space getLogicalSpace(isl::Ctx *); // returns a set space with getNumDims() dimensions
     
     void getCoordinates(llvm::SmallVectorImpl<llvm::Value*> &list);
 
@@ -103,5 +101,8 @@ namespace molly {
     void LinkFailTestRef();
     void unusedMethod_LinkFailTest();
   }; // class FieldAccess
+
+
+
 } // namepsace molly
 #endif /* MOLLY_FIELDACCESS_H */

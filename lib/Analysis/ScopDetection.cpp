@@ -62,7 +62,7 @@
 #include "llvm/Assembly/Writer.h"
 
 //#include "polly/MollyMeta.h"
-#include "polly/MollyFieldAccess.h"
+#include "polly/FieldAccess.h"
 
 #define DEBUG_TYPE "polly-detect"
 #include "llvm/Support/Debug.h"
@@ -224,7 +224,7 @@ bool ScopDetection::isValidCallInst(CallInst &CI) {
   Function *CalledFunction = CI.getCalledFunction();
   assert(CalledFunction);
 
-  if (molly::FieldAccess::isFieldCall(&CI))
+  if (FieldAccess::isFieldCall(&CI))
     return true;
 
   if (CI.mayHaveSideEffects() || CI.doesNotReturn())
@@ -245,7 +245,7 @@ bool ScopDetection::isValidCallInst(CallInst &CI) {
 bool ScopDetection::isValidMemoryAccess(Instruction &Inst,
                                         DetectionContext &Context) const {
   // BEGIN Molly
-  auto fieldAcc = molly::FieldAccess::fromAccessInstruction(&Inst);
+  auto fieldAcc = FieldAccess::fromAccessInstruction(&Inst);
   if (fieldAcc.isValid())
     return true; // Always assume field accesses do not employ any aliasing not found by the Dependence pass
   // END Molly

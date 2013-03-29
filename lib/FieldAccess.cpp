@@ -1,13 +1,14 @@
 // This file contains implementations of FieldAccess methods that are independent of Molly
-#include "polly/MollyFieldAccess.h"
+#include "polly/FieldAccess.h"
 
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Function.h>
 #include <llvm/Analysis/ScalarEvolution.h>
+#include <llvm/IR/Intrinsics.h>
 
 #include <isl/space.h>
 
-using namespace molly;
+using namespace polly;
 using namespace llvm;
 using namespace std;
 
@@ -88,9 +89,11 @@ FieldAccess FieldAccess::fromAccessInstruction(llvm::Instruction *instr) {
   if (auto call = dyn_cast<CallInst>(instr)) {
     auto func = call->getCalledFunction();
     assert(func);
-    if (func->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_get")) { assert(false);
+    if (func->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_get")) { 
+      assert(false);
     }
-    if (func->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_set")) {assert(false);
+    if (func->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_set")){
+      assert(false);
     }
     return FieldAccess(); // Call of something else
   }
@@ -108,7 +111,7 @@ FieldAccess FieldAccess::fromAccessInstruction(llvm::Instruction *instr) {
     return FieldAccess(); // Not an access
   }
 
-  auto ptrcall = const_cast<CallInst*>(dyn_cast<CallInst>(ptr));
+  auto ptrcall = const_cast<CallInst*>(dyn_cast<CallInst>(ptr)); //TODO: A constant offset might be added to the ptr to access a struct member
   if (!ptrcall)
     return FieldAccess(); // access to something else
   assert(ptrcall->getParent() == instr->getParent() && "At the moment we depend on both being in the same BasicBlock");
@@ -117,7 +120,10 @@ FieldAccess FieldAccess::fromAccessInstruction(llvm::Instruction *instr) {
   if (!func)
     return FieldAccess(); // field functions are never called dynamically
 
-  if (!func->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_ptr"))
+  auto intrID = func->getIntrinsicID(); 
+  if (intrID == Intrinsic::molly_ptr) {
+  } else if (func->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_ptr")) {
+  } else
     return FieldAccess(); // Not a reference to a field
 
 
@@ -125,15 +131,18 @@ FieldAccess FieldAccess::fromAccessInstruction(llvm::Instruction *instr) {
   assert(nArgs >= 2); // At least the reference to field + one coordinate
   auto field = ptrcall->getArgOperand(0);
 
+  auto llvmEltPtrTy = func->getReturnType();
+  auto llvmEltTy = cast<llvm::PointerType>(llvmEltPtrTy)->getElementType(); 
+
   FieldAccess result;
   result.accessor = instr;
   result.fieldCall = ptrcall;
   result.mollyfunc = func;
-  result.fieldvar = NULL;
+  //result.fieldvar = NULL;
   result.reads = isRead;
   result.writes = isWrite;
   result.scopAccess = NULL;
-  result.fieldvar = NULL;
+  result.elttype = llvmEltTy;
   return result;
 }
 

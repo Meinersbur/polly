@@ -13,6 +13,7 @@ if (GPU_CODEGEN)
        PTXGenerator.cpp)
 endif (GPU_CODEGEN)
 
+file(GLOB polly_codegen_headers ${POLLY_SOURCE_DIR}/include/polly/CodeGen/*.h)
 add_polly_library(PollyCodeGen
   BlockGenerators.cpp
   ${CLOOG_FILES}
@@ -20,4 +21,5 @@ add_polly_library(PollyCodeGen
   LoopGenerators.cpp
   Utils.cpp
   ${GPGPU_CODEGEN_FILES}
+  ${polly_codegen_headers}
 )

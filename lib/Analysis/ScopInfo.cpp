@@ -1095,14 +1095,14 @@ char ScopInfo::ID = 0;
 
 INITIALIZE_PASS_BEGIN(ScopInfo, "polly-scops",
                       "Polly - Create polyhedral description of Scops", false,
-                      false)
+                      true)
 INITIALIZE_PASS_DEPENDENCY(LoopInfo)
 INITIALIZE_PASS_DEPENDENCY(RegionInfo)
 INITIALIZE_PASS_DEPENDENCY(ScalarEvolution)
 INITIALIZE_PASS_DEPENDENCY(TempScopInfo)
 INITIALIZE_PASS_END(ScopInfo, "polly-scops",
                     "Polly - Create polyhedral description of Scops", false,
-                    false)
+                    true)
 
 Pass *polly::createScopInfoPass() {
   return new ScopInfo();

@@ -33,7 +33,7 @@
 //#include "polly/ScopInfo.h" // class SCEVAffinator
 
 //#include <polly/MollyMeta.h>
-#include "polly/MollyFieldAccess.h"
+#include "polly/FieldAccess.h"
 
 #define DEBUG_TYPE "polly-analyze-ir"
 #include "llvm/Support/Debug.h"
@@ -102,7 +102,7 @@ void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {
       continue; // TODO: Support molly_set, molly_get
 
     // Handle Molly field accesses specially
-    auto fieldAcc = molly::FieldAccess::fromAccessInstruction(&Inst); 
+    auto fieldAcc = FieldAccess::fromAccessInstruction(&Inst); 
     if (fieldAcc.isValid()) {
       SmallVector<const SCEV*, 4> accFuncs;
       bool IsAffine = true;
