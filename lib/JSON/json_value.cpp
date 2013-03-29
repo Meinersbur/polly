@@ -15,7 +15,9 @@
 
 // Disable warnings.  We do not fix these warnings, as this is a file imported
 // into Polly and we do not want to diverge from the original source.
+#ifdef __clang__
 #pragma clang diagnostic ignored "-Wcovered-switch-default"
+#endif
 
 #define JSON_ASSERT_UNREACHABLE assert( false )
 #define JSON_ASSERT( condition ) assert( condition );  // @todo <= change this into an exception throw
