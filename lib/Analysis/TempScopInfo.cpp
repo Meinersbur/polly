@@ -78,13 +78,14 @@ void TempScop::print(raw_ostream &OS, ScalarEvolution *SE, LoopInfo *LI) const {
   printDetail(OS, SE, LI, &R, 0);
 }
 
-void TempScop::printDetail(llvm::raw_ostream &OS, ScalarEvolution *SE,
-                           LoopInfo *LI, const Region *CurR,
-                           unsigned ind) const {}
+void
+TempScop::printDetail(llvm::raw_ostream &OS, ScalarEvolution *SE, LoopInfo *LI,
+                      const Region *CurR, unsigned ind) const {}
 
 
 void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {
   AccFuncSetType Functions;
+  Loop *L = LI->getLoopFor(&BB);
 
   for (BasicBlock::iterator I = BB.begin(), E = --BB.end(); I != E; ++I) {
     Instruction &Inst = *I;
@@ -118,10 +119,10 @@ void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {
       continue;
     } 
 
-
-    const SCEV *AccessFunction = SE->getSCEV(getPointerOperand(Inst));
-    const SCEVUnknown *BasePointer =
-        dyn_cast<SCEVUnknown>(SE->getPointerBase(AccessFunction));
+      const SCEV *AccessFunction =
+          SE->getSCEVAtScope(getPointerOperand(Inst), L);
+      const SCEVUnknown *BasePointer =
+          dyn_cast<SCEVUnknown>(SE->getPointerBase(AccessFunction));
 
     assert(BasePointer && "Could not find base pointer");
     AccessFunction = SE->getMinusSCEV(AccessFunction, BasePointer);
@@ -187,8 +188,9 @@ void TempScopInfo::buildAffineCondition(Value &V, bool inverted,
   ICmpInst *ICmp = dyn_cast<ICmpInst>(&V);
   assert(ICmp && "Only ICmpInst of constant as condition supported!");
 
-  const SCEV *LHS = SE->getSCEV(ICmp->getOperand(0)),
-              *RHS = SE->getSCEV(ICmp->getOperand(1));
+  Loop *L = LI->getLoopFor(ICmp->getParent());
+  const SCEV *LHS = SE->getSCEVAtScope(ICmp->getOperand(0), L);
+  const SCEV *RHS = SE->getSCEVAtScope(ICmp->getOperand(1), L);
 
   ICmpInst::Predicate Pred = ICmp->getPredicate();
 

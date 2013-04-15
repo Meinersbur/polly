@@ -202,11 +202,18 @@ public:
   class ValidatorResult visitMulExpr(const SCEVMulExpr *Expr) {
     ValidatorResult Return(SCEVType::INT);
 
+    bool HasMultipleParams = false;
+
     for (int i = 0, e = Expr->getNumOperands(); i < e; ++i) {
       ValidatorResult Op = visit(Expr->getOperand(i));
 
       if (Op.isINT())
         continue;
+
+      if (Op.isPARAM() && Return.isPARAM()) {
+        HasMultipleParams  = true;
+        continue;
+      }
 
       if ((Op.isIV() || Op.isPARAM()) && !Return.isINT()) {
         DEBUG(dbgs() << "INVALID: More than one non-int operand in MulExpr\n"
@@ -220,6 +227,9 @@ public:
 
       Return.merge(Op);
     }
+
+    if (HasMultipleParams)
+      return ValidatorResult(SCEVType::PARAM, Expr);
 
     // TODO: Check for NSW and NUW.
     return Return;
