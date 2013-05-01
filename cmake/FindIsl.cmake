@@ -14,7 +14,7 @@ if (GMP_FOUND)
 
   find_library(ISL_LIBRARY NAMES isl)
   mark_as_advanced(ISL_LIBRARY)
-  set(ISL_LIBRARIES ${GMP_LIBRARIES} ${ISL_LIBRARIES})
+  set(ISL_LIBRARIES ${ISL_LIBRARIES} ${GMP_LIBRARIES})
 endif ()
 
 include(FindPackageHandleStandardArgs)

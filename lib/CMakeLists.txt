@@ -4,7 +4,7 @@ add_subdirectory(Exchange)
 add_subdirectory(Support)
 add_subdirectory(JSON)
 
-set(MODULE TRUE)
+#set(MODULE TRUE)
 set(LLVM_NO_RTTI 1)
 
 if (SCOPLIB_FOUND)
@@ -23,8 +23,13 @@ set(LLVM_USED_LIBS
   PollyJSON
   )
 
+if (PLUTO_FOUND)
+  list(APPEND LLVM_NEXT_EXTERNAL_LIBS ${PLUTO_LIBRARY})
+endif(PLUTO_FOUND)
+
 file(GLOB polly_headers ${POLLY_SOURCE_DIR}/include/polly/*.h)
-add_polly_loadable_module(LLVMPolly
+set_source_files_properties(${polly_headers} PROPERTIES HEADER_FILE_ONLY ON)
+add_polly_library(LLVMPolly
   CodePreparation.cpp
   DeadCodeElimination.cpp
   IndependentBlocks.cpp
@@ -56,7 +61,3 @@ set_target_properties(LLVMPolly
   PROPERTIES
   LINKER_LANGUAGE CXX
   PREFIX "")
-
-if (PLUTO_FOUND)
-  target_link_libraries(LLVMPolly ${PLUTO_LIBRARY})
-endif(PLUTO_FOUND)
