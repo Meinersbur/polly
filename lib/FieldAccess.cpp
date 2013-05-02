@@ -88,7 +88,8 @@ FieldAccess FieldAccess::fromMemoryAccess(polly::MemoryAccess *memacc) {
 FieldAccess FieldAccess::fromAccessInstruction(llvm::Instruction *instr) {
   if (auto call = dyn_cast<CallInst>(instr)) {
     auto func = call->getCalledFunction();
-    assert(func);
+    if (!func)
+       return FieldAccess(); 
     if (func->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_get")) { 
       assert(false);
     }
