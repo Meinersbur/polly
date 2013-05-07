@@ -26,6 +26,7 @@
 #define DEBUG_TYPE "polly-codegen"
 #include "polly/Dependences.h"
 #include "polly/LinkAllPasses.h"
+#include "polly/Options.h"
 #include "polly/ScopInfo.h"
 #include "polly/TempScopInfo.h"
 #include "polly/CodeGen/CodeGeneration.h"
@@ -41,7 +42,6 @@
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ScalarEvolutionExpander.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
@@ -63,18 +63,19 @@ struct isl_set;
 namespace polly {
 static cl::opt<bool>
 OpenMP("enable-polly-openmp", cl::desc("Generate OpenMP parallel code"),
-       cl::Hidden, cl::value_desc("OpenMP code generation enabled if true"),
-       cl::init(false), cl::ZeroOrMore);
+       cl::value_desc("OpenMP code generation enabled if true"),
+       cl::init(false), cl::ZeroOrMore, cl::cat(PollyCategory));
 
 #ifdef GPU_CODEGEN
 static cl::opt<bool>
 GPGPU("enable-polly-gpgpu", cl::desc("Generate GPU parallel code"), cl::Hidden,
       cl::value_desc("GPGPU code generation enabled if true"), cl::init(false),
-      cl::ZeroOrMore);
+      cl::ZeroOrMore, cl::cat(PollyCategory));
 
-static cl::opt<std::string> GPUTriple(
-    "polly-gpgpu-triple", cl::desc("Target triple for GPU code generation"),
-    cl::Hidden, cl::init(""));
+static cl::opt<std::string>
+GPUTriple("polly-gpgpu-triple",
+          cl::desc("Target triple for GPU code generation"), cl::Hidden,
+          cl::init(""), cl::cat(PollyCategory));
 #endif /* GPU_CODEGEN */
 
 typedef DenseMap<const char *, Value *> CharMapT;
@@ -262,10 +263,10 @@ private:
 
   void codegen(const clast_assignment *a);
 
-  void
-  codegen(const clast_assignment *a, ScopStmt *Statement, unsigned Dimension,
-          int vectorDim, std::vector<ValueMapT> *VectorVMap = 0,
-          std::vector<LoopToScevMapT> *VLTS = 0);
+  void codegen(const clast_assignment *a, ScopStmt *Statement,
+               unsigned Dimension, int vectorDim,
+               std::vector<ValueMapT> *VectorVMap = 0,
+               std::vector<LoopToScevMapT> *VLTS = 0);
 
   void codegenSubstitutions(const clast_stmt *Assignment, ScopStmt *Statement,
                             int vectorDim = 0,
@@ -312,9 +313,10 @@ private:
   void codegenForGPGPU(const clast_for *F);
 
   /// @brief Get innermost for loop.
-  const clast_stmt *
-  getScheduleInfo(const clast_for *F, std::vector<int> &NumIters,
-                  unsigned &LoopDepth, unsigned &NonPLoopDepth);
+  const clast_stmt *getScheduleInfo(const clast_for *F,
+                                    std::vector<int> &NumIters,
+                                    unsigned &LoopDepth,
+                                    unsigned &NonPLoopDepth);
 #endif /* GPU_CODEGEN */
 
   /// @brief Check if a loop is parallel
@@ -368,9 +370,10 @@ void ClastStmtCodeGen::codegen(const clast_assignment *a) {
   ClastVars[a->LHS] = V;
 }
 
-void ClastStmtCodeGen::codegen(
-    const clast_assignment *A, ScopStmt *Stmt, unsigned Dim, int VectorDim,
-    std::vector<ValueMapT> *VectorVMap, std::vector<LoopToScevMapT> *VLTS) {
+void ClastStmtCodeGen::codegen(const clast_assignment *A, ScopStmt *Stmt,
+                               unsigned Dim, int VectorDim,
+                               std::vector<ValueMapT> *VectorVMap,
+                               std::vector<LoopToScevMapT> *VLTS) {
   Value *RHS;
 
   assert(!A->LHS && "Statement assignments do not have left hand side");
@@ -393,9 +396,10 @@ void ClastStmtCodeGen::codegen(
   }
 }
 
-void ClastStmtCodeGen::codegenSubstitutions(
-    const clast_stmt *Assignment, ScopStmt *Statement, int vectorDim,
-    std::vector<ValueMapT> *VectorVMap, std::vector<LoopToScevMapT> *VLTS) {
+void ClastStmtCodeGen::codegenSubstitutions(const clast_stmt *Assignment,
+                                            ScopStmt *Statement, int vectorDim,
+                                            std::vector<ValueMapT> *VectorVMap,
+                                            std::vector<LoopToScevMapT> *VLTS) {
   int Dimension = 0;
 
   while (Assignment) {
@@ -411,8 +415,8 @@ void ClastStmtCodeGen::codegenSubstitutions(
 // Takes the cloog specific domain and translates it into a map Statement ->
 // PartialSchedule, where the PartialSchedule contains all the dimensions that
 // have been code generated up to this point.
-static __isl_give isl_map *
-extractPartialSchedule(ScopStmt *Statement, isl_set *Domain) {
+static __isl_give isl_map *extractPartialSchedule(ScopStmt *Statement,
+                                                  isl_set *Domain) {
   isl_map *Schedule = Statement->getScattering();
   int ScheduledDimensions = isl_set_dim(Domain, isl_dim_set);
   int UnscheduledDimensions =
@@ -422,9 +426,9 @@ extractPartialSchedule(ScopStmt *Statement, isl_set *Domain) {
                              UnscheduledDimensions);
 }
 
-void
-ClastStmtCodeGen::codegen(const clast_user_stmt *u, std::vector<Value *> *IVS,
-                          const char *iterator, isl_set *Domain) {
+void ClastStmtCodeGen::codegen(const clast_user_stmt *u,
+                               std::vector<Value *> *IVS, const char *iterator,
+                               isl_set *Domain) {
   ScopStmt *Statement = (ScopStmt *)u->statement->usr;
 
   if (u->substitutions)
@@ -661,9 +665,10 @@ SetVector<Value *> ClastStmtCodeGen::getGPUValues(unsigned &OutputBytes) {
   return Values;
 }
 
-const clast_stmt *ClastStmtCodeGen::getScheduleInfo(
-    const clast_for *F, std::vector<int> &NumIters, unsigned &LoopDepth,
-    unsigned &NonPLoopDepth) {
+const clast_stmt *ClastStmtCodeGen::getScheduleInfo(const clast_for *F,
+                                                    std::vector<int> &NumIters,
+                                                    unsigned &LoopDepth,
+                                                    unsigned &NonPLoopDepth) {
   clast_stmt *Stmt = (clast_stmt *)F;
   const clast_for *Result;
   bool NonParaFlag = false;
@@ -986,8 +991,8 @@ public:
   bool runOnScop(Scop &S) {
     ParallelLoops.clear();
 
-    assert(!S.getRegion().isTopLevelRegion()
-           && "Top level regions are not supported");
+    assert(!S.getRegion().isTopLevelRegion() &&
+           "Top level regions are not supported");
 
     simplifyRegion(&S, this);
 

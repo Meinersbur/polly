@@ -14,10 +14,9 @@
 
 #include "polly/ScopDetection.h"
 #include "polly/CodeGen/LoopGenerators.h"
-
-#include "llvm/IR/Module.h"
 #include "llvm/Analysis/Dominators.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/Module.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 
 using namespace llvm;
@@ -100,8 +99,8 @@ void OMPGenerator::createCallParallelLoopStart(
   Builder.CreateCall(F, Args);
 }
 
-Value *
-OMPGenerator::createCallLoopNext(Value *LowerBoundPtr, Value *UpperBoundPtr) {
+Value *OMPGenerator::createCallLoopNext(Value *LowerBoundPtr,
+                                        Value *UpperBoundPtr) {
   Module *M = getModule();
   const char *Name = "GOMP_loop_runtime_next";
   Function *F = M->getFunction(Name);
@@ -198,8 +197,9 @@ Value *OMPGenerator::loadValuesIntoStruct(SetVector<Value *> &Values) {
   return Struct;
 }
 
-void OMPGenerator::extractValuesFromStruct(
-    SetVector<Value *> OldValues, Value *Struct, ValueToValueMapTy &Map) {
+void OMPGenerator::extractValuesFromStruct(SetVector<Value *> OldValues,
+                                           Value *Struct,
+                                           ValueToValueMapTy &Map) {
   for (unsigned i = 0; i < OldValues.size(); i++) {
     Value *Address = Builder.CreateStructGEP(Struct, i);
     Value *NewValue = Builder.CreateLoad(Address);
@@ -207,9 +207,10 @@ void OMPGenerator::extractValuesFromStruct(
   }
 }
 
-Value *OMPGenerator::createSubfunction(
-    Value *Stride, Value *StructData, SetVector<Value *> Data,
-    ValueToValueMapTy &Map, Function **SubFunction) {
+Value *OMPGenerator::createSubfunction(Value *Stride, Value *StructData,
+                                       SetVector<Value *> Data,
+                                       ValueToValueMapTy &Map,
+                                       Function **SubFunction) {
   Function *FN = createSubfunctionDefinition();
 
   BasicBlock *PrevBB, *HeaderBB, *ExitBB, *CheckNextBB, *LoadIVBoundsBB,
@@ -280,10 +281,11 @@ Value *OMPGenerator::createSubfunction(
   return IV;
 }
 
-Value *OMPGenerator::createParallelLoop(
-    Value *LowerBound, Value *UpperBound, Value *Stride,
-    SetVector<Value *> &Values, ValueToValueMapTy &Map,
-    BasicBlock::iterator *LoopBody) {
+Value *OMPGenerator::createParallelLoop(Value *LowerBound, Value *UpperBound,
+                                        Value *Stride,
+                                        SetVector<Value *> &Values,
+                                        ValueToValueMapTy &Map,
+                                        BasicBlock::iterator *LoopBody) {
   Value *Struct, *IV, *SubfunctionParam, *NumberOfThreads;
   Function *SubFunction;
 

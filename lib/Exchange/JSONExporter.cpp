@@ -13,16 +13,15 @@
 
 #include "polly/LinkAllPasses.h"
 #include "polly/Dependences.h"
+#include "polly/Options.h"
 #include "polly/ScopInfo.h"
 #include "polly/ScopPass.h"
-
-#include "llvm/Support/CommandLine.h"
-#include "llvm/Support/ToolOutputFile.h"
-#include "llvm/Support/MemoryBuffer.h"
-#include "llvm/Support/system_error.h"
 #include "llvm/ADT/OwningPtr.h"
-#include "llvm/Assembly/Writer.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/Assembly/Writer.h"
+#include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/ToolOutputFile.h"
+#include "llvm/Support/system_error.h"
 
 #define DEBUG_TYPE "polly-import-jscop"
 
@@ -42,15 +41,17 @@ using namespace polly;
 STATISTIC(NewAccessMapFound, "Number of updated access functions");
 
 namespace {
-static cl::opt<std::string> ImportDir(
-    "polly-import-jscop-dir",
-    cl::desc("The directory to import the .jscop files from."), cl::Hidden,
-    cl::value_desc("Directory path"), cl::ValueRequired, cl::init("."));
+static cl::opt<std::string>
+ImportDir("polly-import-jscop-dir",
+          cl::desc("The directory to import the .jscop files from."),
+          cl::Hidden, cl::value_desc("Directory path"), cl::ValueRequired,
+          cl::init("."), cl::cat(PollyCategory));
 
-static cl::opt<std::string> ImportPostfix(
-    "polly-import-jscop-postfix",
-    cl::desc("Postfix to append to the import .jsop files."), cl::Hidden,
-    cl::value_desc("File postfix"), cl::ValueRequired, cl::init(""));
+static cl::opt<std::string>
+ImportPostfix("polly-import-jscop-postfix",
+              cl::desc("Postfix to append to the import .jsop files."),
+              cl::Hidden, cl::value_desc("File postfix"), cl::ValueRequired,
+              cl::init(""), cl::cat(PollyCategory));
 
 struct JSONExporter : public ScopPass {
   static char ID;

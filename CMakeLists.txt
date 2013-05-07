@@ -212,3 +212,6 @@ add_custom_command( OUTPUT formatting COMMAND
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/check_format.sh ${files})
 add_custom_target(polly-check-format DEPENDS formatting)
 set_target_properties(polly-check-format PROPERTIES FOLDER "Polly")
+add_custom_command( OUTPUT formatting-update COMMAND
+  ${CMAKE_CURRENT_SOURCE_DIR}/utils/update_format.sh ${files})
+add_custom_target(polly-update-format DEPENDS formatting-update)

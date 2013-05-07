@@ -13,7 +13,6 @@
 
 #include "polly/Support/ScopHelper.h"
 #include "polly/ScopInfo.h"
-
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/RegionInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
@@ -87,13 +86,13 @@ BasicBlock *polly::createSingleExitEdge(Region *R, Pass *P) {
   return SplitBlockPredecessors(BB, Preds, ".region", P);
 }
 
-void polly::simplifyRegion(Scop *S, Pass *P){
+void polly::simplifyRegion(Scop *S, Pass *P) {
   Region *R = &S->getRegion();
 
   // Create single entry edge if the region has multiple entry edges.
-  if (!R->getEnteringBlock()){
+  if (!R->getEnteringBlock()) {
     BasicBlock *OldEntry = R->getEntry();
-    BasicBlock *NewEntry = SplitBlock (OldEntry, OldEntry->begin(), P);
+    BasicBlock *NewEntry = SplitBlock(OldEntry, OldEntry->begin(), P);
 
     for (Scop::iterator SI = S->begin(), SE = S->end(); SI != SE; ++SI)
       if ((*SI)->getBasicBlock() == OldEntry) {

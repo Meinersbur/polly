@@ -46,20 +46,19 @@
 
 #include "polly/CodeGen/BlockGenerators.h"
 #include "polly/LinkAllPasses.h"
+#include "polly/Options.h"
 #include "polly/ScopDetection.h"
-#include "polly/Support/ScopHelper.h"
 #include "polly/Support/SCEVValidator.h"
-
-#include "llvm/IR/LLVMContext.h"
+#include "polly/Support/ScopHelper.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/RegionIterator.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
-#include "llvm/DebugInfo.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Assembly/Writer.h"
+#include "llvm/DebugInfo.h"
+#include "llvm/IR/LLVMContext.h"
 
 //#include "polly/MollyMeta.h"
 #include "polly/FieldAccess.h"
@@ -73,23 +72,24 @@ using namespace llvm;
 using namespace polly;
 
 static cl::opt<std::string>
-OnlyFunction("polly-detect-only", cl::desc("Only detect scops in function"),
-             cl::Hidden, cl::value_desc("The function name to detect scops in"),
-             cl::ValueRequired, cl::init(""));
+OnlyFunction("polly-only-func", cl::desc("Only run on a single function"),
+             cl::value_desc("function-name"), cl::ValueRequired, cl::init(""),
+             cl::cat(PollyCategory));
 
 static cl::opt<bool>
 IgnoreAliasing("polly-ignore-aliasing",
                cl::desc("Ignore possible aliasing of the array bases"),
-               cl::Hidden, cl::init(false));
+               cl::Hidden, cl::init(false), cl::cat(PollyCategory));
 
 static cl::opt<bool>
-ReportLevel("polly-report", cl::desc("Print information about Polly"),
-            cl::Hidden, cl::init(false));
+ReportLevel("polly-report",
+            cl::desc("Print information about the activities of Polly"),
+            cl::init(false), cl::cat(PollyCategory));
 
 static cl::opt<bool>
 AllowNonAffine("polly-allow-nonaffine",
                cl::desc("Allow non affine access functions in arrays"),
-               cl::Hidden, cl::init(false));
+               cl::Hidden, cl::init(false), cl::cat(PollyCategory));
 
 //===----------------------------------------------------------------------===//
 // Statistics.
@@ -153,8 +153,8 @@ std::string ScopDetection::regionIsInvalidBecause(const Region *R) const {
   return InvalidRegions.find(R)->second;
 }
 
-bool
-ScopDetection::isValidCFG(BasicBlock &BB, DetectionContext &Context) const {
+bool ScopDetection::isValidCFG(BasicBlock &BB,
+                               DetectionContext &Context) const {
   Region &RefRegion = Context.CurRegion;
   TerminatorInst *TI = BB.getTerminator();
 
@@ -329,8 +329,8 @@ bool ScopDetection::isValidMemoryAccess(Instruction &Inst,
   return true;
 }
 
-bool
-ScopDetection::hasScalarDependency(Instruction &Inst, Region &RefRegion) const {
+bool ScopDetection::hasScalarDependency(Instruction &Inst,
+                                        Region &RefRegion) const {
   for (Instruction::use_iterator UI = Inst.use_begin(), UE = Inst.use_end();
        UI != UE; ++UI)
     if (Instruction *Use = dyn_cast<Instruction>(*UI))
@@ -563,7 +563,7 @@ bool ScopDetection::isValidRegion(DetectionContext &Context) const {
     return false;
   }
 
-  if (!R.getEnteringBlock()){
+  if (!R.getEnteringBlock()) {
     Loop *L = LI->getLoopFor(R.getEntry());
     if (L && !L->isLoopSimplifyForm())
       INVALID(SimpleLoop, "Loop not in simplify form is invalid!");

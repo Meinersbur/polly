@@ -14,20 +14,18 @@
 //===----------------------------------------------------------------------===//
 
 #include "polly/TempScopInfo.h"
-
 #include "polly/LinkAllPasses.h"
 #include "polly/Support/GICHelper.h"
-#include "polly/Support/ScopHelper.h"
 #include "polly/Support/SCEVValidator.h"
-
+#include "polly/Support/ScopHelper.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Analysis/AliasAnalysis.h"
-#include "llvm/Analysis/RegionIterator.h"
-#include "llvm/IR/DataLayout.h"
-#include "llvm/Assembly/Writer.h"
 #include "llvm/Analysis/LoopInfo.h"
+#include "llvm/Analysis/RegionIterator.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
-#include "llvm/ADT/STLExtras.h"
+#include "llvm/Assembly/Writer.h"
+#include "llvm/IR/DataLayout.h"
 
 //#include <isl/aff.h>
 //#include "polly/ScopInfo.h" // class SCEVAffinator
@@ -78,9 +76,9 @@ void TempScop::print(raw_ostream &OS, ScalarEvolution *SE, LoopInfo *LI) const {
   printDetail(OS, SE, LI, &R, 0);
 }
 
-void
-TempScop::printDetail(llvm::raw_ostream &OS, ScalarEvolution *SE, LoopInfo *LI,
-                      const Region *CurR, unsigned ind) const {}
+void TempScop::printDetail(llvm::raw_ostream &OS, ScalarEvolution *SE,
+                           LoopInfo *LI, const Region *CurR,
+                           unsigned ind) const {}
 
 
 void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {

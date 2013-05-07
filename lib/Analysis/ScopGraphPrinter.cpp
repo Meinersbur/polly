@@ -16,7 +16,6 @@
 
 #include "polly/LinkAllPasses.h"
 #include "polly/ScopDetection.h"
-
 #include "llvm/Analysis/DOTGraphTraitsPass.h"
 #include "llvm/Analysis/RegionInfo.h"
 #include "llvm/Analysis/RegionIterator.h"
@@ -191,15 +190,15 @@ struct ScopOnlyPrinter : public DOTGraphTraitsPrinter<ScopDetection, true> {
 };
 char ScopOnlyPrinter::ID = 0;
 
-static RegisterPass<ScopViewer>
-X("view-scops", "Polly - View Scops of function");
+static RegisterPass<ScopViewer> X("view-scops",
+                                  "Polly - View Scops of function");
 
 static RegisterPass<ScopOnlyViewer>
 Y("view-scops-only",
   "Polly - View Scops of function (with no function bodies)");
 
-static RegisterPass<ScopPrinter>
-M("dot-scops", "Polly - Print Scops of function");
+static RegisterPass<ScopPrinter> M("dot-scops",
+                                   "Polly - Print Scops of function");
 
 static RegisterPass<ScopOnlyPrinter>
 N("dot-scops-only",

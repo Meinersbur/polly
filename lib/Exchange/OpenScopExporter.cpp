@@ -15,10 +15,10 @@
 
 #ifdef OPENSCOP_FOUND
 
+#include "polly/Options.h"
 #include "polly/ScopInfo.h"
 #include "polly/ScopPass.h"
 
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Assembly/Writer.h"
 
 #define OPENSCOP_INT_T_IS_MP
@@ -36,7 +36,8 @@ namespace {
 static cl::opt<std::string>
 ExportDir("polly-export-dir",
           cl::desc("The directory to export the .scop files to."), cl::Hidden,
-          cl::value_desc("Directory path"), cl::ValueRequired, cl::init("."));
+          cl::value_desc("Directory path"), cl::ValueRequired, cl::init("."),
+          cl::cat(PollyCategory));
 
 struct ScopExporter : public ScopPass {
   static char ID;
@@ -571,9 +572,9 @@ void ScopExporter::getAnalysisUsage(AnalysisUsage &AU) const {
   ScopPass::getAnalysisUsage(AU);
 }
 
-static RegisterPass<ScopExporter>
-A("polly-export", "Polly - Export Scops with OpenScop library"
-                  " (Writes a .scop file for each Scop)");
+static RegisterPass<ScopExporter> A("polly-export",
+                                    "Polly - Export Scops with OpenScop library"
+                                    " (Writes a .scop file for each Scop)");
 
 Pass *polly::createScopExporterPass() { return new ScopExporter(); }
 
