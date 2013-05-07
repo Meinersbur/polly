@@ -76,7 +76,7 @@ namespace polly {
     bool isRead() { return reads; }
     bool isWrite() { return writes; }
     llvm::Value *getBaseField();
-    llvm::Type *getElementType() { return elttype; }
+    llvm::Type *getElementType() { return elttype; } //FIXME: If field consists of structs, there is no unique element type/not uniquely determinable
 
     polly::MemoryAccess *getScopAccess() { return scopAccess; }
     void setScopAccess(polly::MemoryAccess *memacc) { this->scopAccess = memacc; }
