@@ -160,8 +160,10 @@ void IndependentBlocks::moveOperandTree(Instruction *Inst, const Region *R,
     DEBUG(dbgs() << "Checking Operand of Node:\n" << *CurInst << "\n------>\n");
     if (It == CurInst->op_end()) {
       // Insert the new instructions in topological order.
-      if (!CurInst->getParent())
+      if (!CurInst->getParent()) {
         CurInst->insertBefore(InsertPos);
+        SE->forgetValue(CurInst);
+      }
 
       WorkStack.pop_back();
     } else {
@@ -213,8 +215,7 @@ void IndependentBlocks::moveOperandTree(Instruction *Inst, const Region *R,
         DEBUG(dbgs() << "Moved.\n");
         Instruction *MovedOp = At->second;
         It->set(MovedOp);
-        // Skip all its children as we already processed them.
-        continue;
+        SE->forgetValue(MovedOp);
       } else {
         // Note that NewOp is not inserted in any BB now, we will insert it when
         // it popped from the work stack, so it will be inserted in topological
@@ -224,6 +225,8 @@ void IndependentBlocks::moveOperandTree(Instruction *Inst, const Region *R,
         DEBUG(dbgs() << "Move to " << *NewOp << "\n");
         It->set(NewOp);
         ReplacedMap.insert(std::make_pair(Operand, NewOp));
+        SE->forgetValue(Operand);
+
         // Process its operands, but do not visit an instuction twice.
         if (VisitedSet.insert(NewOp).second)
           WorkStack.push_back(std::make_pair(NewOp, NewOp->op_begin()));
@@ -390,10 +393,17 @@ bool IndependentBlocks::translateScalarToArray(Instruction *Inst,
   // Create the alloca.
   AllocaInst *Slot = new AllocaInst(
       Inst->getType(), 0, Inst->getName() + ".s2a", AllocaBlock->begin());
-  assert(!isa<InvokeInst>(Inst) && "Unexpected Invoke in Scop!");
-  // Store right after Inst.
-  BasicBlock::iterator StorePos = Inst;
-  (void) new StoreInst(Inst, Slot, ++StorePos);
+  assert(!isa<InvokeInst>(Inst) && "Unexpect Invoke in Scop!");
+
+  // Store right after Inst, and make sure the position is after all phi nodes.
+  BasicBlock::iterator StorePos;
+  if (isa<PHINode>(Inst)) {
+    StorePos = Inst->getParent()->getFirstNonPHI();
+  } else {
+    StorePos = Inst;
+    StorePos++;
+  }
+  (void) new StoreInst(Inst, Slot, StorePos);
 
   if (!LoadOutside.empty()) {
     LoadInst *ExitLoad = new LoadInst(Slot, Inst->getName() + ".loadoutside",
