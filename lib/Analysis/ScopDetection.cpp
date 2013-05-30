@@ -71,6 +71,11 @@
 using namespace llvm;
 using namespace polly;
 
+static cl::opt<bool>
+DetectScopsWithoutLoops("polly-detect-scops-in-functions-without-loops",
+                        cl::desc("Detect scops in functions without loops"),
+                        cl::Hidden, cl::init(false), cl::cat(PollyCategory));
+
 static cl::opt<std::string>
 OnlyFunction("polly-only-func", cl::desc("Only run on a single function"),
              cl::value_desc("function-name"), cl::ValueRequired, cl::init(""),
@@ -643,9 +648,12 @@ bool ScopDetection::runOnFunction(llvm::Function &F) {
     int a = 0;
   }
 
+  LI = &getAnalysis<LoopInfo>();
+  if (!DetectScopsWithoutLoops && LI->empty())
+    return false;
+
   AA = &getAnalysis<AliasAnalysis>();
   SE = &getAnalysis<ScalarEvolution>();
-  LI = &getAnalysis<LoopInfo>();
   RI = &getAnalysis<RegionInfo>();
   Region *TopRegion = RI->getTopLevelRegion();
 
