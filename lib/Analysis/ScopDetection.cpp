@@ -76,6 +76,11 @@ DetectScopsWithoutLoops("polly-detect-scops-in-functions-without-loops",
                         cl::desc("Detect scops in functions without loops"),
                         cl::Hidden, cl::init(false), cl::cat(PollyCategory));
 
+static cl::opt<bool>
+DetectRegionsWithoutLoops("polly-detect-scops-in-regions-without-loops",
+                          cl::desc("Detect scops in regions without loops"),
+                          cl::Hidden, cl::init(false), cl::cat(PollyCategory));
+
 static cl::opt<std::string>
 OnlyFunction("polly-only-func", cl::desc("Only run on a single function"),
              cl::value_desc("function-name"), cl::ValueRequired, cl::init(""),
@@ -284,51 +289,52 @@ bool ScopDetection::isValidMemoryAccess(Instruction &Inst,
   if (isa<IntToPtrInst>(BaseValue))
     INVALID(Other, "Find bad intToptr prt: " << *BaseValue);
 
-  // Check if the base pointer of the memory access does alias with
-  // any other pointer. This cannot be handled at the moment.
-  AliasSet &AS =
-      Context.AST.getAliasSetForPointer(BaseValue, AliasAnalysis::UnknownSize,
-                                        Inst.getMetadata(LLVMContext::MD_tbaa));
+  if (!IgnoreAliasing) {
+    // Check if the base pointer of the memory access does alias with
+    // any other pointer. This cannot be handled at the moment.
+    AliasSet &AS =
+        Context.AST.getAliasSetForPointer(BaseValue, AliasAnalysis::UnknownSize,
+                                          Inst.getMetadata(LLVMContext::MD_tbaa));
 
-  // INVALID triggers an assertion in verifying mode, if it detects that a SCoP
-  // was detected by SCoP detection and that this SCoP was invalidated by a pass
-  // that stated it would preserve the SCoPs.
-  // We disable this check as the independent blocks pass may create memory
-  // references which seem to alias, if -basicaa is not available. They actually
-  // do not, but as we can not proof this without -basicaa we would fail. We
-  // disable this check to not cause irrelevant verification failures.
-  if (!AS.isMustAlias() && !IgnoreAliasing) {
-    std::string Message;
-    raw_string_ostream OS(Message);
+    // INVALID triggers an assertion in verifying mode, if it detects that a SCoP
+    // was detected by SCoP detection and that this SCoP was invalidated by a pass
+    // that stated it would preserve the SCoPs.
+    // We disable this check as the independent blocks pass may create memory
+    // references which seem to alias, if -basicaa is not available. They actually
+    // do not, but as we can not proof this without -basicaa we would fail. We
+    // disable this check to not cause irrelevant verification failures.
+    if (!AS.isMustAlias()) {
+      std::string Message;
+      raw_string_ostream OS(Message);
 
-    OS << "Possible aliasing: ";
+      OS << "Possible aliasing: ";
 
-    std::vector<Value *> Pointers;
+      std::vector<Value *> Pointers;
 
-    for (AliasSet::iterator AI = AS.begin(), AE = AS.end(); AI != AE; ++AI)
-      Pointers.push_back(AI.getPointer());
+      for (AliasSet::iterator AI = AS.begin(), AE = AS.end(); AI != AE; ++AI)
+        Pointers.push_back(AI.getPointer());
 
-    std::sort(Pointers.begin(), Pointers.end());
+      std::sort(Pointers.begin(), Pointers.end());
 
-    for (std::vector<Value *>::iterator PI = Pointers.begin(),
-                                        PE = Pointers.end();
-         ;) {
-      Value *V = *PI;
+      for (std::vector<Value *>::iterator PI = Pointers.begin(),
+          PE = Pointers.end(); ;) {
+        Value *V = *PI;
 
-      if (V->getName().size() == 0)
-        OS << "\"" << *V << "\"";
-      else
-        OS << "\"" << V->getName() << "\"";
+        if (V->getName().size() == 0)
+          OS << "\"" << *V << "\"";
+        else
+          OS << "\"" << V->getName() << "\"";
 
-      ++PI;
+        ++PI;
 
-      if (PI != PE)
-        OS << ", ";
-      else
-        break;
+        if (PI != PE)
+          OS << ", ";
+        else
+          break;
+      }
+
+      INVALID_NOVERIFY(Alias, OS.str());
     }
-
-    INVALID_NOVERIFY(Alias, OS.str());
   }
 
   return true;
@@ -480,8 +486,20 @@ Region *ScopDetection::expandRegion(Region &R) {
 
   return LastValidRegion;
 }
+static bool regionWithoutLoops(Region &R, LoopInfo *LI) {
+  for (Region::block_iterator I = R.block_begin(), E = R.block_end(); I != E;
+       ++I)
+    if (R.contains(LI->getLoopFor(*I)))
+      return false;
+
+  return true;
+}
 
 void ScopDetection::findScops(Region &R) {
+
+  if (!DetectRegionsWithoutLoops && regionWithoutLoops(R, LI))
+    return;
+
   DetectionContext Context(R, *AA, false /*verifying*/);
 
   LastFailure = "";
