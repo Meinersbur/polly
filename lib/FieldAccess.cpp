@@ -14,15 +14,28 @@ using namespace std;
 
 
 
+llvm::LoadInst *FieldAccess::getLoadInst() { 
+  assert(isRead());
+  assert(isa<LoadInst>(accessor)); 
+  return cast<LoadInst>(accessor); 
+}
+
+
+llvm::StoreInst *FieldAccess::getStoreInst() { 
+  assert(isWrite());
+  assert(isa<StoreInst>(accessor)); 
+  return cast<StoreInst>(accessor); 
+}
+
 
 llvm::Function *FieldAccess::getFieldFunc()  {
   return getFieldCall()->getCalledFunction();
 }
 
+
 bool FieldAccess::isPtrCall() {
   return getFieldFunc()->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_ptr");
 }
-
 
 
 llvm::Value *FieldAccess::getBaseField() {
@@ -77,19 +90,19 @@ bool FieldAccess::isFieldCall(llvm::CallInst *call)  {
   return isFieldFunc(func);
 }
 
-
+#if 0
 FieldAccess FieldAccess::fromMemoryAccess(polly::MemoryAccess *memacc) {
   FieldAccess result = fromAccessInstruction(const_cast<Instruction*>(memacc->getAccessInstruction()));
   result.scopAccess = memacc;
   return result;
 }
-
+#endif
 
 FieldAccess FieldAccess::fromAccessInstruction(llvm::Instruction *instr) {
   if (auto call = dyn_cast<CallInst>(instr)) {
     auto func = call->getCalledFunction();
     if (!func)
-       return FieldAccess(); 
+      return FieldAccess(); 
     if (func->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_get")) { 
       assert(false);
     }
@@ -142,7 +155,7 @@ FieldAccess FieldAccess::fromAccessInstruction(llvm::Instruction *instr) {
   //result.fieldvar = NULL;
   result.reads = isRead;
   result.writes = isWrite;
-  result.scopAccess = NULL;
+  //result.scopAccess = NULL;
   result.elttype = llvmEltTy;
   return result;
 }
@@ -179,15 +192,9 @@ __isl_give isl_space *FieldAccess::isl_getLogicalSpace(isl_ctx *ctx) {
 
 void FieldAccess::getCoordinates(llvm::SmallVectorImpl<llvm::Value*> &list) {
   auto nDims = getNumDims();
-  assert(fieldCall->getNumArgOperands()>= nDims);
+  assert(fieldCall->getNumArgOperands() >= nDims);
   for (auto i = nDims-nDims; i < nDims; i+=1) {
     auto arg = getCoordinate(i);
     list.push_back(arg);
   }
 }
-
-
-void FieldAccess::LinkFailTestRef() {
-  void unusedMethod_LinkFailTest();
-}
-

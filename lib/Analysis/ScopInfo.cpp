@@ -645,7 +645,7 @@ __isl_give isl_set *ScopStmt::buildDomain(TempScop &tempScop,
 ScopStmt::ScopStmt(Scop &parent, TempScop &tempScop, const Region &CurRegion,
                    BasicBlock &bb, SmallVectorImpl<Loop *> &Nest,
                    SmallVectorImpl<unsigned> &Scatter)
-    : Parent(parent), BB(&bb), IVS(Nest.size()), NestLoops(Nest.size()), region(&CurRegion) {
+    : Parent(parent), BB(&bb), IVS(Nest.size()), NestLoops(Nest.size()), region(&CurRegion), whereMap(NULL) {
   // Setup the induction variables.
   for (unsigned i = 0, e = Nest.size(); i < e; ++i) {
     if (!SCEVCodegen) {
@@ -676,7 +676,8 @@ ScopStmt::ScopStmt(Scop &parent, const Region &CurRegion, BasicBlock &bb, SmallV
     NestLoops(Nest.size()), 
     region(&CurRegion),
     Scattering(NULL),
-    Domain(domain)
+    Domain(domain),
+    whereMap(NULL)
   {
   // Setup the induction variables.
   for (unsigned i = 0, e = Nest.size(); i < e; ++i) {
@@ -785,6 +786,18 @@ void ScopStmt::print(raw_ostream &OS) const {
 }
 
 void ScopStmt::dump() const { print(dbgs()); }
+
+//BEGIN Molly
+  __isl_give isl_map *ScopStmt::getWhereMap() const { 
+    return isl_map_copy(whereMap); 
+  }
+
+
+  void ScopStmt::setWhereMap(__isl_take isl_map *map) { 
+    isl_map_free(whereMap); 
+    this->whereMap = map; 
+  }
+//END Molly
 
 //===----------------------------------------------------------------------===//
 /// Scop class implement

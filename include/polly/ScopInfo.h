@@ -38,6 +38,10 @@ class SCEVAddRecExpr;
 class Type;
 }
 
+namespace isl {
+  class Map;
+} // namespace isl
+
 struct isl_ctx;
 struct isl_map;
 struct isl_basic_map;
@@ -393,6 +397,18 @@ public:
 
   /// @brief Print the ScopStmt to stderr.
   void dump() const;
+
+
+//BEGIN Molly
+private:
+  /// Map { iteration domain -> (Node*Core*Thread) } that says where the ScopStmt is supposed to be executed
+  /// Default is NULL, means there is just one thread to execute or code to select where to execute the stmt as already been added
+  isl_map *whereMap; 
+
+public:
+  __isl_give isl_map *getWhereMap() const;
+  void setWhereMap(__isl_take isl_map *map);
+//END Molly
 };
 
 /// @brief Print ScopStmt S to raw_ostream O.

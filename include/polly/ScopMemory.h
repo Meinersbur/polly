@@ -1,3 +1,4 @@
+// Obsolete? Replaced bu GlobalPassManager
 #ifndef POLLY_SCOPMEMORY_H
 #define POLLY_SCOPMEMORY_H
 

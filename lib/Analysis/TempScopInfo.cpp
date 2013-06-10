@@ -103,7 +103,7 @@ IRAccess TempScopInfo::buildIRAccess(Instruction *Inst, Loop *L, Region *R) {
 
   bool IsAffine = isAffineExpr(R, AccessFunction, *SE, BasePointer->getValue());
 
-  return IRAccess(Type, BasePointer->getValue(), AccessFunction, Size, IsAffine);
+  return IRAccess(Type, BasePointer->getValue(), AccessFunction, Size, IsAffine, false);
 }
 
 void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {
@@ -142,27 +142,8 @@ void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {
       continue;
     } 
 
-      const SCEV *AccessFunction =
-          SE->getSCEVAtScope(getPointerOperand(Inst), L);
-      const SCEVUnknown *BasePointer =
-          dyn_cast<SCEVUnknown>(SE->getPointerBase(AccessFunction));
-
-    assert(BasePointer && "Could not find base pointer");
-    AccessFunction = SE->getMinusSCEV(AccessFunction, BasePointer);
-
-    bool IsAffine =
-      isAffineExpr(&R, AccessFunction, *SE, BasePointer->getValue());
-    
     Functions.push_back(
-        std::make_pair(IRAccess(Type, BasePointer->getValue(), AccessFunction,
-                                Size, IsAffine, false), &Inst));
-#if 0
-=======
-    Instruction *Inst = I;
-    if (isa<LoadInst>(Inst) || isa<StoreInst>(Inst))
-      Functions.push_back(std::make_pair(buildIRAccess(Inst, L, &R), Inst));
->>>>>>> bcef97b1c33d2ec6c1b598891c3d82e926a40f59
-#endif
+        std::make_pair(buildIRAccess(&Inst, L, &R), &Inst));
   }
 
   if (Functions.empty())
