@@ -624,9 +624,16 @@ public:
 
   TempScop &getTempScop() { return tempScop; }
 
-  // BEGIN Molly
+//BEGIN Molly
+private:
+  bool codegenPending;
+
+public:
   ScopStmt *getScopStmtFor(BasicBlock *bb);
-  // END Molly
+
+  bool getCodegenPending() { return codegenPending; }
+  void setCodegenPending(bool val) { this->codegenPending = val; }
+//END Molly
 };
 
 /// @brief Print Scop scop to raw_ostream O.

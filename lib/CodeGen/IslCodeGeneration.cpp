@@ -38,6 +38,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include "polly/MollyBackref.h"
 
 #include "isl/union_map.h"
 #include "isl/list.h"
@@ -1042,6 +1043,9 @@ public:
     IslNodeBuilder NodeBuilder(Builder, this);
     NodeBuilder.addParameters(S.getContext());
     NodeBuilder.create(Ast);
+//BEGIN Molly
+    S.setCodegenPending(false);
+//END Molly
     return true;
   }
 
@@ -1070,6 +1074,13 @@ public:
     AU.addPreserved<TempScopInfo>();
     AU.addPreserved<ScopInfo>();
     AU.addPreservedID(IndependentBlocksID);
+
+#ifdef MOLLY
+  if (&molly::MollyContextPassID)
+    AU.addPreservedID(&molly::MollyContextPassID);
+  if (&molly::FieldDetectionAnalysisPassID)
+    AU.addPreservedID(&molly::FieldDetectionAnalysisPassID);
+#endif
   }
 };
 }

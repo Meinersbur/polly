@@ -901,6 +901,7 @@ Scop::Scop(TempScop &tempScop, LoopInfo &LI, ScalarEvolution &ScalarEvolution,
            isl_ctx *Context)
     : SE(&ScalarEvolution), R(tempScop.getMaxRegion()),
       MaxLoopDepth(tempScop.getMaxLoopDepth()), tempScop(tempScop) {
+  codegenPending = false;
   IslCtx = Context;
   buildContext();
 
@@ -920,6 +921,10 @@ Scop::Scop(TempScop &tempScop, LoopInfo &LI, ScalarEvolution &ScalarEvolution,
 }
 
 Scop::~Scop() {
+//BEGIN Molly
+  assert(!codegenPending && "Destroying SCoP without applying its changes");
+//END Molly
+
   isl_set_free(Context);
 
   // Free the statements;

@@ -43,18 +43,7 @@ static cl::opt<bool>
 PollyEnabled("polly", cl::desc("Enable the polly optimizer (only at -O3)"),
              cl::init(false), cl::ZeroOrMore, cl::cat(PollyCategory));
 
-enum OptimizerChoice {
-  OPTIMIZER_NONE,
-#ifdef PLUTO_FOUND
-  OPTIMIZER_PLUTO,
-#endif
-#ifdef SCOPLIB_FOUND
-  OPTIMIZER_POCC,
-#endif
-  OPTIMIZER_ISL
-};
-
-static cl::opt<OptimizerChoice> Optimizer(
+cl::opt<OptimizerChoice> Optimizer(
     "polly-optimizer", cl::desc("Select the scheduling optimizer"),
     cl::values(
         clEnumValN(OPTIMIZER_NONE, "none", "No optimizer"),
@@ -69,21 +58,13 @@ static cl::opt<OptimizerChoice> Optimizer(
     cl::Hidden, cl::init(OPTIMIZER_ISL), cl::ZeroOrMore,
     cl::cat(PollyCategory));
 
-enum CodeGenChoice {
-#ifdef CLOOG_FOUND
-  CODEGEN_CLOOG,
-#endif
-  CODEGEN_ISL,
-  CODEGEN_NONE
-};
-
 #ifdef CLOOG_FOUND
 enum CodeGenChoice DefaultCodeGen = CODEGEN_CLOOG;
 #else
 enum CodeGenChoice DefaultCodeGen = CODEGEN_ISL;
 #endif
 
-static cl::opt<CodeGenChoice> CodeGenerator(
+cl::opt<CodeGenChoice> CodeGenerator(
     "polly-code-generator", cl::desc("Select the code generator"),
     cl::values(
 #ifdef CLOOG_FOUND
