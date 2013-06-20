@@ -256,11 +256,11 @@ bool ScopDetection::isValidCallInst(CallInst &CI) {
 
 bool ScopDetection::isValidMemoryAccess(Instruction &Inst,
                                         DetectionContext &Context) const {
-  // BEGIN Molly
+#ifdef MOLLY
   auto fieldAcc = FieldAccess::fromAccessInstruction(&Inst);
   if (fieldAcc.isValid())
     return true; // Always assume field accesses do not employ any aliasing not found by the Dependence pass
-  // END Molly
+#endif
 
   Value *Ptr = getPointerOperand(Inst);
   Loop *L = LI->getLoopFor(Inst.getParent());
@@ -651,7 +651,8 @@ void ScopDetection::printLocations(llvm::Function &F) {
 }
 
 bool ScopDetection::runOnFunction(llvm::Function &F) {
-  if (F.getName() == "main") {
+  DEBUG(llvm::dbgs() << "run ScopDetection in func " << F.getName() << "\n");
+  if (F.getName() == "test") {
     int a = 0;
   }
 

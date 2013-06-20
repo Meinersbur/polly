@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+// deprecated; all reduced to PollyContextPass
 #ifndef POLLY_MOLLYBACKREF_H
 #define POLLY_MOLLYBACKREF_H
 
@@ -13,8 +14,8 @@
 #include <llvm/Support/Compiler.h>
 
 namespace molly {
-  extern const char &MollyContextPassID LLVM_ATTRIBUTE_WEAK;
-  extern const char &FieldDetectionAnalysisPassID LLVM_ATTRIBUTE_WEAK;
+  extern char &MollyContextPassID LLVM_ATTRIBUTE_WEAK;
+  extern char &FieldDetectionAnalysisPassID LLVM_ATTRIBUTE_WEAK;
 } // namespace molly
 #endif
 #endif /* POLLY_MOLLYBACKREF_H */

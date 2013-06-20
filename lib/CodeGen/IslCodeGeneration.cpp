@@ -39,6 +39,7 @@
 #include "llvm/IR/DataLayout.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "polly/MollyBackref.h"
+#include "polly/PollyContextPass.h"
 
 #include "isl/union_map.h"
 #include "isl/list.h"
@@ -1076,6 +1077,7 @@ public:
     AU.addPreservedID(IndependentBlocksID);
 
 #ifdef MOLLY
+  AU.addPreservedID(PollyContextPassID);
   if (&molly::MollyContextPassID)
     AU.addPreservedID(&molly::MollyContextPassID);
   if (&molly::FieldDetectionAnalysisPassID)

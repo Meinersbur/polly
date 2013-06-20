@@ -22,6 +22,7 @@
 #include "llvm/Assembly/Writer.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include "polly/MollyBackref.h"
+#include "polly/PollyContextPass.h"
 
 #define DEBUG_TYPE "polly-independent"
 #include "llvm/Support/Debug.h"
@@ -513,6 +514,7 @@ void IndependentBlocks::getAnalysisUsage(AnalysisUsage &AU) const {
 #endif
 
 #ifdef MOLLY
+  AU.addPreservedID(PollyContextPassID);
   if (&molly::MollyContextPassID)
     AU.addPreservedID(&molly::MollyContextPassID);
   if (&molly::FieldDetectionAnalysisPassID)

@@ -32,6 +32,9 @@
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/Assembly/Writer.h"
 #include "llvm/Support/CommandLine.h"
+#if MOLLY
+#include "polly/PollyContextPass.h"
+#endif
 
 #define DEBUG_TYPE "polly-scops"
 #include "llvm/Support/Debug.h"
@@ -787,17 +790,16 @@ void ScopStmt::print(raw_ostream &OS) const {
 
 void ScopStmt::dump() const { print(dbgs()); }
 
-//BEGIN Molly
+#ifdef MOLLY
   __isl_give isl_map *ScopStmt::getWhereMap() const { 
     return isl_map_copy(whereMap); 
   }
-
 
   void ScopStmt::setWhereMap(__isl_take isl_map *map) { 
     isl_map_free(whereMap); 
     this->whereMap = map; 
   }
-//END Molly
+#endif MOLLY
 
 //===----------------------------------------------------------------------===//
 /// Scop class implement
@@ -921,9 +923,9 @@ Scop::Scop(TempScop &tempScop, LoopInfo &LI, ScalarEvolution &ScalarEvolution,
 }
 
 Scop::~Scop() {
-//BEGIN Molly
+#ifdef MOLLY
   assert(!codegenPending && "Destroying SCoP without applying its changes");
-//END Molly
+#endif
 
   isl_set_free(Context);
 
@@ -1056,7 +1058,7 @@ void Scop::buildScop(TempScop &tempScop, const Region &CurRegion,
 }
 
 
-// BEGIN Molly
+#ifdef MOLLY
 ScopStmt *Scop::getScopStmtFor(BasicBlock *bb) {
 // TODO: Linear search, can also build a map
   for (auto it = Stmts.begin(), end = Stmts.end(); it!=end; ++it) {
@@ -1066,18 +1068,25 @@ ScopStmt *Scop::getScopStmtFor(BasicBlock *bb) {
   }
   return NULL;
 }
-// END Molly
+#endif
 
 
 //===----------------------------------------------------------------------===//
 ScopInfo::ScopInfo() : RegionPass(ID), scop(0) {
+#ifdef MOLLY
+  ctx = nullptr;
+#else
   ctx = isl_ctx_alloc();
   isl_options_set_on_error(ctx, ISL_ON_ERROR_ABORT);
+#endif
 }
 
 ScopInfo::~ScopInfo() {
   clear();
+#ifdef MOLLY
+#else
   isl_ctx_free(ctx);
+#endif
 }
 
 void ScopInfo::getAnalysisUsage(AnalysisUsage &AU) const {
@@ -1085,12 +1094,26 @@ void ScopInfo::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addRequired<RegionInfo>();
   AU.addRequired<ScalarEvolution>();
   AU.addRequired<TempScopInfo>();
+#ifdef MOLLY
+  //AU.addRequired<PollyContextPass>();
+#endif
   AU.setPreservesAll();
 }
 
 bool ScopInfo::runOnRegion(Region *R, RGPassManager &RGM) {
   LoopInfo &LI = getAnalysis<LoopInfo>();
   ScalarEvolution &SE = getAnalysis<ScalarEvolution>();
+#ifdef MOLLY
+  auto pollyContext = getAnalysisIfAvailable<PollyContextPass>();
+  if (pollyContext) {
+  ctx = pollyContext->getIslCtx();
+  } else {
+    // We are not in a context that needs to preserve the isl_ctx, so create a new one evey time
+    //FIXME: In this case, free in dtor
+    ctx = isl_ctx_alloc();
+    isl_options_set_on_error(ctx, ISL_ON_ERROR_ABORT);
+  }
+#endif
 
   TempScop *tempScop = getAnalysis<TempScopInfo>().getTempScop(R);
 

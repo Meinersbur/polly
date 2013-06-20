@@ -679,6 +679,7 @@ public:
 
   /// @name RegionPass interface
   //@{
+  const char *getPassName() const LLVM_OVERRIDE { return "polly::ScopInfo"; }
   virtual bool runOnRegion(Region *R, RGPassManager &RGM);
   virtual void getAnalysisUsage(AnalysisUsage &AU) const;
   virtual void releaseMemory() { clear(); }
