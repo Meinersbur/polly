@@ -145,6 +145,7 @@ BADSCOP_STAT(IndEdge, "Found invalid region entering edges");
 BADSCOP_STAT(LoopBound, "Loop bounds can not be computed");
 BADSCOP_STAT(FuncCall, "Function call with side effects appeared");
 BADSCOP_STAT(AffFunc, "Expression not affine");
+BADSCOP_STAT(Scalar, "Found scalar dependency");
 BADSCOP_STAT(Alias, "Found base address alias");
 BADSCOP_STAT(SimpleLoop, "Loop not in -loop-simplify form");
 BADSCOP_STAT(Other, "Others");
@@ -280,8 +281,8 @@ bool ScopDetection::isValidMemoryAccess(Instruction &Inst,
 
   AccessFunction = SE->getMinusSCEV(AccessFunction, BasePointer);
 
-  if (!isAffineExpr(&Context.CurRegion, AccessFunction, *SE, BaseValue) &&
-      !AllowNonAffine)
+  if (!AllowNonAffine && !isAffineExpr(&Context.CurRegion, AccessFunction, *SE,
+                                       BaseValue))
     INVALID(AffFunc, "Non affine access function: " << *AccessFunction);
 
   // FIXME: Alias Analysis thinks IntToPtrInst aliases with alloca instructions
@@ -340,6 +341,30 @@ bool ScopDetection::isValidMemoryAccess(Instruction &Inst,
   return true;
 }
 
+bool ScopDetection::hasScalarDependency(Instruction &Inst,
+                                        Region &RefRegion) const {
+  for (Instruction::use_iterator UI = Inst.use_begin(), UE = Inst.use_end();
+       UI != UE; ++UI)
+    if (Instruction *Use = dyn_cast<Instruction>(*UI))
+      if (!RefRegion.contains(Use->getParent())) {
+        // DirtyHack 1: PHINode user outside the Scop is not allow, if this
+        // PHINode is induction variable, the scalar to array transform may
+        // break it and introduce a non-indvar PHINode, which is not allow in
+        // Scop.
+        // This can be fix by:
+        // Introduce a IndependentBlockPrepare pass, which translate all
+        // PHINodes not in Scop to array.
+        // The IndependentBlockPrepare pass can also split the entry block of
+        // the function to hold the alloca instruction created by scalar to
+        // array.  and split the exit block of the Scop so the new create load
+        // instruction for escape users will not break other Scops.
+        if (isa<PHINode>(Use))
+          return true;
+      }
+
+  return false;
+}
+
 bool ScopDetection::isValidInstruction(Instruction &Inst,
                                        DetectionContext &Context) const {
   if (PHINode *PN = dyn_cast<PHINode>(&Inst))
@@ -350,6 +375,10 @@ bool ScopDetection::isValidInstruction(Instruction &Inst,
       else
         INVALID(IndVar, "Non canonical PHI node: " << Inst);
     }
+
+  // Scalar dependencies are not allowed.
+  if (hasScalarDependency(Inst, Context.CurRegion))
+    INVALID(Scalar, "Scalar dependency found: " << Inst);
 
   // We only check the call instruction but not invoke instruction.
   if (CallInst *CI = dyn_cast<CallInst>(&Inst)) {
@@ -372,16 +401,6 @@ bool ScopDetection::isValidInstruction(Instruction &Inst,
 
   // We do not know this instruction, therefore we assume it is invalid.
   INVALID(Other, "Unknown instruction: " << Inst);
-}
-
-bool ScopDetection::isValidBasicBlock(BasicBlock &BB,
-                                      DetectionContext &Context) const {
-  // Check all instructions, except the terminator instruction.
-  for (BasicBlock::iterator I = BB.begin(), E = --BB.end(); I != E; ++I)
-    if (!isValidInstruction(*I, Context))
-      return false;
-
-  return true;
 }
 
 bool ScopDetection::isValidLoop(Loop *L, DetectionContext &Context) const {
@@ -531,10 +550,12 @@ bool ScopDetection::allBlocksValid(DetectionContext &Context) const {
     if (!isValidCFG(**I, Context))
       return false;
 
-  for (Region::block_iterator I = R.block_begin(), E = R.block_end(); I != E;
-       ++I)
-    if (!isValidBasicBlock(**I, Context))
-      return false;
+  for (Region::block_iterator BI = R.block_begin(), E = R.block_end(); BI != E;
+       ++BI)
+    for (BasicBlock::iterator I = (*BI)->begin(), E = --(*BI)->end(); I != E;
+         ++I)
+      if (!isValidInstruction(*I, Context))
+        return false;
 
   return true;
 }
