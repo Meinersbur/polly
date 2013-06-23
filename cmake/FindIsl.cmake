@@ -8,7 +8,7 @@ endif ()
 if (GMP_FOUND)
   set(ISL_DEFINITIONS ${GMP_DEFINITIONS})
 
-  find_path(ISL_INCLUDE_DIR isl/ast.h)
+  find_path(ISL_INCLUDE_DIR "isl/ast.h")
   mark_as_advanced(ISL_INCLUDE_DIR)
   set(ISL_INCLUDE_DIRS ${GMP_INCLUDE_DIRS} ${ISL_INCLUDE_DIR})
 

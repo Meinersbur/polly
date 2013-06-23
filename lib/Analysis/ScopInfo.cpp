@@ -790,16 +790,33 @@ void ScopStmt::print(raw_ostream &OS) const {
 
 void ScopStmt::dump() const { print(dbgs()); }
 
-#ifdef MOLLY
-  __isl_give isl_map *ScopStmt::getWhereMap() const { 
-    return isl_map_copy(whereMap); 
-  }
 
-  void ScopStmt::setWhereMap(__isl_take isl_map *map) { 
-    isl_map_free(whereMap); 
-    this->whereMap = map; 
-  }
+#ifdef MOLLY
+
+ScopStmt::ScopStmt(Scop *parent, BasicBlock *bb, const std::string baseName, Region *region, llvm::ArrayRef<llvm::Loop*> sourroundingLoops, isl_set *domain, isl_map *scattering)
+  : Parent(*parent), BB(bb),BaseName(baseName), region(region), InstructionToAccess(), NestLoops(sourroundingLoops.size()), IVS(sourroundingLoops.size()), MemAccs(), Domain(domain), Scattering(scattering), whereMap(nullptr) {
+    auto nLoops = sourroundingLoops.size();
+    for (unsigned i = 0; i < nLoops; i+=1) {
+      PHINode *PN = sourroundingLoops[i]->getCanonicalInductionVariable();
+      assert(PN && "Non canonical IV in Scop!");
+      this->IVS[i] = PN;
+      this->NestLoops[i] = sourroundingLoops[i];
+    }
+}
+
+
+__isl_give isl_map *ScopStmt::getWhereMap() const { 
+  return isl_map_copy(whereMap); 
+}
+
+
+void ScopStmt::setWhereMap(__isl_take isl_map *map) { 
+  isl_map_free(whereMap); 
+  this->whereMap = map; 
+}
+
 #endif MOLLY
+
 
 //===----------------------------------------------------------------------===//
 /// Scop class implement
@@ -1068,6 +1085,12 @@ ScopStmt *Scop::getScopStmtFor(BasicBlock *bb) {
   }
   return NULL;
 }
+
+
+  void Scop::addScopStmt(ScopStmt *stmt) {  
+    assert(stmt->getParent() == this);
+    Stmts.push_back(stmt); 
+  }
 #endif
 
 

@@ -362,11 +362,6 @@ public:
   memacc_iterator memacc_begin() { return MemAccs.begin(); }
   memacc_iterator memacc_end() { return MemAccs.end(); }
 
-  // BEGIN Molly
-  void addAccess(MemoryAccess::AccessType type, const Value *base, __isl_take isl_map *accessRelation, const Instruction *AccInst);
-  void removeAccess(MemoryAccess *access);
-  // END Molly
-
   unsigned getNumParams() const;
   unsigned getNumIterators() const;
   unsigned getNumScattering() const;
@@ -399,7 +394,14 @@ public:
   void dump() const;
 
 
-//BEGIN Molly
+
+#ifdef MOLLY
+public:
+  ScopStmt(Scop *parent, BasicBlock *bb, const std::string baseName, Region *region, llvm::ArrayRef<llvm::Loop*> sourroundingLoops, isl_set *domain, isl_map *scattering);
+
+  void addAccess(MemoryAccess::AccessType type, const Value *base, __isl_take isl_map *accessRelation, const Instruction *AccInst);
+  void removeAccess(MemoryAccess *access);
+
 private:
   /// Map { iteration domain -> (Node*Core*Thread) } that says where the ScopStmt is supposed to be executed
   /// Default is NULL, means there is just one thread to execute or code to select where to execute the stmt as already been added
@@ -408,7 +410,7 @@ private:
 public:
   __isl_give isl_map *getWhereMap() const;
   void setWhereMap(__isl_take isl_map *map);
-//END Molly
+#endif /* MOLLY */
 };
 
 /// @brief Print ScopStmt S to raw_ostream O.
@@ -624,7 +626,7 @@ public:
 
   TempScop &getTempScop() { return tempScop; }
 
-//BEGIN Molly
+#ifdef MOLLY
 private:
   bool codegenPending;
 
@@ -633,7 +635,9 @@ public:
 
   bool getCodegenPending() { return codegenPending; }
   void setCodegenPending(bool val) { this->codegenPending = val; }
-//END Molly
+
+  void addScopStmt(ScopStmt *stmt);
+#endif /* MOLLY */
 };
 
 /// @brief Print Scop scop to raw_ostream O.
