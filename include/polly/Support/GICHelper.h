@@ -17,6 +17,8 @@
 #include "llvm/ADT/APInt.h"
 #include <gmp.h>
 
+#include "isl/ctx.h"
+
 struct isl_map;
 struct isl_union_map;
 struct isl_set;
@@ -26,6 +28,7 @@ struct isl_multi_aff;
 struct isl_pw_multi_aff;
 struct isl_aff;
 struct isl_pw_aff;
+struct isl_val;
 
 namespace polly {
 
@@ -40,6 +43,10 @@ void MPZ_from_APInt(mpz_t v, const llvm::APInt apint, bool is_signed = true);
 /// @param mpz    The mpz_t you want to convert.
 llvm::APInt APInt_from_MPZ(const mpz_t mpz);
 
+__isl_give isl_val *isl_valFromAPInt(isl_ctx *Ctx, const llvm::APInt Int,
+                                     bool IsSigned);
+llvm::APInt APIntFromVal(__isl_take isl_val *Val);
+
 /// @brief Get c++ string from Isl objects.
 //@{
 std::string stringFromIslObj(/*__isl_keep*/ isl_map *map);
@@ -53,6 +60,6 @@ std::string stringFromIslObj(/*__isl_keep*/ isl_aff *aff);
 std::string stringFromIslObj(/*__isl_keep*/ isl_pw_aff *pwaff);
 
 //@}
-} //end namespace polly
+} // end namespace polly
 
 #endif

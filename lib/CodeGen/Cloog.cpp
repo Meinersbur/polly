@@ -35,12 +35,7 @@
 #include "cloog/isl/domain.h"
 #include "cloog/isl/cloog.h"
 
-#ifdef _WIN32
-#include <io.h>
-#include <fcntl.h>
-#else
 #include <unistd.h>
-#endif
 
 using namespace llvm;
 using namespace polly;
@@ -94,16 +89,12 @@ class FileToString {
 
 public:
   FileToString() {
-#ifdef _WIN32
-    _pipe(FD, 256, O_BINARY);
-#else
     pipe(FD);
-#endif
     input = fdopen(FD[1], "w");
   }
   ~FileToString() {
     close(FD[0]);
-    close(FD[1]);
+    // close(FD[1]);
   }
 
   FILE *getInputFile() { return input; }
@@ -128,7 +119,6 @@ public:
 
     return output;
   }
-
 };
 
 /// Write .cloog input file.
@@ -141,7 +131,7 @@ void Cloog::dump(FILE *F) {
 /// Print a source code representation of the program.
 void Cloog::pprint(raw_ostream &OS) {
   FileToString *Output = new FileToString();
-  clast_pprint(Output->getInputFile(), ClastRoot, 0, Options); //MK: Pipe has limited capacity, so writing and reading to it in the same process may cause a deadlock
+  clast_pprint(Output->getInputFile(), ClastRoot, 0, Options);
   Output->closeInput();
   OS << Output->getOutput();
   delete (Output);
@@ -260,7 +250,6 @@ struct CloogExporter : public ScopPass {
   virtual bool runOnScop(Scop &S);
   void getAnalysisUsage(AnalysisUsage &AU) const;
 };
-
 }
 std::string CloogExporter::getFileName(Region *R) const {
   std::string FunctionName = R->getEntry()->getParent()->getName();
@@ -339,7 +328,7 @@ bool CloogInfo::runOnScop(Scop &S) {
   C = new Cloog(&S);
 
   Function *F = S.getRegion().getEntry()->getParent();
-  (void) F;
+  (void)F;
 
   DEBUG(dbgs() << ":: " << F->getName());
   DEBUG(dbgs() << " : " << S.getRegion().getNameStr() << "\n");

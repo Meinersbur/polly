@@ -69,7 +69,6 @@ class MemoryAccess {
   // DO NOT IMPLEMENT
   const MemoryAccess &operator=(const MemoryAccess &);
 
-public:
   /// @brief The access type of a memory access
   ///
   /// There are three kind of access types:
@@ -79,24 +78,26 @@ public:
   /// A certain set of memory locations are read and may be used for internal
   /// calculations.
   ///
-  /// * A write access
+  /// * A must-write access
   ///
   /// A certain set of memory locactions is definitely written. The old value is
   /// replaced by a newly calculated value. The old value is not read or used at
   /// all.
   ///
-  /// * A may write access
+  /// * A may-write access
   ///
   /// A certain set of memory locactions may be written. The memory location may
   /// contain a new value if there is actually a write or the old value may
   /// remain, if no write happens.
+#ifdef MOLLY
+public:
+#endif
   enum AccessType {
     Read,
-    Write,
+    MustWrite,
     MayWrite
   };
 
-private:
   isl_map *AccessRelation;
   enum AccessType Type;
 
@@ -133,8 +134,16 @@ public:
   /// @brief Is this a read memory access?
   bool isRead() const { return Type == MemoryAccess::Read; }
 
+  /// @brief Is this a must-write memory access?
+  bool isMustWrite() const { return Type == MemoryAccess::MustWrite; }
+
+  /// @brief Is this a may-write memory access?
+  bool isMayWrite() const { return Type == MemoryAccess::MayWrite; }
+
   /// @brief Is this a write memory access?
-  bool isWrite() const { return Type == MemoryAccess::Write; }
+  bool isWrite() const {
+    return Type == MemoryAccess::MustWrite || Type == MemoryAccess::MayWrite;
+  }
 
   AccessType getAccessType() { return Type; }
 
@@ -696,7 +705,7 @@ public:
   //@}
 };
 
-} //end namespace polly
+} // end namespace polly
 
 namespace llvm {
 class PassRegistry;

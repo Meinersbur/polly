@@ -47,6 +47,7 @@
 #include "isl/printer.h"
 #include "isl/local_space.h"
 #include "isl/options.h"
+#include "isl/val.h"
 #include <sstream>
 #include <string>
 #include <vector>
@@ -101,8 +102,7 @@ public:
 
   __isl_give isl_pw_aff *visitConstant(const SCEVConstant *Constant) {
     ConstantInt *Value = Constant->getValue();
-    isl_int v;
-    isl_int_init(v);
+    isl_val *v;
 
     // LLVM does not define if an integer value is interpreted as a signed or
     // unsigned value. Hence, without further information, it is unknown how
@@ -114,15 +114,14 @@ public:
     //    demand.
     // 2. We pass down the signedness of the calculation and use it to interpret
     //    this constant correctly.
-    MPZ_from_APInt(v, Value->getValue(), /* isSigned */ true);
+    v = isl_valFromAPInt(Ctx, Value->getValue(), /* isSigned */ true);
 
     isl_space *Space = isl_space_set_alloc(Ctx, 0, NbLoopSpaces);
     isl_local_space *ls = isl_local_space_from_space(isl_space_copy(Space));
     isl_aff *Affine = isl_aff_zero_on_domain(ls);
     isl_set *Domain = isl_set_universe(Space);
 
-    Affine = isl_aff_add_constant(Affine, v);
-    isl_int_clear(v);
+    Affine = isl_aff_add_constant_val(Affine, v);
 
     return isl_pw_aff_alloc(Domain, Affine);
   }
@@ -313,18 +312,21 @@ MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
                            ScopStmt *Statement)
     : Inst(AccInst) {
   newAccessRelation = NULL;
-  Type = Access.isRead() ? Read : Write;
   statement = Statement;
 
   BaseAddr = Access.getBase();
   setBaseName();
 
   if (!Access.isAffine()) {
-    Type = (Type == Read) ? Read : MayWrite;
-    AccessRelation = isl_map_from_basic_map(createBasicAccessMap(Statement)); //TODO: Does this also work for multi-dimensional arrays/fields?
+    // We overapproximate non-affine accesses with a possible access to the
+    // whole array. For read accesses it does not make a difference, if an
+    // access must or may happen. However, for write accesses it is important to
+    // differentiate between writes that must happen and writes that may happen.
+    AccessRelation = isl_map_from_basic_map(createBasicAccessMap(Statement)); //MK TODO: Does this also work for multi-dimensional arrays/fields?
+    Type = Access.isRead() ? Read : MayWrite;
     return;
   }
-  // BEGIN Molly
+#ifdef MOLLY
   isl_space *Space = Statement->getDomainSpace();
 
   auto &offsets = Access.getOffsets();
@@ -361,7 +363,33 @@ MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
   auto mpwaff = isl_multi_pw_aff_from_pw_aff_list(range, pwafflist); 
   AccessRelation = isl_map_from_multi_pw_aff(mpwaff); 
   //TODO: free isl objects
+#else
+  isl_space *Space = Statement->getDomainSpace();
+
+  Type = Access.isRead() ? Read : MustWrite;
+
+  isl_pw_aff *Affine = SCEVAffinator::getPwAff(Statement, Access.getOffset());
+
+  // Divide the access function by the size of the elements in the array.
+  //
+  // A stride one array access in C expressed as A[i] is expressed in LLVM-IR
+  // as something like A[i * elementsize]. This hides the fact that two
+  // subsequent values of 'i' index two values that are stored next to each
+  // other in memory. By this division we make this characteristic obvious
+  // again.
+  isl_val *v;
+  v = isl_val_int_from_si(isl_pw_aff_get_ctx(Affine),
+                          Access.getElemSizeInBytes());
+  Affine = isl_pw_aff_scale_down_val(Affine, v);
+
+  isl_space *logical = isl_space_set_alloc(ctx, 0, dims);
+  logical = isl_space_align_params(logical, isl_space_copy(Space));
+  isl_space *range = isl_space_map_from_domain_and_range(isl_space_copy(Space), logical);
+  auto mpwaff = isl_multi_pw_aff_from_pw_aff_list(range, pwafflist); 
+  AccessRelation = isl_map_from_multi_pw_aff(mpwaff); 
+  //TODO: free isl objects
   // END Molly
+#endif
   AccessRelation = isl_map_set_tuple_id(
       AccessRelation, isl_dim_in, isl_space_get_tuple_id(Space, isl_dim_set));
   isl_space_free(Space);
@@ -387,7 +415,17 @@ MemoryAccess::MemoryAccess(const Value *BaseAddress, ScopStmt *Statement) {
 }
 
 void MemoryAccess::print(raw_ostream &OS) const {
-  OS.indent(12) << (isRead() ? "Read" : "Write") << "Access := \n";
+  switch (Type) {
+  case Read:
+    OS.indent(12) << "ReadAccess := \n";
+    break;
+  case MustWrite:
+    OS.indent(12) << "MustWriteAccess := \n";
+    break;
+  case MayWrite:
+    OS.indent(12) << "MayWriteAccess := \n";
+    break;
+  }
   OS.indent(16) << getAccessRelationStr() << ";\n";
 }
 
@@ -423,16 +461,15 @@ static isl_map *getEqualAndLarger(isl_space *setDomain) {
   //   input[?,?,?,...,iX] -> output[?,?,?,...,oX] : iX < oX
   //
   unsigned lastDimension = isl_map_dim(Map, isl_dim_in) - 1;
-  isl_int v;
-  isl_int_init(v);
+  isl_val *v;
+  isl_ctx *Ctx = isl_map_get_ctx(Map);
   isl_constraint *c = isl_inequality_alloc(isl_local_space_copy(MapLocalSpace));
-  isl_int_set_si(v, -1);
-  isl_constraint_set_coefficient(c, isl_dim_in, lastDimension, v);
-  isl_int_set_si(v, 1);
-  isl_constraint_set_coefficient(c, isl_dim_out, lastDimension, v);
-  isl_int_set_si(v, -1);
-  isl_constraint_set_constant(c, v);
-  isl_int_clear(v);
+  v = isl_val_int_from_si(Ctx, -1);
+  c = isl_constraint_set_coefficient_val(c, isl_dim_in, lastDimension, v);
+  v = isl_val_int_from_si(Ctx, 1);
+  c = isl_constraint_set_coefficient_val(c, isl_dim_out, lastDimension, v);
+  v = isl_val_int_from_si(Ctx, -1);
+  c = isl_constraint_set_constant_val(c, v);
 
   Map = isl_map_add_constraint(Map, c);
 
@@ -869,7 +906,7 @@ void Scop::buildContext() {
 
 void Scop::addParameterBounds() {
   for (unsigned i = 0; i < isl_set_dim(Context, isl_dim_param); ++i) {
-    isl_int V;
+    isl_val *V;
     isl_id *Id;
     const SCEV *Scev;
     const IntegerType *T;
@@ -882,19 +919,15 @@ void Scop::addParameterBounds() {
     assert(T && "Not an integer type");
     int Width = T->getBitWidth();
 
-    isl_int_init(V);
+    V = isl_val_int_from_si(IslCtx, Width - 1);
+    V = isl_val_2exp(V);
+    V = isl_val_neg(V);
+    Context = isl_set_lower_bound_val(Context, isl_dim_param, i, V);
 
-    isl_int_set_si(V, 1);
-    isl_int_mul_2exp(V, V, Width - 1);
-    isl_int_neg(V, V);
-    isl_set_lower_bound(Context, isl_dim_param, i, V);
-
-    isl_int_set_si(V, 1);
-    isl_int_mul_2exp(V, V, Width - 1);
-    isl_int_sub_ui(V, V, 1);
-    isl_set_upper_bound(Context, isl_dim_param, i, V);
-
-    isl_int_clear(V);
+    V = isl_val_int_from_si(IslCtx, Width - 1);
+    V = isl_val_2exp(V);
+    V = isl_val_sub_ui(V, 1);
+    Context = isl_set_upper_bound_val(Context, isl_dim_param, i, V);
   }
 }
 

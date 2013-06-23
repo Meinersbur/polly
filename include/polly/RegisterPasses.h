@@ -16,7 +16,9 @@
 
 #include <llvm/Support/CommandLine.h>
 
-namespace llvm { class PassManagerBase; }
+namespace llvm { 
+  class PassManagerBase; 
+}
 
 enum OptimizerChoice {
   OPTIMIZER_NONE,

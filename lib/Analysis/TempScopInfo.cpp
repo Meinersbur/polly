@@ -145,8 +145,7 @@ IRAccess TempScopInfo::buildIRAccess(Instruction *Inst, Loop *L, Region *R) {
     Type = IRAccess::WRITE;
   }
 
-  const SCEV *AccessFunction =
-      SE->getSCEVAtScope(getPointerOperand(*Inst), L);
+  const SCEV *AccessFunction = SE->getSCEVAtScope(getPointerOperand(*Inst), L);
   const SCEVUnknown *BasePointer =
       dyn_cast<SCEVUnknown>(SE->getPointerBase(AccessFunction));
 
@@ -155,7 +154,8 @@ IRAccess TempScopInfo::buildIRAccess(Instruction *Inst, Loop *L, Region *R) {
 
   bool IsAffine = isAffineExpr(R, AccessFunction, *SE, BasePointer->getValue());
 
-  return IRAccess(Type, BasePointer->getValue(), AccessFunction, Size, IsAffine, false);
+  return IRAccess(Type, BasePointer->getValue(), AccessFunction, Size,
+                  IsAffine, false);
 }
 
 void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {
@@ -197,7 +197,8 @@ void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {
     if (isa<LoadInst>(Inst) || isa<StoreInst>(Inst))
       Functions.push_back(std::make_pair(buildIRAccess(&Inst, L, &R), &Inst));
 
-    if (!isa<StoreInst>(Inst))  buildScalarDependences(&Inst, &R);
+    if (!isa<StoreInst>(Inst))
+      buildScalarDependences(&Inst, &R);
   }
 
   if (Functions.empty())
@@ -270,8 +271,8 @@ void TempScopInfo::buildAffineCondition(Value &V, bool inverted,
   case ICmpInst::ICMP_ULE:
     // TODO: At the moment we need to see everything as signed. This is an
     //       correctness issue that needs to be solved.
-    //AffLHS->setUnsigned();
-    //AffRHS->setUnsigned();
+    // AffLHS->setUnsigned();
+    // AffRHS->setUnsigned();
     break;
   default:
     break;
