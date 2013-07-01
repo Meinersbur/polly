@@ -277,6 +277,9 @@ isl_basic_map *MemoryAccess::createBasicAccessMap(ScopStmt *Statement) {
 }
 
 MemoryAccess::MemoryAccess(AccessType type, const Value *base, __isl_take isl_map *accessRelation, const Instruction *AccInst, ScopStmt *Statement) : Inst(AccInst) {
+#if MOLLY
+  this->FieldVar = nullptr;
+#endif
   this->newAccessRelation = NULL;
   this->Type = type;
   this->statement = Statement;
@@ -311,6 +314,7 @@ static __isl_give isl_map* isl_map_from_multi_pw_aff(__isl_take isl_multi_pw_aff
 MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
                            ScopStmt *Statement)
     : Inst(AccInst) {
+
   newAccessRelation = NULL;
   statement = Statement;
 
@@ -327,6 +331,7 @@ MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
     return;
   }
 #ifdef MOLLY
+  this->FieldVar = nullptr;
   isl_space *Space = Statement->getDomainSpace();
 
   auto &offsets = Access.getOffsets();
@@ -403,6 +408,9 @@ void MemoryAccess::realignParams() {
 }
 
 MemoryAccess::MemoryAccess(const Value *BaseAddress, ScopStmt *Statement) {
+#if MOLLY
+  this->FieldVar = nullptr;
+#endif
   newAccessRelation = NULL;
   BaseAddr = BaseAddress;
   Type = Read;
@@ -559,10 +567,11 @@ void ScopStmt::buildScattering(SmallVectorImpl<unsigned> &Scatter) {
   Scattering = isl_map_align_params(Scattering, Parent.getParamSpace());
 }
 
-void ScopStmt::addAccess(MemoryAccess::AccessType type, const Value *base, __isl_take isl_map *accessRelation, const Instruction *AccInst) {
+MemoryAccess *ScopStmt::addAccess(MemoryAccess::AccessType type, const Value *base, __isl_take isl_map *accessRelation, const Instruction *AccInst) {
   auto access = new MemoryAccess(type, base, accessRelation, AccInst, this);
   MemAccs.push_back(access);
   InstructionToAccess[access->getAccessInstruction()] = access; 
+  return access;
 }
 
 void ScopStmt::buildAccesses(TempScop &tempScop, const Region &CurRegion) {
@@ -1110,7 +1119,7 @@ void Scop::buildScop(TempScop &tempScop, const Region &CurRegion,
 
 #ifdef MOLLY
 ScopStmt *Scop::getScopStmtFor(BasicBlock *bb) {
-// TODO: Linear search, can also build a map
+  // TODO: Linear search, can also build a map
   for (auto it = Stmts.begin(), end = Stmts.end(); it!=end; ++it) {
     auto stmt = *it;
     if (stmt->getBasicBlock() == bb)
@@ -1120,10 +1129,20 @@ ScopStmt *Scop::getScopStmtFor(BasicBlock *bb) {
 }
 
 
-  void Scop::addScopStmt(ScopStmt *stmt) {  
-    assert(stmt->getParent() == this);
-    Stmts.push_back(stmt); 
-  }
+void Scop::addScopStmt(ScopStmt *stmt) {  
+  assert(stmt->getParent() == this);
+  Stmts.push_back(stmt); 
+}
+
+
+isl_space *Scop::getScatteringSpace() const {
+  auto NbScatteringDims = getScatterDim();
+  assert(NbScatteringDims == getMaxLoopDepth() * 2 + 1);
+
+  isl_space *Space = isl_space_set_alloc(getIslCtx(), 0, NbScatteringDims);
+  Space = isl_space_set_tuple_name(Space, isl_dim_out, "scattering");
+  return Space;
+}
 #endif
 
 

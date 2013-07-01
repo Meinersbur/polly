@@ -44,13 +44,15 @@ namespace polly {
     llvm::CallInst *fieldCall;
     llvm::Function *mollyfunc;
     llvm::Type *elttype;
+
+  protected:
     bool reads;
     bool writes;
 
     //polly::MemoryAccess *scopAccess;
 
   public:
-    FieldAccess() : accessor(NULL) {  }
+    FieldAccess() : accessor(nullptr), fieldCall(nullptr), mollyfunc(nullptr), elttype(nullptr), reads(false), writes(false) {  }
     //FieldAccess(llvm::Instruction *accessor, llvm::CallInst *fieldCall, FieldVariable *fieldvar, bool isRead, bool isWrite);
 
     static bool isPtrFunc(llvm::Function *func);
@@ -65,8 +67,8 @@ namespace polly {
     //static FieldAccess fromMemoryAccess(polly::MemoryAccess *memacc);
     static FieldAccess fromAccessInstruction(llvm::Instruction *instr);
 
-    bool isValid() { return accessor; }
-    bool isNull() { return !accessor; }
+    bool isValid() { return reads || writes; }
+    bool isNull() { return !isValid(); }
 
     llvm::Instruction *getAccessor() { assert(accessor); return accessor; } // LoadInst or StoreInst
     llvm::LoadInst *getLoadInst();
@@ -74,8 +76,8 @@ namespace polly {
     llvm::CallInst *getFieldCall() { return fieldCall; }
     llvm::Function *getFieldFunc();
     bool isPtrCall();
-    
-    
+
+
     bool isRead() { return reads; }
     bool isWrite() { return writes; }
     llvm::Value *getBaseField();
@@ -91,7 +93,7 @@ namespace polly {
     llvm::Value *getFieldPtr();
 
     __isl_give isl_space *isl_getLogicalSpace(isl_ctx *); 
-    
+
     void getCoordinates(llvm::SmallVectorImpl<llvm::Value*> &list); //TODO: Make an iterator
 
     //isl::Space getIterationSpace(isl::Ctx *, ScopStmt *); // returns set space
@@ -100,6 +102,8 @@ namespace polly {
     //isl::MultiPwAff getAffineAccessRelation(isl::Ctx *, ScopStmt *);
     //isl::Map getAccessRelation();
 
+    bool isPrologue() const { return !accessor && writes; }
+    bool isEpilogue() { return !accessor && reads; }
   }; // class FieldAccess
 
 

@@ -42,6 +42,10 @@ namespace isl {
   class Map;
 } // namespace isl
 
+namespace molly {
+  class FieldVariable;
+} // namespace molly
+
 struct isl_ctx;
 struct isl_map;
 struct isl_basic_map;
@@ -199,6 +203,18 @@ public:
 
   /// @brief Print the MemoryAccess to stderr.
   void dump() const;
+
+#if MOLLY
+private:
+  molly::FieldVariable *FieldVar;
+public:
+  molly::FieldVariable *getFieldVariable() const { return FieldVar; }
+  void setFieldVariable( molly::FieldVariable *var) { this->FieldVar = var; }
+
+public:
+  bool isPrologue() const { return !statement && isWrite(); }
+  bool isEpilogie() const { return !statement && isRead(); }
+#endif
 };
 
 //===----------------------------------------------------------------------===//
@@ -408,7 +424,7 @@ public:
 public:
   ScopStmt(Scop *parent, BasicBlock *bb, const std::string baseName, Region *region, llvm::ArrayRef<llvm::Loop*> sourroundingLoops, isl_set *domain, isl_map *scattering);
 
-  void addAccess(MemoryAccess::AccessType type, const Value *base, __isl_take isl_map *accessRelation, const Instruction *AccInst);
+  MemoryAccess *addAccess(MemoryAccess::AccessType type, const Value *base, __isl_take isl_map *accessRelation, const Instruction *AccInst);
   void removeAccess(MemoryAccess *access);
 
 private:
@@ -419,6 +435,9 @@ private:
 public:
   __isl_give isl_map *getWhereMap() const;
   void setWhereMap(__isl_take isl_map *map);
+
+  bool isPrologue() const { return MemAccs.size()==1 && MemAccs[0]->isPrologue(); }
+  bool isEpilogue() const { return MemAccs.size()==1 && MemAccs[0]->isEpilogie(); }
 #endif /* MOLLY */
 };
 
@@ -646,6 +665,8 @@ public:
   void setCodegenPending(bool val) { this->codegenPending = val; }
 
   void addScopStmt(ScopStmt *stmt);
+
+  isl_space *getScatteringSpace() const;
 #endif /* MOLLY */
 };
 
