@@ -3,3 +3,5 @@ if (CUDALIB_FOUND)
 endif (CUDALIB_FOUND)
 
 set(LLVM_COMMON_DEPENDS ${LLVM_COMMON_DEPENDS} PARENT_SCOPE)
+
+add_subdirectory(pollycc)

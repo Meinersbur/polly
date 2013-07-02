@@ -50,7 +50,7 @@ void IRAccess::print(raw_ostream &OS) const {
   else
     OS << "Write ";
 
-  OS << BaseAddress->getName() << '[' << *Offset << "]\n";
+  OS << BaseAddress->getName();// << '[' << *Offset << "]\n";
 }
 
 void Comparison::print(raw_ostream &OS) const {
