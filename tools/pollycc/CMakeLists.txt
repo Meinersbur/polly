@@ -6,7 +6,6 @@ endmacro(add_polly_executable)
 
 set(CLANG_SOURCE_DIR "${LLVM_MAIN_SRC_DIR}/../clang")
 set(CLANG_BINARY_DIR "${POLLY_BINARY_DIR}/../clang")
-message("CLANG_SOURCE_DIR: ${CLANG_SOURCE_DIR}")
 include_directories("${CLANG_BINARY_DIR}/include" "${CLANG_SOURCE_DIR}/include")
 
 add_polly_executable(pollycc
