@@ -327,7 +327,7 @@ MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
     // access must or may happen. However, for write accesses it is important to
     // differentiate between writes that must happen and writes that may happen.
     AccessRelation = isl_map_from_basic_map(createBasicAccessMap(Statement)); //MK TODO: Does this also work for multi-dimensional arrays/fields?
-    Type = Access.isRead() ? Read : MayWrite;
+    Type = Access.isRead() ? READ : MAY_WRITE;
     return;
   }
 #ifdef MOLLY
@@ -371,7 +371,7 @@ MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
 #else
   isl_space *Space = Statement->getDomainSpace();
 
-  Type = Access.isRead() ? Read : MustWrite;
+  Type = Access.isRead() ? READ : MUST_WRITE;
 
   isl_pw_aff *Affine = SCEVAffinator::getPwAff(Statement, Access.getOffset());
 
@@ -413,7 +413,7 @@ MemoryAccess::MemoryAccess(const Value *BaseAddress, ScopStmt *Statement) {
 #endif
   newAccessRelation = NULL;
   BaseAddr = BaseAddress;
-  Type = Read;
+  Type = READ;
   statement = Statement;
 
   isl_basic_map *BasicAccessMap = createBasicAccessMap(Statement);
@@ -424,13 +424,13 @@ MemoryAccess::MemoryAccess(const Value *BaseAddress, ScopStmt *Statement) {
 
 void MemoryAccess::print(raw_ostream &OS) const {
   switch (Type) {
-  case Read:
+  case READ:
     OS.indent(12) << "ReadAccess := \n";
     break;
-  case MustWrite:
+  case MUST_WRITE:
     OS.indent(12) << "MustWriteAccess := \n";
     break;
-  case MayWrite:
+  case MAY_WRITE:
     OS.indent(12) << "MayWriteAccess := \n";
     break;
   }
