@@ -88,12 +88,13 @@ namespace polly {
 
     llvm::Value *getSubscript();//TODO: Multi-dimensional
 
-    unsigned getNumDims();
-    llvm::Value *getCoordinate(unsigned dim);
+    unsigned getNumDims() const;
+    llvm::Value *getCoordinate(unsigned dim) const;
     llvm::Value *getFieldPtr();
 
     __isl_give isl_space *isl_getLogicalSpace(isl_ctx *); 
 
+    std::vector<llvm::Value*> getCoordinates() const; //TODO: Make an iterator
     void getCoordinates(llvm::SmallVectorImpl<llvm::Value*> &list); //TODO: Make an iterator
 
     //isl::Space getIterationSpace(isl::Ctx *, ScopStmt *); // returns set space
@@ -104,6 +105,18 @@ namespace polly {
 
     bool isPrologue() const { return !accessor && writes; }
     bool isEpilogue() { return !accessor && reads; }
+
+#if 0
+    /// Value to be stored
+    Value *getSourceBufferPtr() {
+      return getStoreInst()->getValueOperand();
+    }
+
+    /// Value to be loaded
+    Value *getSourceBufferPtr() {
+      return getLoadInst();
+    }
+#endif
   }; // class FieldAccess
 
 

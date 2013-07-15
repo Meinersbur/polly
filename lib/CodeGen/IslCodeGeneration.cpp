@@ -1042,9 +1042,9 @@ public:
     IslNodeBuilder NodeBuilder(Builder, this);
     NodeBuilder.addParameters(S.getContext());
     NodeBuilder.create(Ast);
-//BEGIN Molly
+#ifdef MOLLY
     S.setCodegenPending(false);
-//END Molly
+#endif /* MOLLY */
     return true;
   }
 

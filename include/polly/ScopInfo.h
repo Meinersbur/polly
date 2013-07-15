@@ -207,14 +207,17 @@ public:
 #if MOLLY
 private:
   molly::FieldVariable *FieldVar;
+
 public:
+  bool isFieldAccess() const { return FieldVar; }
   molly::FieldVariable *getFieldVariable() const { return FieldVar; }
   void setFieldVariable( molly::FieldVariable *var) { this->FieldVar = var; }
 
-public:
   bool isPrologue() const { return !statement && isWrite(); }
   bool isEpilogie() const { return !statement && isRead(); }
-#endif
+
+  isl_id *getTupleId() const;
+#endif /* MOLLY */
 };
 
 //===----------------------------------------------------------------------===//
@@ -440,6 +443,8 @@ public:
 
   bool isPrologue() const { return MemAccs.size()==1 && MemAccs[0]->isPrologue(); }
   bool isEpilogue() const { return MemAccs.size()==1 && MemAccs[0]->isEpilogie(); }
+
+  isl_id *getTupleId() const;
 #endif /* MOLLY */
 };
 
@@ -669,6 +674,12 @@ public:
   void addScopStmt(ScopStmt *stmt);
 
   isl_space *getScatteringSpace() const;
+
+  ScopStmt *getScopStmtByTupleId(__isl_keep isl_id *) const;
+  ScopStmt *getScopStmtBySpace(__isl_keep isl_space *) const;
+
+  ScopStmt *getPrologue() const;
+  ScopStmt *getEpilogue() const;
 #endif /* MOLLY */
 };
 

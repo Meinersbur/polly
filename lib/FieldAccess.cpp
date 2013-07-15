@@ -161,7 +161,7 @@ FieldAccess FieldAccess::fromAccessInstruction(llvm::Instruction *instr) {
 }
 
 
-unsigned FieldAccess::getNumDims() {
+unsigned FieldAccess::getNumDims() const {
   auto nArgs = fieldCall->getNumArgOperands(); 
   assert(nArgs == mollyfunc->getArgumentList().size());
   //auto nArgs = mollyfunc->getArgumentList().size();
@@ -174,7 +174,7 @@ unsigned FieldAccess::getNumDims() {
 }
 
 
-llvm::Value *FieldAccess::getCoordinate(unsigned dim) {
+llvm::Value *FieldAccess::getCoordinate(unsigned dim) const {
   assert(dim < getNumDims());
   return fieldCall->getOperand(1 + dim);
 }
@@ -188,6 +188,19 @@ llvm::Value *FieldAccess::getFieldPtr() {
 __isl_give isl_space *FieldAccess::isl_getLogicalSpace(isl_ctx *ctx) {
   return isl_space_set_alloc(ctx, 0, getNumDims());
 }
+
+
+ std::vector<llvm::Value*> FieldAccess::getCoordinates() const {
+   std::vector<llvm::Value*> result;
+   auto nDims = getNumDims();
+   result.reserve(nDims);
+   assert(fieldCall->getNumArgOperands() >= nDims);
+   for (auto i = nDims-nDims; i < nDims; i+=1) {
+     auto arg = getCoordinate(i);
+     result.push_back(arg);
+   }
+   return result;
+ }
 
 
 void FieldAccess::getCoordinates(llvm::SmallVectorImpl<llvm::Value*> &list) {

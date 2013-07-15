@@ -439,6 +439,13 @@ void MemoryAccess::print(raw_ostream &OS) const {
 
 void MemoryAccess::dump() const { print(errs()); }
 
+
+#ifdef MOLLY
+isl_id *MemoryAccess::getTupleId() const {
+  return isl_id_alloc(statement->getIslCtx(), (llvm::Twine() + statement->getBaseName() + "__" + BaseName).str().c_str(), const_cast<MemoryAccess*>(this));
+}
+#endif /* MOLLY */
+
 // Create a map in the size of the provided set domain, that maps from the
 // one element of the provided set domain to another element of the provided
 // set domain.
@@ -861,7 +868,13 @@ void ScopStmt::setWhereMap(__isl_take isl_map *map) {
   this->whereMap = map; 
 }
 
-#endif MOLLY
+
+isl_id *ScopStmt::getTupleId() const {
+  return isl_space_get_tuple_id(getDomainSpace(), isl_dim_set);
+  return isl_id_alloc(getIslCtx(), getBaseName(), const_cast<ScopStmt*>(this));
+}
+
+#endif /* MOLLY */
 
 
 //===----------------------------------------------------------------------===//
@@ -1142,6 +1155,40 @@ isl_space *Scop::getScatteringSpace() const {
   isl_space *Space = isl_space_set_alloc(getIslCtx(), 0, NbScatteringDims);
   Space = isl_space_set_tuple_name(Space, isl_dim_out, "scattering");
   return Space;
+}
+
+
+ScopStmt *Scop::getScopStmtByTupleId(isl_id *id) const {
+  for (auto stmt : Stmts) {
+    auto stmtId = stmt->getTupleId();
+    if (stmtId == id)
+      return stmt;
+  }
+  return nullptr;
+}
+
+
+ScopStmt *Scop::getScopStmtBySpace(__isl_keep isl_space *space) const {
+  assert(isl_space_is_set(space));
+  return getScopStmtByTupleId(isl_space_get_tuple_id(space, isl_dim_set));
+}
+
+
+ScopStmt *Scop::getPrologue() const {
+  for (auto stmt : Stmts) {
+    if (stmt->isPrologue())
+      return stmt;
+  }
+  return nullptr;
+}
+
+
+ScopStmt *Scop::getEpilogue() const {
+  for (auto stmt : Stmts) {
+    if (stmt->isEpilogue())
+      return stmt;
+  }
+  return nullptr;
 }
 #endif
 
