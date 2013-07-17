@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 //
 #include "polly/LinkAllPasses.h"
+#include "polly/Options.h"
 #include "polly/CodeGen/BlockGenerators.h"
 #include "polly/CodeGen/Cloog.h"
 #include "polly/ScopDetection.h"
@@ -21,6 +22,7 @@
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Assembly/Writer.h"
 #include "llvm/Transforms/Utils/Local.h"
+#include "llvm/Support/CommandLine.h"
 #include "polly/MollyBackref.h"
 #include "polly/PollyContextPass.h"
 
@@ -31,6 +33,11 @@
 
 using namespace polly;
 using namespace llvm;
+
+static cl::opt<bool>
+DisableIntraScopScalarToArray("disable-polly-intra-scop-scalar-to-array",
+  cl::desc("Do not rewrite scalar to array to generate independent blocks"),
+  cl::Hidden, cl::init(false), cl::cat(PollyCategory));
 
 namespace {
 struct IndependentBlocks : public FunctionPass {
@@ -381,6 +388,8 @@ bool IndependentBlocks::translateScalarToArray(Instruction *Inst,
       if (isEscapeUse(U, R))
         LoadOutside.push_back(U);
 
+      if (DisableIntraScopScalarToArray) continue;
+
       if (canSynthesize(U, LI, SE, R))
         continue;
 
@@ -466,6 +475,8 @@ bool IndependentBlocks::isIndependentBlock(const Region *R,
         return false;
       }
     }
+
+    if (DisableIntraScopScalarToArray) continue;
 
     for (Instruction::op_iterator OI = Inst->op_begin(), OE = Inst->op_end();
          OI != OE; ++OI) {
