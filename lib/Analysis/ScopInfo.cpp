@@ -725,7 +725,7 @@ ScopStmt::ScopStmt(Scop &parent, TempScop &tempScop, const Region &CurRegion,
 }
 
 
-ScopStmt::ScopStmt(Scop &parent, const Region &CurRegion, BasicBlock &bb, SmallVectorImpl<Loop*> &Nest, __isl_take isl_set *domain) : 
+ScopStmt::ScopStmt(Scop &parent, const Region &CurRegion, BasicBlock &bb, llvm::ArrayRef<Loop*> Nest, __isl_take isl_set *domain) : 
     Parent(parent),
     BB(&bb),
     IVS(Nest.size()), 
@@ -846,7 +846,7 @@ void ScopStmt::dump() const { print(dbgs()); }
 
 #ifdef MOLLY
 
-ScopStmt::ScopStmt(Scop *parent, BasicBlock *bb, const std::string baseName, Region *region, llvm::ArrayRef<llvm::Loop*> sourroundingLoops, isl_set *domain, isl_map *scattering)
+ScopStmt::ScopStmt(Scop *parent, BasicBlock *bb, const std::string baseName, Region *region, llvm::ArrayRef<llvm::Loop*> sourroundingLoops, __isl_take isl_set *domain, __isl_take isl_map *scattering)
   : Parent(*parent), BB(bb),BaseName(baseName), region(region), InstructionToAccess(), NestLoops(sourroundingLoops.size()), IVS(sourroundingLoops.size()), MemAccs(), Domain(domain), Scattering(scattering), whereMap(nullptr) {
     auto nLoops = sourroundingLoops.size();
     for (unsigned i = 0; i < nLoops; i+=1) {

@@ -340,7 +340,7 @@ class ScopStmt {
   friend class Scop;
 
 public:
-  ScopStmt(Scop &parent, const Region &CurRegion, BasicBlock &bb, SmallVectorImpl<Loop*> &NestLoops, isl_set *domain);
+  ScopStmt(Scop &parent, const Region &CurRegion, BasicBlock &bb, llvm::ArrayRef<Loop*> NestLoops, isl_set *domain);
   const Region *getRegion() { return this->region; }
 
   ~ScopStmt();
@@ -432,10 +432,12 @@ public:
 
 #ifdef MOLLY
 public:
-  ScopStmt(Scop *parent, BasicBlock *bb, const std::string baseName, Region *region, llvm::ArrayRef<llvm::Loop*> sourroundingLoops, isl_set *domain, isl_map *scattering);
+  ScopStmt(Scop *parent, BasicBlock *bb, const std::string baseName, Region *region, llvm::ArrayRef<llvm::Loop*> sourroundingLoops, __isl_take isl_set *domain, __isl_take isl_map *scattering);
 
   MemoryAccess *addAccess(MemoryAccess::AccessType type, const Value *base, __isl_take isl_map *accessRelation, const Instruction *AccInst);
   void removeAccess(MemoryAccess *access);
+
+  ArrayRef<Loop*> getLoopNests() { return NestLoops; }
 
 private:
   /// Map { iteration domain -> (Node*Core*Thread) } that says where the ScopStmt is supposed to be executed
