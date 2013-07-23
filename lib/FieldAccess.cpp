@@ -14,6 +14,75 @@ using namespace std;
 
 
 
+void  FieldAccess::loadFromInstruction(llvm::Instruction *instr) {
+  //FIXME: These variants should be recognized as accesses to a field:
+  // 1a. %p = call llvm.molly.ptr;  % = LoadInst %p
+  // 1b. %p = call llvm.molly.ptr;  StoreInst %p
+  // 2a. %val = call llvm.molly.get
+  // 2b. call llvm.molly.set %val
+
+  assert(instr);
+  clear();
+    if (auto call = dyn_cast<CallInst>(instr)) {
+    auto func = call->getCalledFunction();
+    if (!func)
+      return ; 
+    if (func->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_get")) { 
+      assert(false);
+    }
+    if (func->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_set")){
+      assert(false);
+    }
+    return ; // Call of something else
+  }
+
+  const Value *ptr;
+  bool isRead = false;
+  bool isWrite = false;
+  //uint64_t size;
+  if (auto ld = dyn_cast<LoadInst>(instr)) {
+    ptr = ld->getPointerOperand();
+    isRead = true;
+  } else if (auto st = dyn_cast<StoreInst>(instr)) {
+    ptr = st->getPointerOperand();
+    isWrite = true;
+  } else 
+    return ; // Not an access
+
+  auto ptrcall = const_cast<CallInst*>(dyn_cast<CallInst>(ptr)); //TODO: A constant offset might be added to the ptr to access a struct member
+  if (!ptrcall)
+    return ; // access to something else
+  //assert(ptrcall->getParent() == instr->getParent() && "At the moment we depend on both being in the same BasicBlock");
+
+  auto func = ptrcall->getCalledFunction();
+  if (!func)
+    return ; // field functions are never called dynamically
+
+  auto intrID = func->getIntrinsicID(); 
+  if (intrID == Intrinsic::molly_ptr) {
+  } else if (func->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_ptr")) {
+  } else
+    return ; // Not a reference to a field
+
+
+  auto nArgs = ptrcall->getNumArgOperands();
+  assert(nArgs >= 2); // At least the reference to field + one coordinate
+  auto field = ptrcall->getArgOperand(0);
+
+  auto llvmEltPtrTy = func->getReturnType();
+  auto llvmEltTy = cast<llvm::PointerType>(llvmEltPtrTy)->getElementType(); 
+
+  this->accessor = instr;
+  this->fieldCall = ptrcall;
+  this->mollyfunc = func;
+  //result.fieldvar = NULL;
+  this->reads = isRead;
+  this->writes = isWrite;
+  //result.scopAccess = NULL;
+  this->elttype = llvmEltTy;
+}
+
+
 llvm::LoadInst *FieldAccess::getLoadInst() { 
   assert(isRead());
   assert(isa<LoadInst>(accessor)); 
@@ -99,65 +168,9 @@ FieldAccess FieldAccess::fromMemoryAccess(polly::MemoryAccess *memacc) {
 #endif
 
 FieldAccess FieldAccess::fromAccessInstruction(llvm::Instruction *instr) {
-  if (auto call = dyn_cast<CallInst>(instr)) {
-    auto func = call->getCalledFunction();
-    if (!func)
-      return FieldAccess(); 
-    if (func->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_get")) { 
-      assert(false);
-    }
-    if (func->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_set")){
-      assert(false);
-    }
-    return FieldAccess(); // Call of something else
-  }
-
-  const Value *ptr;
-  bool isRead = false;
-  bool isWrite = false;
-  if (auto ld = dyn_cast<LoadInst>(instr)) {
-    ptr = ld->getPointerOperand();
-    isRead = true;
-  } else if (auto st = dyn_cast<StoreInst>(instr)) {
-    ptr = st->getPointerOperand();
-    isWrite = true;
-  } else {
-    return FieldAccess(); // Not an access
-  }
-
-  auto ptrcall = const_cast<CallInst*>(dyn_cast<CallInst>(ptr)); //TODO: A constant offset might be added to the ptr to access a struct member
-  if (!ptrcall)
-    return FieldAccess(); // access to something else
-  //assert(ptrcall->getParent() == instr->getParent() && "At the moment we depend on both being in the same BasicBlock");
-
-  auto func = ptrcall->getCalledFunction();
-  if (!func)
-    return FieldAccess(); // field functions are never called dynamically
-
-  auto intrID = func->getIntrinsicID(); 
-  if (intrID == Intrinsic::molly_ptr) {
-  } else if (func->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_ptr")) {
-  } else
-    return FieldAccess(); // Not a reference to a field
-
-
-  auto nArgs = ptrcall->getNumArgOperands();
-  assert(nArgs >= 2); // At least the reference to field + one coordinate
-  auto field = ptrcall->getArgOperand(0);
-
-  auto llvmEltPtrTy = func->getReturnType();
-  auto llvmEltTy = cast<llvm::PointerType>(llvmEltPtrTy)->getElementType(); 
-
-  FieldAccess result;
-  result.accessor = instr;
-  result.fieldCall = ptrcall;
-  result.mollyfunc = func;
-  //result.fieldvar = NULL;
-  result.reads = isRead;
-  result.writes = isWrite;
-  //result.scopAccess = NULL;
-  result.elttype = llvmEltTy;
-  return result;
+ FieldAccess result;
+ result.loadFromInstruction(instr);
+ return result;
 }
 
 

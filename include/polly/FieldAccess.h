@@ -42,8 +42,11 @@ namespace polly {
     //FieldDetection *detector;
     llvm::Instruction *accessor;
     llvm::CallInst *fieldCall;
-    llvm::Function *mollyfunc;
-    llvm::Type *elttype;
+    llvm::Function *mollyfunc; // deprecate?
+    llvm::Type *elttype; // deprecate?
+
+    uint64_t offset; // first byte that is accessed
+    //uint64_t size; // number of bytes accessed starting at offset
 
   protected:
     bool reads;
@@ -51,9 +54,25 @@ namespace polly {
 
     //polly::MemoryAccess *scopAccess;
 
+  private:
+    void clear() {
+      this->accessor = nullptr;
+      this->fieldCall = nullptr;
+      this->mollyfunc = nullptr;
+      this->elttype = nullptr;
+      this->offset = 0;
+      //this->size = 0;
+      this->reads = false;
+      this->writes = false;
+    }
+
+  protected:
+   virtual void loadFromInstruction(llvm::Instruction *instr);
+
   public:
-    FieldAccess() : accessor(nullptr), fieldCall(nullptr), mollyfunc(nullptr), elttype(nullptr), reads(false), writes(false) {  }
-    //FieldAccess(llvm::Instruction *accessor, llvm::CallInst *fieldCall, FieldVariable *fieldvar, bool isRead, bool isWrite);
+        FieldAccess() {
+          clear();
+        }
 
     static bool isPtrFunc(llvm::Function *func);
     static bool isGetFunc(llvm::Function *func);
@@ -70,7 +89,8 @@ namespace polly {
     bool isValid() { return reads || writes; }
     bool isNull() { return !isValid(); }
 
-    llvm::Instruction *getAccessor() { assert(accessor); return accessor; } // LoadInst or StoreInst
+    llvm::Instruction *getAccessor() {   assert(accessor);  return accessor; } // CallInst, LoadInst or StoreInst
+
     llvm::LoadInst *getLoadInst();
     llvm::StoreInst *getStoreInst();
     llvm::CallInst *getFieldCall() { return fieldCall; }
@@ -103,8 +123,8 @@ namespace polly {
     //isl::MultiPwAff getAffineAccessRelation(isl::Ctx *, ScopStmt *);
     //isl::Map getAccessRelation();
 
-    bool isPrologue() const { return !accessor && writes; }
-    bool isEpilogue() { return !accessor && reads; }
+    //bool isPrologue() const { return !accessor && writes; }
+    //bool isEpilogue() { return !accessor && reads; }
 
 #if 0
     /// Value to be stored
