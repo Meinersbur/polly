@@ -848,7 +848,7 @@ void ScopStmt::dump() const { print(dbgs()); }
 
 #ifdef MOLLY
 
-ScopStmt::ScopStmt(Scop *parent, BasicBlock *bb, const std::string baseName, Region *region, llvm::ArrayRef<llvm::Loop*> sourroundingLoops, __isl_take isl_set *domain, __isl_take isl_map *scattering)
+ScopStmt::ScopStmt(Scop *parent, BasicBlock *bb, const std::string baseName, const Region *region, llvm::ArrayRef<llvm::Loop*> sourroundingLoops, __isl_take isl_set *domain, __isl_take isl_map *scattering)
   : Parent(*parent), BB(bb),BaseName(baseName), region(region), InstructionToAccess(), NestLoops(sourroundingLoops.size()), IVS(sourroundingLoops.size()), MemAccs(), Domain(domain), Scattering(scattering), whereMap(nullptr) {
     auto nLoops = sourroundingLoops.size();
     for (unsigned i = 0; i < nLoops; i+=1) {
@@ -857,7 +857,18 @@ ScopStmt::ScopStmt(Scop *parent, BasicBlock *bb, const std::string baseName, Reg
       this->IVS[i] = PN;
       this->NestLoops[i] = sourroundingLoops[i];
     }
+
+    auto id = getTupleId();
+    this->Domain = isl_set_set_tuple_id(Domain, id);
+    this->Scattering = isl_map_set_tuple_id(Scattering, isl_dim_in, id);
 }
+
+
+ void ScopStmt::setDomain(__isl_take isl_set *domain)  {
+  isl_set_free(this->Domain);
+  domain = isl_set_set_tuple_id(domain, getTupleId());
+  this->Domain = domain;
+ }
 
 
 __isl_give isl_map *ScopStmt::getWhereMap() const { 
@@ -1197,17 +1208,24 @@ ScopStmt *Scop::getEpilogue() const {
 
 //===----------------------------------------------------------------------===//
 ScopInfo::ScopInfo() : RegionPass(ID), scop(0) {
-#ifdef MOLLY
-  ctx = nullptr;
-#else
   ctx = isl_ctx_alloc();
   isl_options_set_on_error(ctx, ISL_ON_ERROR_ABORT);
+#ifdef MOLLY
+  owning_ctx = true;
 #endif
 }
+
+#ifdef MOLLY
+ScopInfo::ScopInfo(isl_ctx *islctx) : RegionPass(ID), scop(0), ctx(islctx), owning_ctx(false) {}
+#endif
 
 ScopInfo::~ScopInfo() {
   clear();
 #ifdef MOLLY
+  if (owning_ctx) {
+     isl_ctx_free(ctx);
+     ctx = nullptr;
+  }
 #else
   isl_ctx_free(ctx);
 #endif
@@ -1230,12 +1248,13 @@ bool ScopInfo::runOnRegion(Region *R, RGPassManager &RGM) {
 #ifdef MOLLY
   auto pollyContext = getAnalysisIfAvailable<PollyContextPass>();
   if (pollyContext) {
-  ctx = pollyContext->getIslCtx();
-  } else {
+    ctx = pollyContext->getIslCtx();
+  } else if (!ctx) {
     // We are not in a context that needs to preserve the isl_ctx, so create a new one evey time
     //FIXME: In this case, free in dtor
     ctx = isl_ctx_alloc();
     isl_options_set_on_error(ctx, ISL_ON_ERROR_ABORT);
+    owning_ctx = true;
   }
 #endif
 

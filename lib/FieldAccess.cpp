@@ -128,7 +128,7 @@ FieldAccess FieldAccess::fromAccessInstruction(llvm::Instruction *instr) {
   auto ptrcall = const_cast<CallInst*>(dyn_cast<CallInst>(ptr)); //TODO: A constant offset might be added to the ptr to access a struct member
   if (!ptrcall)
     return FieldAccess(); // access to something else
-  assert(ptrcall->getParent() == instr->getParent() && "At the moment we depend on both being in the same BasicBlock");
+  //assert(ptrcall->getParent() == instr->getParent() && "At the moment we depend on both being in the same BasicBlock");
 
   auto func = ptrcall->getCalledFunction();
   if (!func)

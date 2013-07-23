@@ -432,7 +432,7 @@ public:
 
 #ifdef MOLLY
 public:
-  ScopStmt(Scop *parent, BasicBlock *bb, const std::string baseName, Region *region, llvm::ArrayRef<llvm::Loop*> sourroundingLoops, __isl_take isl_set *domain, __isl_take isl_map *scattering);
+  ScopStmt(Scop *parent, BasicBlock *bb, const std::string baseName, const Region *region, llvm::ArrayRef<llvm::Loop*> sourroundingLoops, __isl_take isl_set *domain, __isl_take isl_map *scattering);
 
   MemoryAccess *addAccess(MemoryAccess::AccessType type, const Value *base, __isl_take isl_map *accessRelation, const Instruction *AccInst);
   void removeAccess(MemoryAccess *access);
@@ -445,6 +445,8 @@ private:
   isl_map *whereMap; 
 
 public:
+  void setDomain(__isl_take isl_set *domain);
+
   __isl_give isl_map *getWhereMap() const;
   void setWhereMap(__isl_take isl_map *map);
 
@@ -720,6 +722,7 @@ class ScopInfo : public RegionPass {
 public:
   static char ID;
   explicit ScopInfo();
+  explicit ScopInfo(isl_ctx *);
   ~ScopInfo();
 
   /// @brief Try to build the Polly IR of static control part on the current
@@ -744,6 +747,11 @@ public:
       OS << "Invalid Scop!\n";
   }
   //@}
+
+#ifdef MOLLY
+private:
+  bool owning_ctx;
+#endif
 };
 
 } // end namespace polly
