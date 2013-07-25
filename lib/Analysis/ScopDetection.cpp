@@ -101,6 +101,14 @@ AllowNonAffine("polly-allow-nonaffine",
                cl::desc("Allow non affine access functions in arrays"),
                cl::Hidden, cl::init(false), cl::cat(PollyCategory));
 
+static cl::opt<bool, true>
+TrackFailures("polly-detect-track-failures",
+              cl::desc("Track failure strings in detecting scop regions"),
+              cl::location(PollyTrackFailures), cl::Hidden, cl::init(false),
+              cl::cat(PollyCategory));
+
+bool polly::PollyTrackFailures = false;
+
 //===----------------------------------------------------------------------===//
 // Statistics.
 
@@ -111,11 +119,13 @@ STATISTIC(ValidRegion, "Number of regions that a valid part of Scop");
 
 #define INVALID(NAME, MESSAGE)                                                 \
   do {                                                                         \
-    std::string Buf;                                                           \
-    raw_string_ostream fmt(Buf);                                               \
-    fmt << MESSAGE;                                                            \
-    fmt.flush();                                                               \
-    LastFailure = Buf;                                                         \
+    if (PollyTrackFailures) {                                                  \
+      std::string Buf;                                                         \
+      raw_string_ostream fmt(Buf);                                             \
+      fmt << MESSAGE;                                                          \
+      fmt.flush();                                                             \
+      LastFailure = Buf;                                                       \
+    }                                                                          \
     DEBUG(dbgs() << MESSAGE);                                                  \
     DEBUG(dbgs() << "\n");                                                     \
     assert(!Context.Verifying &&#NAME);                                        \
@@ -125,11 +135,13 @@ STATISTIC(ValidRegion, "Number of regions that a valid part of Scop");
 
 #define INVALID_NOVERIFY(NAME, MESSAGE)                                        \
   do {                                                                         \
-    std::string Buf;                                                           \
-    raw_string_ostream fmt(Buf);                                               \
-    fmt << MESSAGE;                                                            \
-    fmt.flush();                                                               \
-    LastFailure = Buf;                                                         \
+    if (PollyTrackFailures) {                                                  \
+      std::string Buf;                                                         \
+      raw_string_ostream fmt(Buf);                                             \
+      fmt << MESSAGE;                                                          \
+      fmt.flush();                                                             \
+      LastFailure = Buf;                                                       \
+    }                                                                          \
     DEBUG(dbgs() << MESSAGE);                                                  \
     DEBUG(dbgs() << "\n");                                                     \
     /* DISABLED: assert(!Context.Verifying && #NAME); */                       \
@@ -264,6 +276,40 @@ bool ScopDetection::isValidCallInst(CallInst &CI) {
   return false;
 }
 
+std::string ScopDetection::formatInvalidAlias(AliasSet &AS) const {
+  std::string Message;
+  raw_string_ostream OS(Message);
+
+  OS << "Possible aliasing: ";
+
+  std::vector<Value *> Pointers;
+
+  for (AliasSet::iterator AI = AS.begin(), AE = AS.end(); AI != AE; ++AI)
+    Pointers.push_back(AI.getPointer());
+
+  std::sort(Pointers.begin(), Pointers.end());
+
+  for (std::vector<Value *>::iterator PI = Pointers.begin(),
+                                      PE = Pointers.end();
+       ;) {
+    Value *V = *PI;
+
+    if (V->getName().size() == 0)
+      OS << "\"" << *V << "\"";
+    else
+      OS << "\"" << V->getName() << "\"";
+
+    ++PI;
+
+    if (PI != PE)
+      OS << ", ";
+    else
+      break;
+  }
+
+  return OS.str();
+}
+
 bool ScopDetection::isValidMemoryAccess(Instruction &Inst,
                                         DetectionContext &Context) const {
 #ifdef MOLLY
@@ -324,37 +370,7 @@ bool ScopDetection::isValidMemoryAccess(Instruction &Inst,
   // not proof this without -basicaa we would fail. We disable this check to
   // not cause irrelevant verification failures.
   if (!AS.isMustAlias()) {
-    std::string Message;
-    raw_string_ostream OS(Message);
-
-    OS << "Possible aliasing: ";
-
-    std::vector<Value *> Pointers;
-
-    for (AliasSet::iterator AI = AS.begin(), AE = AS.end(); AI != AE; ++AI)
-      Pointers.push_back(AI.getPointer());
-
-    std::sort(Pointers.begin(), Pointers.end());
-
-    for (std::vector<Value *>::iterator PI = Pointers.begin(),
-                                        PE = Pointers.end();
-         ;) {
-      Value *V = *PI;
-
-      if (V->getName().size() == 0)
-        OS << "\"" << *V << "\"";
-      else
-        OS << "\"" << V->getName() << "\"";
-
-      ++PI;
-
-      if (PI != PE)
-        OS << ", ";
-      else
-        break;
-    }
-
-    INVALID_NOVERIFY(Alias, OS.str());
+    INVALID_NOVERIFY(Alias, formatInvalidAlias(AS));
     return false;
   }
 

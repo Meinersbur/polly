@@ -298,6 +298,9 @@ registerPollyEarlyAsPossiblePasses(const llvm::PassManagerBuilder &Builder,
   if (Builder.OptLevel == 0)
     return;
 
+  if (PollyOnlyPrinter || PollyPrinter || PollyOnlyViewer || PollyViewer)
+    PollyTrackFailures = true;
+
   if (PollyOnlyPrinter || PollyPrinter || PollyOnlyViewer || PollyViewer ||
       ExportJScop || ImportJScop)
     PollyEnabled = true;
