@@ -67,12 +67,12 @@ namespace polly {
     }
 
   protected:
-   virtual void loadFromInstruction(llvm::Instruction *instr);
+    virtual void loadFromInstruction(llvm::Instruction *instr);
 
   public:
-        FieldAccess() {
-          clear();
-        }
+    FieldAccess() {
+      clear();
+    }
 
     static bool isPtrFunc(llvm::Function *func);
     static bool isGetFunc(llvm::Function *func);
@@ -91,15 +91,15 @@ namespace polly {
 
     llvm::Instruction *getAccessor() {   assert(accessor);  return accessor; } // CallInst, LoadInst or StoreInst
 
-    llvm::LoadInst *getLoadInst();
+    llvm::LoadInst *getLoadInst() const;
     llvm::StoreInst *getStoreInst();
     llvm::CallInst *getFieldCall() { return fieldCall; }
     llvm::Function *getFieldFunc();
     bool isPtrCall();
 
 
-    bool isRead() { return reads; }
-    bool isWrite() { return writes; }
+    bool isRead() const { return reads; }
+    bool isWrite() const { return writes; }
     llvm::Value *getBaseField();
     llvm::Type *getElementType() { return elttype; } //FIXME: If field consists of structs, there is no unique element type/not uniquely determinable
 

@@ -218,8 +218,8 @@ public:
   molly::FieldVariable *getFieldVariable() const { return FieldVar; }
   void setFieldVariable( molly::FieldVariable *var) { this->FieldVar = var; }
 
-  bool isPrologue() const { return !statement && isWrite(); }
-  bool isEpilogie() const { return !statement && isRead(); }
+  //bool isPrologue() const { return !statement && isWrite(); }
+  //bool isEpilogie() const { return !statement && isRead(); }
 
   isl_id *getTupleId() const;
 #endif /* MOLLY */
@@ -450,8 +450,8 @@ public:
   __isl_give isl_map *getWhereMap() const;
   void setWhereMap(__isl_take isl_map *map);
 
-  bool isPrologue() const { return MemAccs.size()==1 && MemAccs[0]->isPrologue(); }
-  bool isEpilogue() const { return MemAccs.size()==1 && MemAccs[0]->isEpilogie(); }
+  //bool isPrologue() const { return MemAccs.size()==1 && MemAccs[0]->isPrologue(); }
+  //bool isEpilogue() const { return MemAccs.size()==1 && MemAccs[0]->isEpilogie(); }
 
   isl_id *getTupleId() const;
 #endif /* MOLLY */
@@ -674,7 +674,15 @@ public:
 private:
   bool codegenPending;
 
+protected:
+    Scop(llvm::Region *region, polly::TempScop *tempScop) : R(*region), tempScop(*tempScop), codegenPending(false) {
+      assert(tempScop);
+      assert(region);
+    }
+
 public:
+  static Scop *create(llvm::Region *region) { return new Scop(region, nullptr); }
+
   ScopStmt *getScopStmtFor(BasicBlock *bb);
 
   bool getCodegenPending() { return codegenPending; }
@@ -686,9 +694,6 @@ public:
 
   ScopStmt *getScopStmtByTupleId(__isl_keep isl_id *) const;
   ScopStmt *getScopStmtBySpace(__isl_keep isl_space *) const;
-
-  ScopStmt *getPrologue() const;
-  ScopStmt *getEpilogue() const;
 #endif /* MOLLY */
 };
 

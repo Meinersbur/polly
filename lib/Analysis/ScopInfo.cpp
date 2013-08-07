@@ -1185,24 +1185,6 @@ ScopStmt *Scop::getScopStmtBySpace(__isl_keep isl_space *space) const {
   assert(isl_space_is_set(space));
   return getScopStmtByTupleId(isl_space_get_tuple_id(space, isl_dim_set));
 }
-
-
-ScopStmt *Scop::getPrologue() const {
-  for (auto stmt : Stmts) {
-    if (stmt->isPrologue())
-      return stmt;
-  }
-  return nullptr;
-}
-
-
-ScopStmt *Scop::getEpilogue() const {
-  for (auto stmt : Stmts) {
-    if (stmt->isEpilogue())
-      return stmt;
-  }
-  return nullptr;
-}
 #endif
 
 

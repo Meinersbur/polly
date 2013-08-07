@@ -13,7 +13,6 @@ using namespace llvm;
 using namespace std;
 
 
-
 void  FieldAccess::loadFromInstruction(llvm::Instruction *instr) {
   //FIXME: These variants should be recognized as accesses to a field:
   // 1a. %p = call llvm.molly.ptr;  % = LoadInst %p
@@ -23,7 +22,7 @@ void  FieldAccess::loadFromInstruction(llvm::Instruction *instr) {
 
   assert(instr);
   clear();
-    if (auto call = dyn_cast<CallInst>(instr)) {
+  if (auto call = dyn_cast<CallInst>(instr)) {
     auto func = call->getCalledFunction();
     if (!func)
       return ; 
@@ -83,7 +82,7 @@ void  FieldAccess::loadFromInstruction(llvm::Instruction *instr) {
 }
 
 
-llvm::LoadInst *FieldAccess::getLoadInst() { 
+llvm::LoadInst *FieldAccess::getLoadInst() const { 
   assert(isRead());
   assert(isa<LoadInst>(accessor)); 
   return cast<LoadInst>(accessor); 
@@ -168,9 +167,9 @@ FieldAccess FieldAccess::fromMemoryAccess(polly::MemoryAccess *memacc) {
 #endif
 
 FieldAccess FieldAccess::fromAccessInstruction(llvm::Instruction *instr) {
- FieldAccess result;
- result.loadFromInstruction(instr);
- return result;
+  FieldAccess result;
+  result.loadFromInstruction(instr);
+  return result;
 }
 
 
@@ -203,17 +202,17 @@ __isl_give isl_space *FieldAccess::isl_getLogicalSpace(isl_ctx *ctx) {
 }
 
 
- std::vector<llvm::Value*> FieldAccess::getCoordinates() const {
-   std::vector<llvm::Value*> result;
-   auto nDims = getNumDims();
-   result.reserve(nDims);
-   assert(fieldCall->getNumArgOperands() >= nDims);
-   for (auto i = nDims-nDims; i < nDims; i+=1) {
-     auto arg = getCoordinate(i);
-     result.push_back(arg);
-   }
-   return result;
- }
+std::vector<llvm::Value*> FieldAccess::getCoordinates() const {
+  std::vector<llvm::Value*> result;
+  auto nDims = getNumDims();
+  result.reserve(nDims);
+  assert(fieldCall->getNumArgOperands() >= nDims);
+  for (auto i = nDims-nDims; i < nDims; i+=1) {
+    auto arg = getCoordinate(i);
+    result.push_back(arg);
+  }
+  return result;
+}
 
 
 void FieldAccess::getCoordinates(llvm::SmallVectorImpl<llvm::Value*> &list) {
