@@ -23,8 +23,6 @@
 #include "llvm/Assembly/Writer.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Support/CommandLine.h"
-#include "polly/MollyBackref.h"
-#include "polly/PollyContextPass.h"
 
 #define DEBUG_TYPE "polly-independent"
 #include "llvm/Support/Debug.h"
@@ -524,14 +522,6 @@ void IndependentBlocks::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addPreserved<ScopDetection>();
 #ifdef CLOOG_FOUND
   AU.addPreserved<CloogInfo>();
-#endif
-
-#ifdef MOLLY
-  AU.addPreservedID(PollyContextPassID);
-  if (&molly::MollyContextPassID)
-    AU.addPreservedID(&molly::MollyContextPassID);
-  if (&molly::FieldDetectionAnalysisPassID)
-    AU.addPreservedID(&molly::FieldDetectionAnalysisPassID);
 #endif
 }
 

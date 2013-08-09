@@ -32,9 +32,6 @@
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/Assembly/Writer.h"
 #include "llvm/Support/CommandLine.h"
-#if MOLLY
-#include "polly/PollyContextPass.h"
-#endif
 
 #define DEBUG_TYPE "polly-scops"
 #include "llvm/Support/Debug.h"
@@ -1256,10 +1253,7 @@ bool ScopInfo::runOnRegion(Region *R, RGPassManager &RGM) {
   LoopInfo &LI = getAnalysis<LoopInfo>();
   ScalarEvolution &SE = getAnalysis<ScalarEvolution>();
 #ifdef MOLLY
-  auto pollyContext = getAnalysisIfAvailable<PollyContextPass>();
-  if (pollyContext) {
-    ctx = pollyContext->getIslCtx();
-  } else if (!ctx) {
+  if (!ctx) {
     // We are not in a context that needs to preserve the isl_ctx, so create a new one evey time
     //FIXME: In this case, free in dtor
     ctx = isl_ctx_alloc();

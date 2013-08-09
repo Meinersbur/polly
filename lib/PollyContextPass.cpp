@@ -1,3 +1,4 @@
+#if 0
 #define DEBUG_TYPE "polly"
 #include "polly/PollyContextPass.h"
 
@@ -68,3 +69,4 @@ char &polly::PollyContextReleaseID = PollyContextRelease::ID;
 llvm::ModulePass *polly::createPollyContextRelease() {
   return new PollyContextRelease();
 }
+#endif
