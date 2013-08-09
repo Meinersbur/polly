@@ -1160,6 +1160,7 @@ void Scop::buildScop(TempScop &tempScop, const Region &CurRegion,
 
 
 #ifdef MOLLY
+
 ScopStmt *Scop::getScopStmtFor(BasicBlock *bb) {
   // TODO: Linear search, can also build a map
   for (auto it = Stmts.begin(), end = Stmts.end(); it!=end; ++it) {
@@ -1201,6 +1202,17 @@ ScopStmt *Scop::getScopStmtBySpace(__isl_keep isl_space *space) const {
   assert(isl_space_is_set(space));
   return getScopStmtByTupleId(isl_space_get_tuple_id(space, isl_dim_set));
 }
+
+
+void Scop::addParam(const SCEV * NewParameter) {
+  addParams(std::vector<const SCEV *>(1, NewParameter));
+
+  // Add parameter to the scop's context
+  auto space = isl_space_params_alloc(getIslCtx(), 1);
+  space = isl_space_set_dim_id(space, isl_dim_param, 0, getIdForParam(NewParameter));
+  Context = isl_set_align_params(Context, space);
+}
+
 #endif
 
 

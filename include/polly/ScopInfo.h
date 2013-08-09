@@ -694,6 +694,8 @@ public:
 
   ScopStmt *getScopStmtByTupleId(__isl_keep isl_id *) const;
   ScopStmt *getScopStmtBySpace(__isl_keep isl_space *) const;
+
+  void addParam(const SCEV * NewParameter);
 #endif /* MOLLY */
 };
 
