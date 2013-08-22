@@ -209,7 +209,7 @@ public:
   /// @brief Print the MemoryAccess to stderr.
   void dump() const;
 
-#if MOLLY
+#ifdef MOLLY
 private:
   molly::FieldVariable *FieldVar;
 
@@ -217,9 +217,6 @@ public:
   bool isFieldAccess() const { return FieldVar; }
   molly::FieldVariable *getFieldVariable() const { return FieldVar; }
   void setFieldVariable( molly::FieldVariable *var) { this->FieldVar = var; }
-
-  //bool isPrologue() const { return !statement && isWrite(); }
-  //bool isEpilogie() const { return !statement && isRead(); }
 
   isl_id *getTupleId() const;
 #endif /* MOLLY */
@@ -429,10 +426,15 @@ public:
   void dump() const;
 
 
-
 #ifdef MOLLY
 public:
   ScopStmt(Scop *parent, BasicBlock *bb, const std::string baseName, const Region *region, llvm::ArrayRef<llvm::Loop*> sourroundingLoops, __isl_take isl_set *domain, __isl_take isl_map *scattering);
+
+private:
+    DenseSet<const SCEV *> validParams;
+public:
+  void addParams(ArrayRef<const SCEV *> params);
+  const DenseSet<const SCEV *> &getValidParams() const { return validParams; }
 
   MemoryAccess *addAccess(MemoryAccess::AccessType type, const Value *base, __isl_take isl_map *accessRelation, const Instruction *AccInst);
   void removeAccess(MemoryAccess *access);

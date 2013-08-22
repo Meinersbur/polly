@@ -16,6 +16,7 @@
 
 #include "isl/set.h"
 #include "isl/map.h"
+#include <map>
 
 namespace polly {
 enum VectorizerChoice {
@@ -66,6 +67,18 @@ static inline int getNumberOfIterations(__isl_take isl_set *Domain) {
 
   return NumberIterations;
 }
+
+#ifdef MOLLY
+} // namespace polly
+namespace llvm {
+  class Instruction;
+  class Value;
+  class Pass;
+} // namespace llvm
+namespace polly {
+// Implemented in IslCodeGeneration.cpp
+llvm::Value* buildIslAff(llvm::Instruction *insertBefore, __isl_take isl_pw_aff *aff, std::map<isl_id *, llvm::Value *> &values, llvm::Pass *pass);
+#endif
 }
 
 #endif // POLLY_CODEGENERATION_H

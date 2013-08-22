@@ -66,7 +66,7 @@ namespace polly {
       this->writes = false;
     }
 
-  protected:
+  public:
     virtual void loadFromInstruction(llvm::Instruction *instr);
 
   public:

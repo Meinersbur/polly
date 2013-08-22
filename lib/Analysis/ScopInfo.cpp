@@ -67,7 +67,13 @@ public:
     Scop *S = Stmt->getParent();
     const Region *Reg = &S->getRegion();
 
+#ifndef MOLLY
     S->addParams(getParamsInAffineExpr(Reg, Scev, *S->getSE()));
+#else
+    auto params = getParamsInAffineExpr(Reg, Scev, *S->getSE());
+    Stmt->addParams(params);
+     S->addParams(params);
+#endif
 
     SCEVAffinator Affinator(Stmt);
     return Affinator.visit(Scev);
@@ -587,6 +593,12 @@ void ScopStmt::buildScattering(SmallVectorImpl<unsigned> &Scatter) {
   Scattering = isl_map_align_params(Scattering, Parent.getParamSpace());
 }
 
+
+ void ScopStmt::addParams(ArrayRef<const SCEV *> params) {
+   validParams.insert(params.begin(), params.end());
+ }
+
+
 MemoryAccess *ScopStmt::addAccess(MemoryAccess::AccessType type, const Value *base, __isl_take isl_map *accessRelation, const Instruction *AccInst) {
   auto access = new MemoryAccess(type, base, accessRelation, AccInst, this);
   MemAccs.push_back(access);
@@ -854,6 +866,16 @@ void ScopStmt::print(raw_ostream &OS) const {
   for (MemoryAccessVec::const_iterator I = MemAccs.begin(), E = MemAccs.end();
        I != E; ++I)
     (*I)->print(OS);
+
+#ifdef MOLLY
+  auto bb = getBasicBlock();
+  if (bb) {
+    OS.indent(12) << "BasicBlock:";
+    bb->print(OS); //TODO: indent
+  } else {
+    OS.indent(12) << "BasicBlock: n/a\n";
+  }
+#endif /* MOLLY */
 }
 
 void ScopStmt::dump() const { print(dbgs()); }
@@ -862,7 +884,7 @@ void ScopStmt::dump() const { print(dbgs()); }
 #ifdef MOLLY
 
 ScopStmt::ScopStmt(Scop *parent, BasicBlock *bb, const std::string baseName, const Region *region, llvm::ArrayRef<llvm::Loop*> sourroundingLoops, __isl_take isl_set *domain, __isl_take isl_map *scattering)
-  : Parent(*parent), BB(bb),BaseName(baseName), region(region), InstructionToAccess(), NestLoops(sourroundingLoops.size()), IVS(sourroundingLoops.size()), MemAccs(), Domain(domain), Scattering(scattering), whereMap(nullptr) {
+  : Parent(*parent), BB(bb), BaseName(baseName), region(region), InstructionToAccess(), NestLoops(sourroundingLoops.size()), IVS(sourroundingLoops.size()), MemAccs(), Domain(domain), Scattering(scattering), whereMap(nullptr) {
     auto nLoops = sourroundingLoops.size();
     for (unsigned i = 0; i < nLoops; i+=1) {
       PHINode *PN = sourroundingLoops[i]->getCanonicalInductionVariable();
@@ -871,17 +893,19 @@ ScopStmt::ScopStmt(Scop *parent, BasicBlock *bb, const std::string baseName, con
       this->NestLoops[i] = sourroundingLoops[i];
     }
 
-    auto id = getTupleId();
+    auto id = isl_id_alloc(getIslCtx(), baseName.c_str(), const_cast<ScopStmt*>(this));
     this->Domain = isl_set_set_tuple_id(Domain, id);
     this->Scattering = isl_map_set_tuple_id(Scattering, isl_dim_in, id);
 }
 
 
- void ScopStmt::setDomain(__isl_take isl_set *domain)  {
+void ScopStmt::setDomain(__isl_take isl_set *domain)  {
+  // Preserve the domain tuple id, it identifies this ScopStmt
+  auto domainTupleId = getTupleId();
   isl_set_free(this->Domain);
-  domain = isl_set_set_tuple_id(domain, getTupleId());
+  domain = isl_set_set_tuple_id(domain, domainTupleId);
   this->Domain = domain;
- }
+}
 
 
 __isl_give isl_map *ScopStmt::getWhereMap() const { 
@@ -890,7 +914,7 @@ __isl_give isl_map *ScopStmt::getWhereMap() const {
 
 
 void ScopStmt::setWhereMap(__isl_take isl_map *map) { 
-  isl_map_free(whereMap); 
+  isl_map_free(this->whereMap); 
   this->whereMap = map; 
 }
 

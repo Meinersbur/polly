@@ -13,7 +13,7 @@ using namespace llvm;
 using namespace std;
 
 
-void  FieldAccess::loadFromInstruction(llvm::Instruction *instr) {
+void FieldAccess::loadFromInstruction(llvm::Instruction *instr) {
   //FIXME: These variants should be recognized as accesses to a field:
   // 1a. %p = call llvm.molly.ptr;  % = LoadInst %p
   // 1b. %p = call llvm.molly.ptr;  StoreInst %p

@@ -1089,3 +1089,17 @@ INITIALIZE_PASS_DEPENDENCY(ScalarEvolution);
 INITIALIZE_PASS_DEPENDENCY(ScopDetection);
 INITIALIZE_PASS_END(IslCodeGeneration, "polly-codegen-isl",
                     "Polly - Create LLVM-IR from SCoPs", false, false)
+
+#ifdef MOLLY
+llvm::Value* polly::buildIslAff(llvm::Instruction *insertBefore, __isl_take isl_pw_aff *aff, std::map<isl_id *, llvm::Value *> &values, llvm::Pass *pass) {
+  llvm::IRBuilder<> builder(insertBefore);
+  auto space = isl_pw_aff_get_space(aff);
+  auto astbuild = isl_ast_build_from_context(isl_set_universe(space));
+   auto astexpr =  isl_ast_build_expr_from_pw_aff( astbuild, aff );
+
+  IslExprBuilder exprBuilder(builder, const_cast<std::map<isl_id *, llvm::Value *> &>(values), pass);
+  Value *result = exprBuilder.create(astexpr);
+  assert(result);
+  return result;
+}
+#endif
