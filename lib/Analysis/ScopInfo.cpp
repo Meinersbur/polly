@@ -49,6 +49,10 @@
 #include <string>
 #include <vector>
 
+#ifdef MOLLY
+#include "polly/FieldAccess.h"
+#endif
+
 using namespace llvm;
 using namespace polly;
 
@@ -67,13 +71,7 @@ public:
     Scop *S = Stmt->getParent();
     const Region *Reg = &S->getRegion();
 
-#ifndef MOLLY
     S->addParams(getParamsInAffineExpr(Reg, Scev, *S->getSE()));
-#else
-    auto params = getParamsInAffineExpr(Reg, Scev, *S->getSE());
-    Stmt->addParams(params);
-     S->addParams(params);
-#endif
 
     SCEVAffinator Affinator(Stmt);
     return Affinator.visit(Scev);
@@ -295,10 +293,9 @@ isl_basic_map *MemoryAccess::createBasicAccessMap(ScopStmt *Statement) {
       isl_basic_set_universe(Space));
 }
 
+#ifdef MOLLY
 MemoryAccess::MemoryAccess(AccessType type, const Value *base, __isl_take isl_map *accessRelation, const Instruction *AccInst, ScopStmt *Statement) : Inst(AccInst) {
-#if MOLLY
   this->FieldVar = nullptr;
-#endif
   this->newAccessRelation = NULL;
   this->Type = type;
   this->statement = Statement;
@@ -308,6 +305,7 @@ MemoryAccess::MemoryAccess(AccessType type, const Value *base, __isl_take isl_ma
 
   this->AccessRelation = accessRelation;
 }
+#endif /* MOLLY */
 
 
 // Missing in isl
@@ -329,16 +327,59 @@ static __isl_give isl_map* isl_map_from_multi_pw_aff(__isl_take isl_multi_pw_aff
 	return map;
 }
 
-
 MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
                            ScopStmt *Statement)
     : Inst(AccInst) {
-
   newAccessRelation = NULL;
   statement = Statement;
 
   BaseAddr = Access.getBase();
   setBaseName();
+
+#ifdef MOLLY
+  auto islctx = Statement->getIslCtx();
+  auto nCoords = Access.getOffsets().size();
+
+  auto accessSpace = isl_space_set_alloc(islctx, 0, nCoords);
+  accessSpace = isl_space_align_params(accessSpace, Statement->getDomainSpace());
+  auto accessRel = isl_map_from_basic_map(isl_basic_map_from_domain_and_range(isl_basic_set_universe(Statement->getDomainSpace()), isl_basic_set_universe(accessSpace))); accessSpace = NULL;
+
+  bool must = true;
+  for (auto i = nCoords-nCoords; i < nCoords; i+=1) {
+    auto coord = Access.getOffsets()[i];
+
+    // We do not use the Access.IsAffine flag, but assume that the following returns NULL if it is not affine
+    auto aff = SCEVAffinator::getPwAff(Statement, coord);
+    if (!aff) {
+      // Overapproximate by possibly accessing every element (of this dimension)
+      must = false;
+      continue;
+    }
+
+    if (!Access.areCoordinates()) {
+      // Divide the access function by the size of the elements in the array.
+      //
+      // A stride one array access in C expressed as A[i] is expressed in LLVM-IR
+      // as something like A[i * elementsize]. This hides the fact that two
+      // subsequent values of 'i' index two values that are stored next to each
+      // other in memory. By this division we make this characteristic obvious
+      // again.
+      isl_val *v = isl_val_int_from_si(islctx, Access.getElemSizeInBytes());
+      aff = isl_pw_aff_scale_down_val(aff, v);
+    }
+
+    auto affMap = isl_map_from_pw_aff(aff); // aff = NULL;
+    affMap = isl_map_insert_dims(affMap, isl_dim_out, 0, i);
+    affMap = isl_map_insert_dims(affMap, isl_dim_out, i+1, nCoords-i-1);
+    accessRel = isl_map_intersect(accessRel, affMap);
+  }
+
+  assert(Access.isRead() == !Access.isWrite());
+  this->Type = Access.isRead() ? READ : (must ? MUST_WRITE : MAY_WRITE);
+
+  accessRel = isl_map_set_tuple_name(accessRel, isl_dim_out, ("var_" + getBaseName()).c_str());
+  this->AccessRelation = accessRel; accessRel = NULL;
+#else
 
   if (!Access.isAffine()) {
     // We overapproximate non-affine accesses with a possible access to the
@@ -349,46 +390,6 @@ MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
     Type = Access.isRead() ? READ : MAY_WRITE;
     return;
   }
-#ifdef MOLLY
-  this->FieldVar = nullptr;
-  isl_space *Space = Statement->getDomainSpace();
-
-  auto &offsets = Access.getOffsets();
-  auto ctx = Statement->getIslCtx();
-  auto dims = offsets.size();
-  auto pwafflist = isl_pw_aff_list_alloc(ctx, dims);
-  for (auto it = offsets.begin(), end = offsets.end(); it!=end; ++it) {
-    auto offset = *it;
-    isl_pw_aff *Affine = SCEVAffinator::getPwAff(Statement, offset);
-    Affine = isl_pw_aff_align_params(Affine, isl_space_copy(Space));
-    Affine = isl_pw_aff_set_tuple_id(Affine, isl_dim_in, isl_dim_get_tuple_id(Space, isl_dim_set));
-
-    if (!Access.areCoordinates()) {
-      // Divide the access function by the size of the elements in the array.
-      //
-      // A stride one array access in C expressed as A[i] is expressed in LLVM-IR
-      // as something like A[i * elementsize]. This hides the fact that two
-      // subsequent values of 'i' index two values that are stored next to each
-      // other in memory. By this division we make this characteristic obvious
-      // again.
-      isl_int v;
-      isl_int_init(v);
-      isl_int_set_si(v, Access.getElemSizeInBytes());
-      Affine = isl_pw_aff_scale_down(Affine, v);
-      isl_int_clear(v);
-    }
-
-    pwafflist = isl_pw_aff_list_add(pwafflist, Affine);
-  }
-
-  isl_space *logical = isl_space_set_alloc(ctx, 0, dims);
-  logical = isl_space_align_params(logical, isl_space_copy(Space));
-  isl_space *range = isl_space_map_from_domain_and_range(isl_space_copy(Space), logical);
-  auto mpwaff = isl_multi_pw_aff_from_pw_aff_list(range, pwafflist); 
-  AccessRelation = isl_map_from_multi_pw_aff(mpwaff); 
-  //TODO: free isl objects
-#else
-  isl_space *Space = Statement->getDomainSpace();
 
   Type = Access.isRead() ? READ : MUST_WRITE;
 
@@ -406,19 +407,14 @@ MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
                           Access.getElemSizeInBytes());
   Affine = isl_pw_aff_scale_down_val(Affine, v);
 
-  isl_space *logical = isl_space_set_alloc(ctx, 0, dims);
-  logical = isl_space_align_params(logical, isl_space_copy(Space));
-  isl_space *range = isl_space_map_from_domain_and_range(isl_space_copy(Space), logical);
-  auto mpwaff = isl_multi_pw_aff_from_pw_aff_list(range, pwafflist); 
-  AccessRelation = isl_map_from_multi_pw_aff(mpwaff); 
-  //TODO: free isl objects
-  // END Molly
-#endif
+  AccessRelation = isl_map_from_pw_aff(Affine);
+  isl_space *Space = Statement->getDomainSpace();
   AccessRelation = isl_map_set_tuple_id(
       AccessRelation, isl_dim_in, isl_space_get_tuple_id(Space, isl_dim_set));
   isl_space_free(Space);
   AccessRelation = isl_map_set_tuple_name(AccessRelation, isl_dim_out,
                                           getBaseName().c_str());
+#endif /* MOLLY */
 }
 
 void MemoryAccess::realignParams() {
@@ -427,9 +423,9 @@ void MemoryAccess::realignParams() {
 }
 
 MemoryAccess::MemoryAccess(const Value *BaseAddress, ScopStmt *Statement) {
-#if MOLLY
+#ifdef MOLLY
   this->FieldVar = nullptr;
-#endif
+#endif /* MOLLY */
   newAccessRelation = NULL;
   BaseAddr = BaseAddress;
   Type = READ;
@@ -1269,9 +1265,6 @@ void ScopInfo::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addRequired<RegionInfo>();
   AU.addRequired<ScalarEvolution>();
   AU.addRequired<TempScopInfo>();
-#ifdef MOLLY
-  //AU.addRequired<PollyContextPass>();
-#endif
   AU.setPreservesAll();
 }
 
@@ -1312,11 +1305,11 @@ Pass *polly::createScopInfoPass() { return new ScopInfo(); }
 
 INITIALIZE_PASS_BEGIN(ScopInfo, "polly-scops",
                       "Polly - Create polyhedral description of Scops", false,
-                      true);
+                      false);
 INITIALIZE_PASS_DEPENDENCY(LoopInfo);
 INITIALIZE_PASS_DEPENDENCY(RegionInfo);
 INITIALIZE_PASS_DEPENDENCY(ScalarEvolution);
 INITIALIZE_PASS_DEPENDENCY(TempScopInfo);
 INITIALIZE_PASS_END(ScopInfo, "polly-scops",
                     "Polly - Create polyhedral description of Scops", false,
-                    true)
+                    false)

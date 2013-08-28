@@ -28,18 +28,15 @@
 #include "llvm/Assembly/Writer.h"
 #include "llvm/IR/DataLayout.h"
 
-//#include <isl/aff.h>
-//#include "polly/ScopInfo.h" // class SCEVAffinator
-
-//#include <polly/MollyMeta.h>
+#ifdef MOLLY
 #include "polly/FieldAccess.h"
+#endif /* MOLLY */
 
 #define DEBUG_TYPE "polly-analyze-ir"
 #include "llvm/Support/Debug.h"
 
 using namespace llvm;
 using namespace polly;
-
 
 //===----------------------------------------------------------------------===//
 /// Helper Classes
@@ -50,7 +47,19 @@ void IRAccess::print(raw_ostream &OS) const {
   else
     OS << "Write ";
 
-  OS << BaseAddress->getName();// << '[' << *Offset << "]\n";
+#ifdef MOLLY
+  OS << BaseAddress->getName() << '[';
+  bool first = true;
+  for (auto offset : Offsets) {
+    if (!first)
+      OS << ", ";
+    OS << *offset;
+    first = false;
+  }
+  OS << "]\n";
+#else /* MOLLY */
+  OS << BaseAddress->getName() << '[' << *Offset << "]\n";
+#endif /* MOLLY */
 }
 
 void Comparison::print(raw_ostream &OS) const {
@@ -150,7 +159,7 @@ bool TempScopInfo::buildScalarDependences(Instruction *Inst, Region *R) {
 
     // Use the def instruction as base address of the IRAccess, so that it will
     // become the the name of the scalar access in the polyhedral form.
-    IRAccess ScalarAccess(IRAccess::SCALARREAD, Inst, ZeroOffset, 1, true, false);
+    IRAccess ScalarAccess(IRAccess::SCALARREAD, Inst, ZeroOffset, 1, true);
     AccFuncMap[UseParent].push_back(std::make_pair(ScalarAccess, U));
   }
 
@@ -158,6 +167,24 @@ bool TempScopInfo::buildScalarDependences(Instruction *Inst, Region *R) {
 }
 
 IRAccess TempScopInfo::buildIRAccess(Instruction *Inst, Loop *L, Region *R) {
+#ifdef MOLLY
+  auto facc = FieldAccess::fromAccessInstruction(Inst);
+  if (facc.isValid()) {
+    // This is an access to a Molly-like field
+
+    auto nCoords = facc.getNumDims();
+    SmallVector<const SCEV *, 4> coords;
+    coords.reserve(nCoords);
+    for (auto i = nCoords-nCoords; i < nCoords; i+=1) {
+      auto coord = facc.getCoordinate(i);
+      auto AccessFunction = SE->getSCEVAtScope(coord, L);
+      coords.push_back(AccessFunction);
+    }
+
+    auto type = facc.isRead() ? IRAccess::READ : IRAccess::WRITE;
+    return IRAccess(type, facc.getBaseField(), coords, 0/*size per field element unknown*/, true);
+  }
+#endif /* MOLLY */
   unsigned Size;
   enum IRAccess::TypeKind Type;
 
@@ -180,7 +207,7 @@ IRAccess TempScopInfo::buildIRAccess(Instruction *Inst, Loop *L, Region *R) {
   bool IsAffine = isAffineExpr(R, AccessFunction, *SE, BasePointer->getValue());
 
   return IRAccess(Type, BasePointer->getValue(), AccessFunction, Size,
-                  IsAffine, false);
+                  IsAffine);
 }
 
 void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {
@@ -188,45 +215,15 @@ void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {
   Loop *L = LI->getLoopFor(&BB);
 
   for (BasicBlock::iterator I = BB.begin(), E = --BB.end(); I != E; ++I) {
-    Instruction &Inst = *I;
-  
-    unsigned Size;
-    enum IRAccess::TypeKind Type;
-    if (LoadInst *Load = dyn_cast<LoadInst>(&Inst)) {
-      Size = TD->getTypeStoreSize(Load->getType());
-      Type = IRAccess::READ;
-    } else if (StoreInst *Store = dyn_cast<StoreInst>(&Inst)) {
-      Size = TD->getTypeStoreSize(Store->getValueOperand()->getType());
-      Type = IRAccess::WRITE;
-    } else
-      continue; // TODO: Support molly_set, molly_get
-
-    // Handle Molly field accesses specially
-    auto fieldAcc = FieldAccess::fromAccessInstruction(&Inst); 
-    if (fieldAcc.isValid()) {
-      SmallVector<const SCEV*, 4> accFuncs;
-      bool IsAffine = true;
-      auto nDims = fieldAcc.getNumDims();
-      for (auto dim = nDims-nDims; dim<nDims; dim+=1) {
-        auto coord = fieldAcc.getCoordinate(dim);
-        auto accFunc = SE->getSCEV(coord);
-        IsAffine = IsAffine && isAffineExpr(&R, accFunc, *SE, Constant::getNullValue(coord->getType()));
-        accFuncs.push_back(accFunc);
-      }
-
-      IRAccess irAccess(Type, fieldAcc.getFieldPtr(), accFuncs, Size, IsAffine, true);
-      Functions.push_back(std::make_pair(irAccess, &Inst));
-      continue;
-    } 
-
+    Instruction *Inst = I;
     if (isa<LoadInst>(Inst) || isa<StoreInst>(Inst))
-      Functions.push_back(std::make_pair(buildIRAccess(&Inst, L, &R), &Inst));
+      Functions.push_back(std::make_pair(buildIRAccess(Inst, L, &R), Inst));
 
-    if (!isa<StoreInst>(Inst) && buildScalarDependences(&Inst, &R)) {
+    if (!isa<StoreInst>(Inst) && buildScalarDependences(Inst, &R)) {
       // If the Instruction is used outside the statement, we need to build the
       // write access.
-      IRAccess ScalarAccess(IRAccess::SCALARWRITE, &Inst, ZeroOffset, 1, true, false);
-      Functions.push_back(std::make_pair(ScalarAccess, &Inst));
+      IRAccess ScalarAccess(IRAccess::SCALARWRITE, Inst, ZeroOffset, 1, true);
+      Functions.push_back(std::make_pair(ScalarAccess, Inst));
     }
   }
 

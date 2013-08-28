@@ -37,11 +37,18 @@ class IRAccess {
 public:
   const Value *BaseAddress;
 
-  //const SCEV *Offset;
+#ifdef MOLLY
   // A vector for multi-dimensional accesses
   typedef SmallVector<const SCEV*, 4> OffsetsType; // So IRAccess is no POD anymore
   OffsetsType Offsets;
 
+  /// If true, offsets are coordinates
+  /// If false, offsets are byte distances from base
+  bool offsetsAreCoords;
+#else /* MOLLY */
+  const SCEV *Offset;
+#endif /* MOLLY */
+  
   // The type of the scev affine function
   enum TypeKind {
     READ = 0x1,
@@ -54,38 +61,45 @@ public:
 private:
   unsigned ElemBytes;
   TypeKind Type;
+#ifndef MOLLY
   bool IsAffine;
-
-  // If true, Offsets are coordinates to a molly field
-  // If false, Offsets contains a single value for a byte offset relative to the BaseAddress
-  bool offsetsAreCoords;
+#endif /* MOLLY */
 
 public:
-  explicit IRAccess (TypeKind Type, const Value *BaseAddress,
-                    const SCEV* offset, unsigned elemBytes, bool Affine, bool offsetsAreCoords)
-  : BaseAddress(BaseAddress),
-    ElemBytes(elemBytes), Type(Type), IsAffine(Affine), offsetsAreCoords(offsetsAreCoords) {
+#ifdef MOLLY
+  // Old non-Molly constructor
+  explicit IRAccess (TypeKind Type, const Value *BaseAddress, const SCEV* offset, unsigned elemBytes, bool Affine)
+  : BaseAddress(BaseAddress), ElemBytes(elemBytes), Type(Type), offsetsAreCoords(false) {
       this->Offsets.push_back(offset);
   }
 
-  explicit IRAccess (TypeKind Type, const Value *BaseAddress,
-                    SmallVectorImpl<const SCEV*> &offsets, unsigned elemBytes, bool Affine, bool offsetsAreCoords)
-  : BaseAddress(BaseAddress),
-    ElemBytes(elemBytes), Type(Type), IsAffine(Affine), offsetsAreCoords(offsetsAreCoords) {
+  explicit IRAccess (TypeKind Type, const Value *BaseAddress, ArrayRef<const SCEV*> offsets, unsigned elemBytes, bool offsetsAreCoords)
+  : BaseAddress(BaseAddress), ElemBytes(elemBytes), Type(Type), offsetsAreCoords(offsetsAreCoords) {
       this->Offsets.append(offsets.size(), *offsets.data());
   }
-
+#else
+    explicit IRAccess(TypeKind Type, const Value *BaseAddress, const SCEV *Offset,
+                    unsigned elemBytes, bool Affine)
+      : BaseAddress(BaseAddress), Offset(Offset), ElemBytes(elemBytes),
+        Type(Type), IsAffine(Affine) {}
+#endif
+        
   enum TypeKind getType() const { return Type; }
 
   const Value *getBase() const { return BaseAddress; }
 
-  //const SCEV *getOffset() const { return Offset; }
+#ifdef MOLLY
   const OffsetsType &getOffsets() const { return Offsets; }
-
+   bool areCoordinates() const { return offsetsAreCoords; }
+#else /* MOLLY */
+  const SCEV *getOffset() const { return Offset; }
+#endif /* MOLLY */
+  
   unsigned getElemSizeInBytes() const { return ElemBytes; }
 
+#ifndef MOLLY
   bool isAffine() const { return IsAffine; }
-  bool areCoordinates() const { return offsetsAreCoords; }
+#endif /* MOLLY */
 
   bool isRead() const { return Type & READ; }
 
@@ -200,7 +214,7 @@ public:
 
   /// @brief Get all access functions in a BasicBlock
   ///
-  /// @param  BB The BasicBlock that contains the access functions.
+  /// @param  BB The BasicBlock that containing the access functions.
   ///
   /// @return All access functions in BB
   ///
@@ -234,10 +248,10 @@ typedef std::map<const Region *, TempScop *> TempScopMapType;
 ///
 class TempScopInfo : public FunctionPass {
   //===-------------------------------------------------------------------===//
-
-  TempScopInfo(const TempScopInfo &) LLVM_DELETED_FUNCTION;
-  
-  const TempScopInfo &operator=(const TempScopInfo &) LLVM_DELETED_FUNCTION;
+  // DO NOT IMPLEMENT
+  TempScopInfo(const TempScopInfo &);
+  // DO NOT IMPLEMENT
+  const TempScopInfo &operator=(const TempScopInfo &);
 
   // The ScalarEvolution to help building Scop.
   ScalarEvolution *SE;
