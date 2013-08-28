@@ -118,7 +118,9 @@ llvm::Value *FieldAccess::getSubscript() {
     auto arg = call->getArgOperand(1);
     return arg;
   }
+  return nullptr;
 }
+
 
 bool FieldAccess::isPtrFunc(llvm::Function *func) {
   bool result = func->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_ptr");

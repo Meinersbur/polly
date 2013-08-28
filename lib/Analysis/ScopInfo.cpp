@@ -1201,7 +1201,9 @@ void Scop::addScopStmt(ScopStmt *stmt) {
 
 isl_space *Scop::getScatteringSpace() const {
   auto NbScatteringDims = getScatterDim();
+#ifndef MOLLY
   assert(NbScatteringDims == getMaxLoopDepth() * 2 + 1);
+#endif /* MOLLY */
 
   isl_space *Space = isl_space_set_alloc(getIslCtx(), 0, NbScatteringDims);
   Space = isl_space_set_tuple_name(Space, isl_dim_out, "scattering");
