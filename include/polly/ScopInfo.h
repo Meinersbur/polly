@@ -760,7 +760,7 @@ public:
 #ifdef MOLLY
 private:
   bool owning_ctx;
-#endif
+#endif /* MOLLY */
 };
 
 } // end namespace polly
@@ -770,4 +770,10 @@ class PassRegistry;
 void initializeScopInfoPass(llvm::PassRegistry &);
 }
 
+#ifdef MOLLY
+struct isl_pw_aff;
+namespace polly {
+  isl_pw_aff *affinatePwAff(ScopStmt *Stmt, const llvm::SCEV *Scev);
+} // namespace polly
+#endif /* MOLLY */
 #endif

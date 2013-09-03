@@ -368,10 +368,11 @@ MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
       aff = isl_pw_aff_scale_down_val(aff, v);
     }
 
-    auto affMap = isl_map_from_pw_aff(aff); // aff = NULL;
+    aff = isl_pw_aff_set_tuple_id(aff, isl_dim_in, isl_map_get_tuple_id(accessRel, isl_dim_in));
+    auto affMap = isl_map_from_pw_aff(aff); aff = NULL;
     affMap = isl_map_insert_dims(affMap, isl_dim_out, 0, i);
-    affMap = isl_map_insert_dims(affMap, isl_dim_out, i+1, nCoords-i-1);
-    accessRel = isl_map_intersect(accessRel, affMap);
+    affMap = isl_map_add_dims(affMap, isl_dim_out, nCoords-i-1);
+    accessRel = isl_map_intersect(accessRel, affMap); affMap = NULL;
   }
 
   assert(Access.isRead() == !Access.isWrite());
@@ -1313,3 +1314,9 @@ INITIALIZE_PASS_DEPENDENCY(TempScopInfo);
 INITIALIZE_PASS_END(ScopInfo, "polly-scops",
                     "Polly - Create polyhedral description of Scops", false,
                     false)
+
+#ifdef MOLLY
+isl_pw_aff *polly::affinatePwAff(ScopStmt *Stmt, const SCEV *Scev) {
+  return SCEVAffinator::getPwAff(Stmt, Scev);
+}
+#endif /* MOLLY */
