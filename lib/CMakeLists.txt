@@ -38,7 +38,6 @@ add_polly_library(LLVMPolly
   Pocc.cpp
   RegisterPasses.cpp
   ScheduleOptimizer.cpp
-  FieldAccess.cpp
   PollyContextPass.cpp
   ${POLLY_SCOPLIB_FILES}
   ${POLLY_PLUTO_FILES}

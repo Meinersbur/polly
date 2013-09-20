@@ -431,7 +431,7 @@ public:
   ScopStmt(Scop *parent, BasicBlock *bb, const std::string baseName, const Region *region, llvm::ArrayRef<llvm::Loop*> sourroundingLoops, __isl_take isl_set *domain, __isl_take isl_map *scattering);
 
 private:
-    DenseSet<const SCEV *> validParams;
+    DenseSet<const SCEV *> validParams; // deprecated
 public:
   void addParams(ArrayRef<const SCEV *> params);
   const DenseSet<const SCEV *> &getValidParams() const { return validParams; }
@@ -451,9 +451,6 @@ public:
 
   __isl_give isl_map *getWhereMap() const;
   void setWhereMap(__isl_take isl_map *map);
-
-  //bool isPrologue() const { return MemAccs.size()==1 && MemAccs[0]->isPrologue(); }
-  //bool isEpilogue() const { return MemAccs.size()==1 && MemAccs[0]->isEpilogie(); }
 
   isl_id *getTupleId() const;
 #endif /* MOLLY */

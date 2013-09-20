@@ -1,4 +1,5 @@
 add_polly_library(PollyAnalysis
+  FieldAccess.cpp
   Dependences.cpp
   ScopDetection.cpp
   ScopInfo.cpp

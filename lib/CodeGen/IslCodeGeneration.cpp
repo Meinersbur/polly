@@ -1091,15 +1091,24 @@ INITIALIZE_PASS_END(IslCodeGeneration, "polly-codegen-isl",
                     "Polly - Create LLVM-IR from SCoPs", false, false)
 
 #ifdef MOLLY
-llvm::Value* polly::buildIslAff(llvm::Instruction *insertBefore, __isl_take isl_pw_aff *aff, std::map<isl_id *, llvm::Value *> &values, llvm::Pass *pass) {
+static llvm::Value* buildIslAff(llvm::Instruction *insertBefore, __isl_take isl_pw_aff *aff, std::map<isl_id *, llvm::Value *> &values, llvm::Pass *pass) {
   llvm::IRBuilder<> builder(insertBefore);
-  auto space = isl_pw_aff_get_space(aff);
+  auto space = isl_pw_aff_get_domain_space(aff);
   auto astbuild = isl_ast_build_from_context(isl_set_universe(space));
-   auto astexpr =  isl_ast_build_expr_from_pw_aff( astbuild, aff );
+  auto astexpr = isl_ast_build_expr_from_pw_aff(astbuild, aff);
 
   IslExprBuilder exprBuilder(builder, const_cast<std::map<isl_id *, llvm::Value *> &>(values), pass);
   Value *result = exprBuilder.create(astexpr);
   assert(result);
   return result;
 }
-#endif
+
+
+llvm::Value *polly::codegenIslExpr(llvm::IRBuilder<> &irBuilder, __isl_take struct isl_ast_expr *expr, std::map<isl_id *, llvm::Value *> &values, llvm::Pass *pass) {
+  //llvm::IRBuilder<> irBuilder(insertHere, insertBefore);
+  IslExprBuilder exprBuilder(irBuilder, values, pass);
+  Value *result = exprBuilder.create(expr);
+  assert(result);
+  return result;
+}
+#endif /* MOLLY */

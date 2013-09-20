@@ -70,15 +70,18 @@ static inline int getNumberOfIterations(__isl_take isl_set *Domain) {
 
 #ifdef MOLLY
 } // namespace polly
+#include <llvm/IR/IRBuilder.h>
 namespace llvm {
   class Instruction;
   class Value;
   class Pass;
 } // namespace llvm
+struct isl_ast_expr;
 namespace polly {
 // Implemented in IslCodeGeneration.cpp
-llvm::Value* buildIslAff(llvm::Instruction *insertBefore, __isl_take isl_pw_aff *aff, std::map<isl_id *, llvm::Value *> &values, llvm::Pass *pass);
-#endif
+//llvm::Value* buildIslAff(llvm::Instruction *insertBefore, __isl_take isl_pw_aff *aff, std::map<isl_id *, llvm::Value *> &values, llvm::Pass *pass);
+  llvm::Value *codegenIslExpr(llvm::IRBuilder<> &irBuilder,  __isl_take isl_ast_expr *expr, std::map<isl_id *, llvm::Value *> &values, llvm::Pass *pass);
+#endif /* MOLLY */
 }
 
 #endif // POLLY_CODEGENERATION_H
