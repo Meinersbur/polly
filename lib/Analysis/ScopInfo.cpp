@@ -921,7 +921,7 @@ ScopStmt::ScopStmt(Scop *parent, BasicBlock *bb, const std::string baseName, con
     }
 
     auto id = isl_id_alloc(getIslCtx(), baseName.c_str(), const_cast<ScopStmt*>(this));
-    this->Domain = isl_set_set_tuple_id(Domain, id);
+    this->Domain = isl_set_set_tuple_id(Domain, isl_id_copy(id));
     this->Scattering = isl_map_set_tuple_id(Scattering, isl_dim_in, id);
 }
 

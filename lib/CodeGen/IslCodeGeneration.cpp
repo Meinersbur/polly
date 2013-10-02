@@ -1104,9 +1104,9 @@ static llvm::Value* buildIslAff(llvm::Instruction *insertBefore, __isl_take isl_
 }
 
 
-llvm::Value *polly::codegenIslExpr(llvm::IRBuilder<> &irBuilder, __isl_take struct isl_ast_expr *expr, std::map<isl_id *, llvm::Value *> &values, llvm::Pass *pass) {
+llvm::Value *polly::codegenIslExpr(llvm::IRBuilder<> &irBuilder, __isl_take struct isl_ast_expr *expr, const std::map<isl_id *, llvm::Value *> &values, llvm::Pass *pass) {
   //llvm::IRBuilder<> irBuilder(insertHere, insertBefore);
-  IslExprBuilder exprBuilder(irBuilder, values, pass);
+  IslExprBuilder exprBuilder(irBuilder, const_cast<std::map<isl_id *, llvm::Value *>&>(values), pass);
   Value *result = exprBuilder.create(expr);
   assert(result);
   return result;
