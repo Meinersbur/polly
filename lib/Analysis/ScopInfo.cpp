@@ -36,7 +36,6 @@
 #define DEBUG_TYPE "polly-scops"
 #include "llvm/Support/Debug.h"
 
-#include "isl/deprecated/int.h"
 #include "isl/constraint.h"
 #include "isl/set.h"
 #include "isl/map.h"
@@ -128,8 +127,7 @@ __isl_give isl_pw_aff *SCEVAffinator::visit(const SCEV *Expr) {
   return SCEVVisitor<SCEVAffinator, isl_pw_aff *>::visit(Expr);
 }
 
-__isl_give isl_pw_aff *
-SCEVAffinator::visitConstant(const SCEVConstant *Expr) {
+__isl_give isl_pw_aff *SCEVAffinator::visitConstant(const SCEVConstant *Expr) {
   ConstantInt *Value = Expr->getValue();
   isl_val *v;
 
