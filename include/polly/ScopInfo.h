@@ -80,13 +80,13 @@ public:
   ///
   /// * A must-write access
   ///
-  /// A certain set of memory locactions is definitely written. The old value is
+  /// A certain set of memory locations is definitely written. The old value is
   /// replaced by a newly calculated value. The old value is not read or used at
   /// all.
   ///
   /// * A may-write access
   ///
-  /// A certain set of memory locactions may be written. The memory location may
+  /// A certain set of memory locations may be written. The memory location may
   /// contain a new value if there is actually a write or the old value may
   /// remain, if no write happens.
 #ifdef MOLLY
@@ -99,10 +99,8 @@ public:
   };
 
 private:
-  // DO NOT IMPLEMENT
-  MemoryAccess(const MemoryAccess &);
-  // DO NOT IMPLEMENT
-  const MemoryAccess &operator=(const MemoryAccess &);
+  MemoryAccess(const MemoryAccess &) LLVM_DELETED_FUNCTION;
+  const MemoryAccess &operator=(const MemoryAccess &) LLVM_DELETED_FUNCTION;
 
   isl_map *AccessRelation;
   enum AccessType Type;
@@ -172,24 +170,24 @@ public:
 
   /// Get the stride of this memory access in the specified Schedule. Schedule
   /// is a map from the statement to a schedule where the innermost dimension is
-  /// the dimension of the innermost loop containing the statemenet.
+  /// the dimension of the innermost loop containing the statement.
   isl_set *getStride(__isl_take const isl_map *Schedule) const;
 
   /// Is the stride of the access equal to a certain width? Schedule is a map
   /// from the statement to a schedule where the innermost dimension is the
-  /// dimension of the innermost loop containing the statemenet.
+  /// dimension of the innermost loop containing the statement.
   bool isStrideX(__isl_take const isl_map *Schedule, int StrideWidth) const;
 
   /// Is consecutive memory accessed for a given statement instance set?
   /// Schedule is a map from the statement to a schedule where the innermost
   /// dimension is the dimension of the innermost loop containing the
-  /// statemenet.
+  /// statement.
   bool isStrideOne(__isl_take const isl_map *Schedule) const;
 
   /// Is always the same memory accessed for a given statement instance set?
   /// Schedule is a map from the statement to a schedule where the innermost
   /// dimension is the dimension of the innermost loop containing the
-  /// statemenet.
+  /// statement.
   bool isStrideZero(__isl_take const isl_map *Schedule) const;
 
   /// @brief Get the statement that contains this memory access.
@@ -232,10 +230,8 @@ public:
 /// At the moment every statement represents a single basic block of LLVM-IR.
 class ScopStmt {
   //===-------------------------------------------------------------------===//
-  // DO NOT IMPLEMENT
-  ScopStmt(const ScopStmt &);
-  // DO NOT IMPLEMENT
-  const ScopStmt &operator=(const ScopStmt &);
+  ScopStmt(const ScopStmt &) LLVM_DELETED_FUNCTION;
+  const ScopStmt &operator=(const ScopStmt &) LLVM_DELETED_FUNCTION;
 
   /// Polyhedral description
   //@{
@@ -260,7 +256,7 @@ class ScopStmt {
   ///     Domain: 0 <= i <= 100 + b
   ///             0 <= j <= i
   ///
-  /// A pair of statment and iteration vector (S, (5,3)) is called statment
+  /// A pair of statement and iteration vector (S, (5,3)) is called statement
   /// instance.
   isl_set *Domain;
 
@@ -314,7 +310,7 @@ class ScopStmt {
 
   std::string BaseName;
 
-  /// Build the statment.
+  /// Build the statement.
   //@{
   __isl_give isl_set *buildConditionSet(const Comparison &Cmp);
   __isl_give isl_set *addConditionsToDomain(__isl_take isl_set *Domain,
@@ -482,23 +478,21 @@ static inline raw_ostream &operator<<(raw_ostream &O, const ScopStmt &S) {
 ///   can take and relations between different parameters.
 class Scop {
   //===-------------------------------------------------------------------===//
-  // DO NOT IMPLEMENT
-  Scop(const Scop &);
-  // DO NOT IMPLEMENT
-  const Scop &operator=(const Scop &);
+  Scop(const Scop &) LLVM_DELETED_FUNCTION;
+  const Scop &operator=(const Scop &) LLVM_DELETED_FUNCTION;
 
   ScalarEvolution *SE;
 
   /// The underlying Region.
-  Region &R;
+  Region *R;
 
-  TempScop &tempScop;
+  TempScop *tempScop;
 
   /// Max loop depth.
   unsigned MaxLoopDepth;
 
   typedef std::vector<ScopStmt *> StmtSet;
-  /// The Statments in this Scop.
+  /// The statements in this Scop.
   StmtSet Stmts;
 
   /// Parameters of this Scop
@@ -509,7 +503,7 @@ class Scop {
   typedef std::map<const SCEV *, int> ParamIdType;
   ParamIdType ParameterIds;
 
-  // Isl context.
+  /// Isl context.
   isl_ctx *IslCtx;
 
   /// Constraints on parameters.
@@ -517,7 +511,8 @@ class Scop {
 
   /// Create the static control part with a region, max loop depth of this
   /// region and parameters used in this region.
-  Scop(TempScop &TempScop, LoopInfo &LI, ScalarEvolution &SE, isl_ctx *ctx);
+  Scop(ScalarEvolution &ScalarEvolution, isl_ctx *Context);
+  void initFromTempScop(TempScop &tempScop, LoopInfo &LI);
 
   /// @brief Check if a basic block is trivial.
   ///
@@ -536,7 +531,7 @@ class Scop {
   /// @brief Add the bounds of the parameters to the context.
   void addParameterBounds();
 
-  /// Build the Scop and Statement with precalculate scop information.
+  /// Build the Scop and Statement with precalculated scop information.
   void buildScop(TempScop &TempScop, const Region &CurRegion,
                  // Loops in Scop containing CurRegion
                  SmallVectorImpl<Loop *> &NestLoops,
@@ -593,8 +588,8 @@ public:
   /// @brief Get the maximum region of this static control part.
   ///
   /// @return The maximum region of this static control part.
-  inline const Region &getRegion() const { return R; }
-  inline Region &getRegion() { return R; }
+  inline const Region &getRegion() const { return *R; }
+  inline Region &getRegion() { return *R; }
 
   /// @brief Get the maximum depth of the loop.
   ///
@@ -667,14 +662,14 @@ public:
   /// @brief Get a union set containing the iteration domains of all statements.
   __isl_give isl_union_set *getDomains();
 
-  TempScop &getTempScop() { return tempScop; }
+  TempScop &getTempScop() { return *tempScop; }
 
 #ifdef MOLLY
 private:
   bool codegenPending;
 
 protected:
-    Scop(llvm::Region *region, polly::TempScop *tempScop) : R(*region), tempScop(*tempScop), codegenPending(false) {
+    Scop(llvm::Region *region, polly::TempScop *tempScop) : R(region), tempScop(tempScop), codegenPending(false) {
       assert(tempScop);
       assert(region);
     }
@@ -709,10 +704,8 @@ static inline raw_ostream &operator<<(raw_ostream &O, const Scop &scop) {
 ///
 class ScopInfo : public RegionPass {
   //===-------------------------------------------------------------------===//
-  // DO NOT IMPLEMENT
-  ScopInfo(const ScopInfo &);
-  // DO NOT IMPLEMENT
-  const ScopInfo &operator=(const ScopInfo &);
+  ScopInfo(const ScopInfo &) LLVM_DELETED_FUNCTION;
+  const ScopInfo &operator=(const ScopInfo &) LLVM_DELETED_FUNCTION;
 
   // The Scop
   Scop *scop;
@@ -725,9 +718,11 @@ class ScopInfo : public RegionPass {
     }
   }
 
+  static Scop *createScopFromTempScop(TempScop &tempScop, LoopInfo &LI, ScalarEvolution &ScalarEvolution, isl_ctx *Context);
+
 public:
   static char ID;
-  explicit ScopInfo();
+  ScopInfo();
   explicit ScopInfo(isl_ctx *);
   ~ScopInfo();
 
@@ -743,10 +738,10 @@ public:
   /// @name RegionPass interface
   //@{
   const char *getPassName() const LLVM_OVERRIDE { return "polly::ScopInfo"; }
-  virtual bool runOnRegion(Region *R, RGPassManager &RGM);
-  virtual void getAnalysisUsage(AnalysisUsage &AU) const;
-  virtual void releaseMemory() { clear(); }
-  virtual void print(raw_ostream &OS, const Module *) const {
+  virtual bool runOnRegion(Region *R, RGPassManager &RGM) LLVM_OVERRIDE;
+  virtual void getAnalysisUsage(AnalysisUsage &AU) const LLVM_OVERRIDE;
+  virtual void releaseMemory() LLVM_OVERRIDE { clear(); }
+  virtual void print(raw_ostream &OS, const Module *) const LLVM_OVERRIDE {
     if (scop)
       scop->print(OS);
     else

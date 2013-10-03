@@ -42,7 +42,7 @@ public:
   typedef SmallVector<const SCEV*, 4> OffsetsType; // So IRAccess is no POD anymore
   OffsetsType Offsets;
 
-  /// If true, offsets are coordinates
+  /// If true, offsets are coordinates, with difference 1 between elements
   /// If false, offsets are byte distances from base
   bool offsetsAreCoords;
 #else /* MOLLY */

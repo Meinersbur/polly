@@ -36,7 +36,7 @@
 #define DEBUG_TYPE "polly-scops"
 #include "llvm/Support/Debug.h"
 
-#include "isl/int.h"
+#include "isl/deprecated/int.h"
 #include "isl/constraint.h"
 #include "isl/set.h"
 #include "isl/map.h"
@@ -1048,12 +1048,16 @@ void Scop::realignParams() {
     (*I)->realignParams();
 }
 
-Scop::Scop(TempScop &tempScop, LoopInfo &LI, ScalarEvolution &ScalarEvolution,
-           isl_ctx *Context)
-    : SE(&ScalarEvolution), R(tempScop.getMaxRegion()),
-      MaxLoopDepth(tempScop.getMaxLoopDepth()), tempScop(tempScop) {
-  codegenPending = false;
-  IslCtx = Context;
+Scop::Scop(ScalarEvolution &ScalarEvolution, isl_ctx *Context) 
+  : SE(&ScalarEvolution), R(NULL), MaxLoopDepth(0), tempScop(NULL), IslCtx(Context) {
+    codegenPending = false;
+}
+
+void Scop::initFromTempScop(TempScop &tempScop, LoopInfo &LI) {
+  assert(!R && "Can only init once");
+  R = &tempScop.getMaxRegion();
+  MaxLoopDepth = tempScop.getMaxLoopDepth();
+  this->tempScop = &tempScop;
   buildContext();
 
   SmallVector<Loop *, 8> NestLoops;
@@ -1069,6 +1073,12 @@ Scop::Scop(TempScop &tempScop, LoopInfo &LI, ScalarEvolution &ScalarEvolution,
   addParameterBounds();
 
   assert(NestLoops.empty() && "NestLoops not empty at top level!");
+}
+
+Scop *ScopInfo::createScopFromTempScop(TempScop &tempScop, LoopInfo &LI, ScalarEvolution &ScalarEvolution, isl_ctx *Context) {
+ Scop *scop = new Scop(ScalarEvolution, Context);
+ scop->initFromTempScop(tempScop, LI);
+ return scop;
 }
 
 Scop::~Scop() {
@@ -1090,11 +1100,11 @@ std::string Scop::getNameStr() const {
   raw_string_ostream ExitStr(ExitName);
   raw_string_ostream EntryStr(EntryName);
 
-  WriteAsOperand(EntryStr, R.getEntry(), false);
+  WriteAsOperand(EntryStr, R->getEntry(), false);
   EntryStr.str();
 
-  if (R.getExit()) {
-    WriteAsOperand(ExitStr, R.getExit(), false);
+  if (R->getExit()) {
+    WriteAsOperand(ExitStr, R->getExit(), false);
     ExitStr.str();
   } else
     ExitName = "FunctionExit";
@@ -1325,7 +1335,7 @@ bool ScopInfo::runOnRegion(Region *R, RGPassManager &RGM) {
   if (tempScop->getMaxLoopDepth() > 0)
     ++RichScopFound;
 
-  scop = new Scop(*tempScop, LI, SE, ctx);
+  scop = createScopFromTempScop(*tempScop, LI, SE, ctx);
 
   return false;
 }

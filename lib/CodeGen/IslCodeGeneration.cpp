@@ -445,6 +445,7 @@ Value *IslExprBuilder::createOp(__isl_take isl_ast_expr *Expr) {
   case isl_ast_op_and_then:
   case isl_ast_op_or_else:
   case isl_ast_op_call:
+  case isl_ast_op_access:
     llvm_unreachable("Unsupported isl ast expression");
   case isl_ast_op_max:
   case isl_ast_op_min:
@@ -1091,19 +1092,6 @@ INITIALIZE_PASS_END(IslCodeGeneration, "polly-codegen-isl",
                     "Polly - Create LLVM-IR from SCoPs", false, false)
 
 #ifdef MOLLY
-static llvm::Value* buildIslAff(llvm::Instruction *insertBefore, __isl_take isl_pw_aff *aff, std::map<isl_id *, llvm::Value *> &values, llvm::Pass *pass) {
-  llvm::IRBuilder<> builder(insertBefore);
-  auto space = isl_pw_aff_get_domain_space(aff);
-  auto astbuild = isl_ast_build_from_context(isl_set_universe(space));
-  auto astexpr = isl_ast_build_expr_from_pw_aff(astbuild, aff);
-
-  IslExprBuilder exprBuilder(builder, const_cast<std::map<isl_id *, llvm::Value *> &>(values), pass);
-  Value *result = exprBuilder.create(astexpr);
-  assert(result);
-  return result;
-}
-
-
 llvm::Value *polly::codegenIslExpr(llvm::IRBuilder<> &irBuilder, __isl_take struct isl_ast_expr *expr, const std::map<isl_id *, llvm::Value *> &values, llvm::Pass *pass) {
   //llvm::IRBuilder<> irBuilder(insertHere, insertBefore);
   IslExprBuilder exprBuilder(irBuilder, const_cast<std::map<isl_id *, llvm::Value *>&>(values), pass);
