@@ -335,7 +335,7 @@ MemoryAccess::MemoryAccess(AccessType type, const Value *base, __isl_take isl_ma
 }
 #endif /* MOLLY */
 
-
+#if 0
 // Missing in isl
 static __isl_give isl_map* isl_map_from_multi_pw_aff(__isl_take isl_multi_pw_aff *mpwaff) {
 	if (!mpwaff)
@@ -354,6 +354,7 @@ static __isl_give isl_map* isl_map_from_multi_pw_aff(__isl_take isl_multi_pw_aff
 	isl_multi_pw_aff_free(mpwaff);
 	return map;
 }
+#endif
 
 MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
                            ScopStmt *Statement)
