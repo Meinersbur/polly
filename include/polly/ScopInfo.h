@@ -335,7 +335,6 @@ class ScopStmt {
 public:
   ScopStmt(Scop &parent, const Region &CurRegion, BasicBlock &bb, llvm::ArrayRef<Loop*> NestLoops, isl_set *domain);
   const Region *getRegion() { return this->region; }
-
   ~ScopStmt();
   /// @brief Get an isl_ctx pointer.
   isl_ctx *getIslCtx() const;
@@ -545,7 +544,6 @@ class Scop {
   friend class ScopInfo;
 
 public:
-
   ~Scop();
 
   ScalarEvolution *getSE() const;
