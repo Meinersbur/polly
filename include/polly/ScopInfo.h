@@ -667,13 +667,10 @@ private:
   bool codegenPending;
 
 protected:
-    Scop(llvm::Region *region, polly::TempScop *tempScop) : R(region), tempScop(tempScop), codegenPending(false) {
-      assert(tempScop);
-      assert(region);
-    }
+    Scop(isl_ctx *islctx, llvm::Region *region, polly::TempScop *tempScop, ScalarEvolution *SE);
 
 public:
-  static Scop *create(llvm::Region *region) { return new Scop(region, nullptr); }
+  static Scop *create(isl_ctx *islctx, llvm::Region *region, llvm::ScalarEvolution *SE) { return new Scop(islctx, region, nullptr, SE); }
 
   ScopStmt *getScopStmtFor(BasicBlock *bb);
 
@@ -750,6 +747,12 @@ public:
 #ifdef MOLLY
 private:
   bool owning_ctx;
+
+public:
+  void setScop(Scop *scop) {
+    assert(!this->scop && "Use this only without running the analysis");
+    this->scop = scop;
+  }
 #endif /* MOLLY */
 };
 

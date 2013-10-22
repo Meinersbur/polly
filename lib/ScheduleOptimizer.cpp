@@ -223,7 +223,7 @@ isl_basic_map *IslScheduleOptimizer::getTileMap(isl_ctx *ctx,
   //	                  s0 = a0 * 32 and s0 = p0 and t0 <= p0 < t0 + 32 and
   //	                  s1 = a1 * 32 and s1 = p1 and t1 <= p1 < t1 + 32}
   //
-  // and project out the auxilary dimensions a0 and a1.
+  // and project out the auxiliary dimensions a0 and a1.
   isl_space *Space =
       isl_space_alloc(ctx, 0, scheduleDimensions, scheduleDimensions * 3);
   isl_basic_map *tileMap = isl_basic_map_universe(isl_space_copy(Space));
@@ -264,9 +264,9 @@ isl_basic_map *IslScheduleOptimizer::getTileMap(isl_ctx *ctx,
     tileMap = isl_basic_map_add_constraint(tileMap, c);
   }
 
-  // Project out auxilary dimensions.
+  // Project out auxiliary dimensions.
   //
-  // The auxilary dimensions are transformed into existentially quantified ones.
+  // The auxiliary dimensions are transformed into existentially quantified ones.
   // This reduces the number of visible scattering dimensions and allows Cloog
   // to produces better code.
   tileMap = isl_basic_map_project_out(
@@ -396,7 +396,7 @@ IslScheduleOptimizer::getScheduleForBandList(isl_band_list *BandList) {
       isl_band_list_free(Children);
     } else if (PollyVectorizerChoice != VECTORIZER_NONE) {
       for (int j = 0; j < isl_band_n_member(Band); j++) {
-        if (isl_band_member_is_zero_distance(Band, j)) {
+        if (isl_band_member_is_coincident(Band, j)) {
           isl_map *TileMap;
           isl_union_map *TileUMap;
 

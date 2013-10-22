@@ -911,7 +911,7 @@ void ScopStmt::dump() const { print(dbgs()); }
 ScopStmt::ScopStmt(Scop *parent, BasicBlock *bb, const std::string baseName, const Region *region, llvm::ArrayRef<llvm::Loop*> sourroundingLoops, __isl_take isl_set *domain, __isl_take isl_map *scattering)
   : Parent(*parent), BB(bb), BaseName(baseName), region(region), InstructionToAccess(), NestLoops(sourroundingLoops.size()), IVS(sourroundingLoops.size()), MemAccs(), Domain(domain), Scattering(scattering), whereMap(nullptr) {
     auto nLoops = sourroundingLoops.size();
-    for (unsigned i = 0; i < nLoops; i+=1) {
+    for (auto i = nLoops-nLoops; i < nLoops; i+=1) {
       PHINode *PN = sourroundingLoops[i]->getCanonicalInductionVariable();
       assert(PN && "Non canonical IV in Scop!");
       this->IVS[i] = PN;
@@ -1216,6 +1216,18 @@ void Scop::buildScop(TempScop &tempScop, const Region &CurRegion,
 
 
 #ifdef MOLLY
+
+Scop::Scop(isl_ctx *islctx, llvm::Region *region, polly::TempScop *tempScop, ScalarEvolution *SE) 
+  : IslCtx(islctx), R(region), tempScop(tempScop), codegenPending(false), SE(SE) {
+  assert(islctx);
+  assert(region);
+  //assert(tempScop);
+  assert(SE);
+
+  this->MaxLoopDepth = 0; //TODO: Need to update MaxLoopDepth when addingScopStmts
+  this->buildContext();
+}
+
 
 ScopStmt *Scop::getScopStmtFor(BasicBlock *bb) {
   // TODO: Linear search, can also build a map
