@@ -998,7 +998,8 @@ __isl_give isl_id *Scop::getIdForParam(const SCEV *Parameter) const {
 
 void Scop::buildContext() {
   isl_space *Space = isl_space_params_alloc(IslCtx, 0);
-  Context = isl_set_universe(Space);
+  Context = isl_set_universe(isl_space_copy(Space));
+  AssumedContext = isl_set_universe(Space);
 }
 
 void Scop::addParameterBounds() {
@@ -1085,6 +1086,7 @@ Scop::~Scop() {
 #endif
 
   isl_set_free(Context);
+  isl_set_free(AssumedContext);
 
   // Free the statements;
   for (iterator I = begin(), E = end(); I != E; ++I)
@@ -1113,6 +1115,10 @@ std::string Scop::getNameStr() const {
 __isl_give isl_set *Scop::getContext() const { return isl_set_copy(Context); }
 __isl_give isl_space *Scop::getParamSpace() const {
   return isl_set_get_space(this->Context);
+}
+
+__isl_give isl_set *Scop::getAssumedContext() const {
+  return isl_set_copy(AssumedContext);
 }
 
 void Scop::printContext(raw_ostream &OS) const {
