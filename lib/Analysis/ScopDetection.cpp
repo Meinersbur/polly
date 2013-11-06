@@ -258,8 +258,13 @@ bool ScopDetection::isValidCallInst(CallInst &CI) {
   Function *CalledFunction = CI.getCalledFunction();
   assert(CalledFunction);
 
+#ifdef MOLLY
+  if (CalledFunction && CalledFunction->hasFnAttribute("molly_pure"))
+    return true;
+
   if (FieldAccess::isFieldCall(&CI))
     return true;
+#endif
 
   if (CI.mayHaveSideEffects() || CI.doesNotReturn())
     return false;

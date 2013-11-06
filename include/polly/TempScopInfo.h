@@ -75,7 +75,7 @@ public:
 
   explicit IRAccess (TypeKind Type, const Value *BaseAddress, ArrayRef<const SCEV*> offsets, unsigned elemBytes, bool offsetsAreCoords)
   : BaseAddress(BaseAddress), ElemBytes(elemBytes), Type(Type), offsetsAreCoords(offsetsAreCoords) {
-      this->Offsets.append(offsets.size(), *offsets.data());
+      this->Offsets.append(offsets.begin(), offsets.end());
   }
 #else
     explicit IRAccess(TypeKind Type, const Value *BaseAddress, const SCEV *Offset,
