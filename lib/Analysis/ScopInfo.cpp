@@ -625,6 +625,10 @@ void ScopStmt::buildScattering(SmallVectorImpl<unsigned> &Scatter) {
 
 
 MemoryAccess *ScopStmt::addAccess(MemoryAccess::AccessType type, const Value *base, __isl_take isl_map *accessRelation, const Instruction *AccInst) {
+#ifdef MOLLY
+  assert(BB && AccInst->getParent() == BB && "access to a different ScopStmt");
+  assert(!lookupAccessFor(AccInst) && "Only one MemoryAccess per instruction");
+#endif
   auto access = new MemoryAccess(type, base, accessRelation, AccInst, this);
   MemAccs.push_back(access);
   InstructionToAccess[access->getAccessInstruction()] = access; 
