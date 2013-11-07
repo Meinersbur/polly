@@ -160,6 +160,12 @@ BlockGenerator::BlockGenerator(IRBuilder<> &B, ScopStmt &Stmt, Pass *P)
 
 Value *BlockGenerator::lookupAvailableValue(const Value *Old, ValueMapT &BBMap,
                                             ValueMapT &GlobalMap) const {
+#ifdef MOLLY
+  // Metadata is global and static, no need to transform
+  if (isa<MDNode>(Old))
+    return const_cast<Value*>(Old); // FIXME: There shouldn't be any const_casts, too much declared as const
+#endif
+
   // We assume constants never change.
   // This avoids map lookups for many calls to this function.
   if (isa<Constant>(Old))

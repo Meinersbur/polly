@@ -2,7 +2,7 @@
 #include "polly/Support/SCEVValidator.h"
 #include "polly/ScopInfo.h"
 
-#define DEBUG_TYPE "polly-scev-validator"
+#define DEBUG_TYPE "polly"
 #include "llvm/Support/Debug.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"

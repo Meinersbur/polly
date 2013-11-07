@@ -63,7 +63,7 @@
 //#include "polly/MollyMeta.h"
 #include "polly/FieldAccess.h"
 
-#define DEBUG_TYPE "polly-detect"
+#define DEBUG_TYPE "polly"
 #include "llvm/Support/Debug.h"
 
 #include <set>
