@@ -70,6 +70,7 @@ namespace polly {
     virtual void loadFromInstruction(llvm::Instruction *instr);
 
   public:
+    ~FieldAccess() {}
     FieldAccess() {
       clear();
     }

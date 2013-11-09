@@ -16,9 +16,11 @@
 
 #include <llvm/Support/CommandLine.h>
 
+#ifndef MOLLY
 namespace llvm { 
   class PassManagerBase; 
 }
+#endif
 
 enum OptimizerChoice {
   OPTIMIZER_NONE,
