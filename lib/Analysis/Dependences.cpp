@@ -30,7 +30,7 @@
 #include <isl/map.h>
 #include <isl/set.h>
 
-#define DEBUG_TYPE "polly-dependence"
+#define DEBUG_TYPE "polly"
 #include "llvm/Support/Debug.h"
 
 using namespace polly;

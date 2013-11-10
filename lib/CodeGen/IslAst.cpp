@@ -26,7 +26,7 @@
 #include "polly/Options.h"
 #include "polly/ScopInfo.h"
 
-#define DEBUG_TYPE "polly-ast"
+#define DEBUG_TYPE "polly"
 #include "llvm/Support/Debug.h"
 
 #include "isl/union_map.h"
