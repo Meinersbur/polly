@@ -14,7 +14,7 @@ if (GPU_CODEGEN)
 endif (GPU_CODEGEN)
 
 file(GLOB polly_codegen_headers ${POLLY_SOURCE_DIR}/include/polly/CodeGen/*.h)
-add_polly_library(PollyCodeGen
+add_polly_library(LLVMPollyCodeGen
   BlockGenerators.cpp
   ${CLOOG_FILES}
   ${ISL_CODEGEN_FILES}

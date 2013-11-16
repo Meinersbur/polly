@@ -18,7 +18,9 @@
 
 #ifndef MOLLY
 namespace llvm { 
+namespace legacy {
   class PassManagerBase; 
+}
 }
 #endif
 

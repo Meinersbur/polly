@@ -128,7 +128,7 @@ STATISTIC(ValidRegion, "Number of regions that a valid part of Scop");
     }                                                                          \
     DEBUG(dbgs() << MESSAGE);                                                  \
     DEBUG(dbgs() << "\n");                                                     \
-    assert(!Context.Verifying &&#NAME);                                        \
+    assert(!Context.Verifying && #NAME);                                       \
     if (!Context.Verifying)                                                    \
       ++Bad##NAME##ForScop;                                                    \
   } while (0)

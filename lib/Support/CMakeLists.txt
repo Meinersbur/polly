@@ -1,5 +1,5 @@
 file(GLOB polly_support_headers ${POLLY_SOURCE_DIR}/include/polly/CodeGen/*.h)
-add_polly_library(PollySupport
+add_polly_library(LLVMPollySupport
   GICHelper.cpp
   SCEVValidator.cpp
   ScopHelper.cpp

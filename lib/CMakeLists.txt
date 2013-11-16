@@ -16,11 +16,11 @@ if (PLUTO_FOUND)
 endif (PLUTO_FOUND)
 
 set(LLVM_USED_LIBS
-  PollyAnalysis
-  PollyCodeGen
-  PollyExchange
-  PollySupport
-  PollyJSON
+  LLVMPollyAnalysis
+  LLVMPollyCodeGen
+  LLVMPollyExchange
+  LLVMPollySupport
+  LLVMPollyJSON
   )
 
 if (PLUTO_FOUND)
@@ -34,7 +34,6 @@ add_polly_library(LLVMPolly
   DeadCodeElimination.cpp
   IndependentBlocks.cpp
   IndVarSimplify.cpp
-  MayAliasSet.cpp
   Pocc.cpp
   RegisterPasses.cpp
   ScheduleOptimizer.cpp
@@ -50,11 +49,11 @@ if (TARGET intrinsics_gen)
 endif()
 
 add_dependencies(LLVMPolly
-  PollyAnalysis
-  PollyCodeGen
-  PollyExchange
-  PollySupport
-  PollyJSON
+  LLVMPollyAnalysis
+  LLVMPollyCodeGen
+  LLVMPollyExchange
+  LLVMPollySupport
+  LLVMPollyJSON
   )
 
 set_target_properties(LLVMPolly
