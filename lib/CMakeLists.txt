@@ -18,7 +18,7 @@ endif (PLUTO_FOUND)
 set(LLVM_USED_LIBS
   LLVMPollyAnalysis
   LLVMPollyCodeGen
-  LLVMPollyExchange
+#  LLVMPollyExchange
   LLVMPollySupport
   LLVMPollyJSON
   )

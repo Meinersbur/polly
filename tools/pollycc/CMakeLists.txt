@@ -78,6 +78,7 @@ add_polly_executable(pollycc
 #    linker
 #    selectiondag
   LINK_LIBS 
-    PollyAnalysis # Once more because of back references
+#    LLVMPollyAnalysis # Once more because of back references
     LLVMPolly
+    LLVMPollyExchange
 )
