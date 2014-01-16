@@ -20,8 +20,6 @@
 #include "polly/ScopPass.h"
 #include "polly/ScopLib.h"
 
-#include "llvm/Assembly/Writer.h"
-
 #include "stdio.h"
 #include "isl/set.h"
 #include "isl/constraint.h"

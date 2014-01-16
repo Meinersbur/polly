@@ -56,7 +56,6 @@
 #include "llvm/Analysis/RegionIterator.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
-#include "llvm/Assembly/Writer.h"
 #include "llvm/DebugInfo.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/DiagnosticInfo.h"
@@ -738,12 +737,12 @@ bool ScopDetection::runOnFunction(llvm::Function &F) {
   }
 
   LI = &getAnalysis<LoopInfo>();
+  RI = &getAnalysis<RegionInfo>();
   if (!DetectScopsWithoutLoops && LI->empty())
     return false;
 
   AA = &getAnalysis<AliasAnalysis>();
   SE = &getAnalysis<ScalarEvolution>();
-  RI = &getAnalysis<RegionInfo>();
   Region *TopRegion = RI->getTopLevelRegion();
 
   releaseMemory();
@@ -776,7 +775,7 @@ void polly::ScopDetection::verifyAnalysis() const {
 }
 
 void ScopDetection::getAnalysisUsage(AnalysisUsage &AU) const {
-  AU.addRequired<DominatorTree>();
+  AU.addRequired<DominatorTreeWrapperPass>();
   AU.addRequired<PostDominatorTree>();
   AU.addRequired<LoopInfo>();
   AU.addRequired<ScalarEvolution>();
@@ -809,7 +808,7 @@ INITIALIZE_PASS_BEGIN(ScopDetection, "polly-detect",
                       "Polly - Detect static control parts (SCoPs)", false,
                       false);
 INITIALIZE_AG_DEPENDENCY(AliasAnalysis);
-INITIALIZE_PASS_DEPENDENCY(DominatorTree);
+INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass);
 INITIALIZE_PASS_DEPENDENCY(LoopInfo);
 INITIALIZE_PASS_DEPENDENCY(PostDominatorTree);
 INITIALIZE_PASS_DEPENDENCY(RegionInfo);

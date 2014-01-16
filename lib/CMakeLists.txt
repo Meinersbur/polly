@@ -30,6 +30,7 @@ endif(PLUTO_FOUND)
 file(GLOB polly_headers ${POLLY_SOURCE_DIR}/include/polly/*.h)
 set_source_files_properties(${polly_headers} PROPERTIES HEADER_FILE_ONLY ON)
 add_polly_library(LLVMPolly
+  Canonicalization.cpp
   CodePreparation.cpp
   DeadCodeElimination.cpp
   IndependentBlocks.cpp

@@ -89,14 +89,10 @@ public:
   /// A certain set of memory locations may be written. The memory location may
   /// contain a new value if there is actually a write or the old value may
   /// remain, if no write happens.
+  enum AccessType { READ, MUST_WRITE, MAY_WRITE };
 #ifdef MOLLY
 public:
 #endif
-  enum AccessType {
-    READ,
-    MUST_WRITE,
-    MAY_WRITE
-  };
 
 private:
   MemoryAccess(const MemoryAccess &) LLVM_DELETED_FUNCTION;

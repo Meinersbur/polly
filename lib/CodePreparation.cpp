@@ -152,7 +152,7 @@ void CodePreparation::getAnalysisUsage(AnalysisUsage &AU) const {
 
   AU.addPreserved<LoopInfo>();
   AU.addPreserved<RegionInfo>();
-  AU.addPreserved<DominatorTree>();
+  AU.addPreserved<DominatorTreeWrapperPass>();
   AU.addPreserved<DominanceFrontier>();
 }
 

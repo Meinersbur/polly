@@ -30,7 +30,6 @@
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/RegionIterator.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
-#include "llvm/Assembly/Writer.h"
 #include "llvm/Support/CommandLine.h"
 
 #define DEBUG_TYPE "polly-scops"
@@ -291,7 +290,7 @@ static void makeIslCompatible(std::string &str) {
 
 void MemoryAccess::setBaseName() {
   raw_string_ostream OS(BaseName);
-  WriteAsOperand(OS, getBaseAddr(), false);
+  getBaseAddr()->printAsOperand(OS, false);
   BaseName = OS.str();
 
   makeIslCompatible(BaseName);
@@ -769,7 +768,7 @@ ScopStmt::ScopStmt(Scop &parent, TempScop &tempScop, const Region &CurRegion,
   }
 
   raw_string_ostream OS(BaseName);
-  WriteAsOperand(OS, &bb, false);
+  bb.printAsOperand(OS, false);
   BaseName = OS.str();
 
   makeIslCompatible(BaseName);
@@ -1104,11 +1103,11 @@ std::string Scop::getNameStr() const {
   raw_string_ostream ExitStr(ExitName);
   raw_string_ostream EntryStr(EntryName);
 
-  WriteAsOperand(EntryStr, R->getEntry(), false);
+  R->getEntry()->printAsOperand(EntryStr, false);
   EntryStr.str();
 
   if (R->getExit()) {
-    WriteAsOperand(ExitStr, R->getExit(), false);
+    R->getExit()->printAsOperand(ExitStr, false);
     ExitStr.str();
   } else
     ExitName = "FunctionExit";
