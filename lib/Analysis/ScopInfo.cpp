@@ -799,7 +799,7 @@ ScopStmt::ScopStmt(Scop &parent, const Region &CurRegion, BasicBlock &bb, llvm::
   }
 
   raw_string_ostream OS(BaseName);
-  WriteAsOperand(OS, &bb, false);
+  bb.printAsOperand(OS, false);
   BaseName = OS.str();
 
   makeIslCompatible(BaseName);
