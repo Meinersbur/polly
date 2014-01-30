@@ -361,6 +361,53 @@ std::string ScopDetection::formatInvalidAlias(AliasSet &AS) const {
   return OS.str();
 }
 
+bool ScopDetection::isInvariant(const Value &Val, const Region &Reg) const {
+  // A reference to function argument or constant value is invariant.
+  if (isa<Argument>(Val) || isa<Constant>(Val))
+    return true;
+
+  const Instruction *I = dyn_cast<Instruction>(&Val);
+  if (!I)
+    return false;
+
+  if (!Reg.contains(I))
+    return true;
+
+  if (I->mayHaveSideEffects())
+    return false;
+
+  // When Val is a Phi node, it is likely not invariant. We do not check whether
+  // Phi nodes are actually invariant, we assume that Phi nodes are usually not
+  // invariant. Recursively checking the operators of Phi nodes would lead to
+  // infinite recursion.
+  if (isa<PHINode>(*I))
+    return false;
+
+  // Check that all operands of the instruction are
+  // themselves invariant.
+  const Instruction::const_op_iterator OE = I->op_end();
+  for (Instruction::const_op_iterator OI = I->op_begin(); OI != OE; ++OI) {
+    if (!isInvariant(**OI, Reg))
+      return false;
+  }
+
+  // When the instruction is a load instruction, check that no write to memory
+  // in the region aliases with the load.
+  if (const LoadInst *LI = dyn_cast<LoadInst>(I)) {
+    AliasAnalysis::Location Loc = AA->getLocation(LI);
+    const Region::const_block_iterator BE = Reg.block_end();
+    // Check if any basic block in the region can modify the location pointed to
+    // by 'Loc'.  If so, 'Val' is (likely) not invariant in the region.
+    for (Region::const_block_iterator BI = Reg.block_begin(); BI != BE; ++BI) {
+      const BasicBlock &BB = **BI;
+      if (AA->canBasicBlockModify(BB, Loc))
+        return false;
+    }
+  }
+
+  return true;
+}
+
 bool ScopDetection::isValidMemoryAccess(Instruction &Inst,
                                         DetectionContext &Context) const {
 #ifdef MOLLY
@@ -386,6 +433,17 @@ bool ScopDetection::isValidMemoryAccess(Instruction &Inst,
 
   if (isa<UndefValue>(BaseValue)) {
     INVALID(AffFunc, "Undefined base pointer");
+    return false;
+  }
+
+  // Check that the base address of the access is invariant in the current
+  // region.
+  if (!isInvariant(*BaseValue, Context.CurRegion)) {
+    // Verification of this property is difficult as the independent blocks
+    // pass may introduce aliasing that we did not have when running the
+    // scop detection.
+    INVALID_NOVERIFY(
+        AffFunc, "Base address not invariant in current region:" << *BaseValue);
     return false;
   }
 
@@ -551,6 +609,24 @@ static bool regionWithoutLoops(Region &R, LoopInfo *LI) {
   return true;
 }
 
+// Remove all direct and indirect children of region R from the region set Regs,
+// but do not recurse further if the first child has been found.
+//
+// Return the number of regions erased from Regs.
+static unsigned eraseAllChildren(std::set<const Region *> &Regs,
+                                 const Region *R) {
+  unsigned Count = 0;
+  for (Region::const_iterator I = R->begin(), E = R->end(); I != E; ++I) {
+    if (Regs.find(*I) != Regs.end()) {
+      ++Count;
+      Regs.erase(*I);
+    } else {
+      Count += eraseAllChildren(Regs, *I);
+    }
+  }
+  return Count;
+}
+
 void ScopDetection::findScops(Region &R) {
 
   if (!DetectRegionsWithoutLoops && regionWithoutLoops(R, LI))
@@ -601,9 +677,9 @@ void ScopDetection::findScops(Region &R) {
     ValidRegions.insert(ExpandedR);
     ValidRegions.erase(CurrentRegion);
 
-    for (Region::iterator I = ExpandedR->begin(), E = ExpandedR->end(); I != E;
-         ++I)
-      ValidRegions.erase(*I);
+    // Erase all (direct and indirect) children of ExpandedR from the valid
+    // regions and update the number of valid regions.
+    ValidRegion -= eraseAllChildren(ValidRegions, ExpandedR);
   }
 }
 
