@@ -1,7 +1,6 @@
 add_polly_library(LLVMPollyAnalysis
   FieldAccess.cpp
   Dependences.cpp
-  MayAliasSet.cpp
   ScopDetection.cpp
   ScopInfo.cpp
   ScopGraphPrinter.cpp

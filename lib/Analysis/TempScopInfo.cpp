@@ -82,10 +82,7 @@ inline raw_ostream &operator<<(raw_ostream &OS, const BBCond &Cond) {
 
 //===----------------------------------------------------------------------===//
 // TempScop implementation
-TempScop::~TempScop() {
-  if (MayASInfo)
-    delete MayASInfo;
-}
+TempScop::~TempScop() {}
 
 void TempScop::print(raw_ostream &OS, ScalarEvolution *SE, LoopInfo *LI) const {
   OS << "Scop: " << R.getNameStr() << ", Max Loop Depth: " << MaxLoopDepth
@@ -352,8 +349,6 @@ TempScop *TempScopInfo::buildTempScop(Region &R) {
 
   buildLoopBounds(*TScop);
 
-  // Build the MayAliasSets.
-  TScop->MayASInfo->buildMayAliasSets(*TScop, *AA);
   return TScop;
 }
 
