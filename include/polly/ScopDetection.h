@@ -141,6 +141,13 @@ class ScopDetection : public FunctionPass {
   /// @return True if R is a Scop, false otherwise.
   bool isValidRegion(DetectionContext &Context) const;
 
+  /// @brief Check if a region is a Scop.
+  ///
+  /// @param Context The context of scop detection.
+  ///
+  /// @return True if R is a Scop, false otherwise.
+  bool isValidRegion(Region &R) const;
+
   /// @brief Check if a call instruction can be part of a Scop.
   ///
   /// @param CI The call instruction to check.
@@ -238,9 +245,11 @@ public:
   /// @brief Is the region is the maximum region of a Scop?
   ///
   /// @param R The Region to test if it is maximum.
+  /// @param Verify Rerun the scop detection to verify SCoP was not invalidated
+  ///               meanwhile.
   ///
   /// @return Return true if R is the maximum Region in a Scop, false otherwise.
-  bool isMaxRegionInScop(const Region &R) const;
+  bool isMaxRegionInScop(const Region &R, bool Verify = true) const;
 
   /// @brief Get a message why a region is invalid
   ///
