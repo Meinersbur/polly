@@ -431,6 +431,9 @@ isl_union_map *IslScheduleOptimizer::getScheduleMap(isl_schedule *Schedule) {
 bool IslScheduleOptimizer::runOnScop(Scop &S) {
   Dependences *D = &getAnalysis<Dependences>();
 
+  if (!D->hasValidDependences())
+    return false;
+
   isl_schedule_free(LastSchedule);
   LastSchedule = NULL;
 
@@ -544,15 +547,7 @@ bool IslScheduleOptimizer::runOnScop(Scop &S) {
     StmtBand = isl_union_map_intersect_domain(isl_union_map_copy(ScheduleMap),
                                               isl_union_set_from_set(Domain));
     if (isl_union_map_is_empty(StmtBand)) {
-      // Statements with an empty iteration domain may not have a schedule
-      // assigned by the isl schedule optimizer. As Polly expects each statement
-      // to have a schedule, we keep the old schedule for this statement. As
-      // there are zero iterations to execute, the content of the schedule does
-      // not matter.
-      //
-      // TODO: Consider removing such statements when constructing the scop.
-      StmtSchedule = Stmt->getScattering();
-      StmtSchedule = isl_map_set_tuple_id(StmtSchedule, isl_dim_out, NULL);
+      StmtSchedule = isl_map_from_domain(isl_set_empty(Stmt->getDomainSpace()));
       isl_union_map_free(StmtBand);
     } else {
       assert(isl_union_map_n_map(StmtBand) == 1);

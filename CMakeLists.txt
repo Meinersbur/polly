@@ -81,17 +81,19 @@ endif(NOT MSVC_IDE)
 # Add path for custom modules
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${POLLY_SOURCE_DIR}/cmake")
 
+SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+
 add_llvm_external_project(isl)
 if (NOT LLVM_EXTERNAL_ISL_BUILD)
   FIND_PACKAGE(Isl REQUIRED)
 endif ()
-FIND_PACKAGE(Gmp REQUIRED)
 FIND_PACKAGE(Pluto)
 
 option(POLLY_USE_CLOOG "Build Polly with Cloog support" ON)
 if (POLLY_USE_CLOOG)
   # Build Cloog support in Polly (default is for cloog-isl).
   FIND_PACKAGE(Cloog)
+  FIND_PACKAGE(Gmp REQUIRED)
 endif(POLLY_USE_CLOOG)
 
 option(POLLY_ENABLE_GPGPU_CODEGEN "Enable GPGPU code generation feature" OFF)
@@ -119,7 +121,9 @@ if (PLUTO_FOUND)
   INCLUDE_DIRECTORIES( ${PLUTO_INCLUDE_DIR} )
 endif(PLUTO_FOUND)
 INCLUDE_DIRECTORIES( ${ISL_INCLUDE_DIRS} )
-INCLUDE_DIRECTORIES( ${GMP_INCLUDE_DIR} )
+if (GMP_FOUND)
+  INCLUDE_DIRECTORIES( ${GMP_INCLUDE_DIR} )
+endif(GMP_FOUND)
 
 # Support GPGPU code generation if the library is available.
 if (CUDALIB_FOUND)

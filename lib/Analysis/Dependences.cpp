@@ -113,7 +113,9 @@ void Dependences::calculateDependences(Scop &S) {
         dbgs() << "MayWrite: " << MayWrite << "\n";
         dbgs() << "Schedule: " << Schedule << "\n");
 
-  WAW = WAW = WAR;
+  // The pointers below will be set by the subsequent calls to
+  // isl_union_map_compute_flow.
+  RAW = WAW = WAR = NULL;
 
   if (OptAnalysisType == VALUE_BASED_ANALYSIS) {
     isl_union_map_compute_flow(
@@ -315,6 +317,7 @@ void Dependences::releaseMemory() {
 }
 
 isl_union_map *Dependences::getDependences(int Kinds) {
+  assert(hasValidDependences() && "No valid dependences available");
   isl_space *Space = isl_union_map_get_space(RAW);
   isl_union_map *Deps = isl_union_map_empty(Space);
 
@@ -330,6 +333,10 @@ isl_union_map *Dependences::getDependences(int Kinds) {
   Deps = isl_union_map_coalesce(Deps);
   Deps = isl_union_map_detect_equalities(Deps);
   return Deps;
+}
+
+bool Dependences::hasValidDependences() {
+  return (RAW != NULL) && (WAR != NULL) && (WAW != NULL);
 }
 
 void Dependences::getAnalysisUsage(AnalysisUsage &AU) const {
