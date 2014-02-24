@@ -158,7 +158,8 @@ macro(add_polly_library name)
     list(APPEND _addlibs ${SCOPLIB_LIBRARY})
   endif(SCOPLIB_FOUND)
 
-  add_llvm_library(${name} ${ARGN} SOURCES2 ${srcs} LINK_LIBS2 ${LLVM_COMMON_LIBS} ${LLVM_USED_LIBS} EXTERNAL_LIBS2 ${_addlibs})
+  add_llvm_library(${name} ${srcs} ${ARGN})
+  target_link_libraries(${name} ${LLVM_COMMON_LIBS} ${LLVM_USED_LIBS} ${_addlibs})
 
   set_target_properties(${name} PROPERTIES FOLDER "Polly")
 endmacro(add_polly_library)

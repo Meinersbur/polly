@@ -59,14 +59,13 @@ if(CLANG_ENABLE_REWRITER)
 endif()
 
 add_polly_executable(pollycc
-  SOURCES
     driver.cpp 
     cc1as_main.cpp 
     cc1_main.cpp
-  TARGET_DEPENDS 
-    clang-headers 
-    intrinsics_gen
-#  LINK_COMPONENTS 
+#  TARGET_DEPENDS 
+#    clang-headers 
+#    intrinsics_gen
+#  LINK_COMPONENTS
 #    ${LLVM_TARGETS_TO_BUILD}
 #    asmparser
 #    bitreader
@@ -82,3 +81,6 @@ add_polly_executable(pollycc
     LLVMPolly
     LLVMPollyExchange
 )
+
+add_dependencies(pollycc     clang-headers     intrinsics_gen)
+target_link_libraries(pollycc ${LLVM_LINK_LIBS})
