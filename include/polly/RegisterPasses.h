@@ -14,15 +14,20 @@
 #ifndef POLLY_REGISTER_PASSES_H
 #define POLLY_REGISTER_PASSES_H
 
+#include "llvm/PassManager.h"
 #include <llvm/Support/CommandLine.h>
 
-#ifndef MOLLY
-namespace llvm { 
+namespace llvm {
 namespace legacy {
-  class PassManagerBase; 
+class PassManagerBase;
 }
 }
-#endif
+
+namespace polly {
+void initializePollyPasses(llvm::PassRegistry &Registry);
+void registerPollyPasses(llvm::PassManagerBase &PM);
+bool shouldEnablePolly();
+}
 
 enum OptimizerChoice {
   OPTIMIZER_NONE,

@@ -58,7 +58,7 @@ using namespace llvm;
 /// run time.
 class RuntimeDebugBuilder {
 public:
-  RuntimeDebugBuilder(IRBuilder<> &Builder) : Builder(Builder) {}
+  RuntimeDebugBuilder(PollyIRBuilder &Builder) : Builder(Builder) {}
 
   /// @brief Print a string to stdout.
   ///
@@ -71,7 +71,7 @@ public:
   void createIntPrinter(Value *V);
 
 private:
-  IRBuilder<> &Builder;
+  PollyIRBuilder &Builder;
 
   /// @brief Add a call to the fflush function with no file pointer given.
   ///
@@ -138,8 +138,8 @@ void RuntimeDebugBuilder::createIntPrinter(Value *V) {
 /// @brief Calculate the Value of a certain isl_ast_expr
 class IslExprBuilder {
 public:
-  IslExprBuilder(IRBuilder<> &Builder, std::map<isl_id *, Value *> &IDToValue,
-                 Pass *P)
+  IslExprBuilder(PollyIRBuilder &Builder,
+                 std::map<isl_id *, Value *> &IDToValue, Pass *P)
       : Builder(Builder), IDToValue(IDToValue) {}
 
   Value *create(__isl_take isl_ast_expr *Expr);
@@ -147,7 +147,7 @@ public:
   IntegerType *getType(__isl_keep isl_ast_expr *Expr);
 
 private:
-  IRBuilder<> &Builder;
+  PollyIRBuilder &Builder;
   std::map<isl_id *, Value *> &IDToValue;
 
   Value *createOp(__isl_take isl_ast_expr *Expr);
@@ -539,15 +539,17 @@ Value *IslExprBuilder::create(__isl_take isl_ast_expr *Expr) {
 
 class IslNodeBuilder {
 public:
-  IslNodeBuilder(IRBuilder<> &Builder, Pass *P)
-      : Builder(Builder), ExprBuilder(Builder, IDToValue, P), P(P) {}
+  IslNodeBuilder(PollyIRBuilder &Builder, LoopAnnotator &Annotator, Pass *P)
+      : Builder(Builder), Annotator(Annotator),
+        ExprBuilder(Builder, IDToValue, P), P(P) {}
 
   void addParameters(__isl_take isl_set *Context);
   void create(__isl_take isl_ast_node *Node);
   IslExprBuilder &getExprBuilder() { return ExprBuilder; }
 
 private:
-  IRBuilder<> &Builder;
+  PollyIRBuilder &Builder;
+  LoopAnnotator &Annotator;
   IslExprBuilder ExprBuilder;
   Pass *P;
 
@@ -778,6 +780,9 @@ void IslNodeBuilder::createForSequential(__isl_take isl_ast_node *For) {
   BasicBlock *ExitBlock;
   Value *IV;
   CmpInst::Predicate Predicate;
+  bool Parallel;
+
+  Parallel = isInnermostParallel(For);
 
   Body = isl_ast_node_for_get_body(For);
 
@@ -809,10 +814,13 @@ void IslNodeBuilder::createForSequential(__isl_take isl_ast_node *For) {
   if (MaxType != ValueInc->getType())
     ValueInc = Builder.CreateSExt(ValueInc, MaxType);
 
-  IV = createLoop(ValueLB, ValueUB, ValueInc, Builder, P, ExitBlock, Predicate);
+  IV = createLoop(ValueLB, ValueUB, ValueInc, Builder, P, ExitBlock, Predicate,
+                  &Annotator, Parallel);
   IDToValue[IteratorID] = IV;
 
   create(Body);
+
+  Annotator.End();
 
   IDToValue.erase(IteratorID);
 
@@ -1032,9 +1040,12 @@ public:
 
     BasicBlock *StartBlock = executeScopConditionally(S, this);
     isl_ast_node *Ast = AstInfo.getAst();
-    IRBuilder<> Builder(StartBlock->begin());
+    LoopAnnotator Annotator;
+    PollyIRBuilder Builder(StartBlock->getContext(), llvm::ConstantFolder(),
+                           polly::IRInserter(Annotator));
+    Builder.SetInsertPoint(StartBlock->begin());
 
-    IslNodeBuilder NodeBuilder(Builder, this);
+    IslNodeBuilder NodeBuilder(Builder, Annotator, this);
 
     // Build condition that evaluates at run-time if all assumptions taken
     // for the scop hold. If we detect some assumptions do not hold, the

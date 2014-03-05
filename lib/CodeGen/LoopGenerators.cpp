@@ -47,8 +47,9 @@ using namespace polly;
 // TODO: We currently always create the GuardBB. If we can prove the loop is
 //       always executed at least once, we can get rid of this branch.
 Value *polly::createLoop(Value *LB, Value *UB, Value *Stride,
-                         IRBuilder<> &Builder, Pass *P, BasicBlock *&ExitBB,
-                         ICmpInst::Predicate Predicate) {
+                         PollyIRBuilder &Builder, Pass *P, BasicBlock *&ExitBB,
+                         ICmpInst::Predicate Predicate,
+                         LoopAnnotator *Annotator, bool Parallel) {
 
   DominatorTree &DT = P->getAnalysis<DominatorTreeWrapperPass>().getDomTree();
   LoopInfo &LI = P->getAnalysis<LoopInfo>();
@@ -64,6 +65,12 @@ Value *polly::createLoop(Value *LB, Value *UB, Value *Stride,
   BasicBlock *HeaderBB = BasicBlock::Create(Context, "polly.loop_header", F);
   BasicBlock *PreHeaderBB =
       BasicBlock::Create(Context, "polly.loop_preheader", F);
+
+  if (Annotator) {
+    Annotator->Begin(HeaderBB);
+    if (Parallel)
+      Annotator->SetCurrentParallel();
+  }
 
   // Update LoopInfo
   Loop *OuterLoop = LI.getLoopFor(BeforeBB);
@@ -134,17 +141,17 @@ void OMPGenerator::createCallParallelLoopStart(
     Type *LongTy = getIntPtrTy();
     GlobalValue::LinkageTypes Linkage = Function::ExternalLinkage;
 
-    Type *Params[] = { PointerType::getUnqual(FunctionType::get(
-                           Builder.getVoidTy(), Builder.getInt8PtrTy(), false)),
-                       Builder.getInt8PtrTy(), Builder.getInt32Ty(), LongTy,
-                       LongTy, LongTy, };
+    Type *Params[] = {PointerType::getUnqual(FunctionType::get(
+                          Builder.getVoidTy(), Builder.getInt8PtrTy(), false)),
+                      Builder.getInt8PtrTy(), Builder.getInt32Ty(), LongTy,
+                      LongTy, LongTy};
 
     FunctionType *Ty = FunctionType::get(Builder.getVoidTy(), Params, false);
     F = Function::Create(Ty, Linkage, Name, M);
   }
 
-  Value *Args[] = { SubFunction, SubfunctionParam, NumberOfThreads,
-                    LowerBound,  UpperBound,       Stride };
+  Value *Args[] = {SubFunction, SubfunctionParam, NumberOfThreads,
+                   LowerBound,  UpperBound,       Stride};
 
   Builder.CreateCall(F, Args);
 }
@@ -160,13 +167,13 @@ Value *OMPGenerator::createCallLoopNext(Value *LowerBoundPtr,
     Type *LongPtrTy = PointerType::getUnqual(getIntPtrTy());
     GlobalValue::LinkageTypes Linkage = Function::ExternalLinkage;
 
-    Type *Params[] = { LongPtrTy, LongPtrTy, };
+    Type *Params[] = {LongPtrTy, LongPtrTy};
 
     FunctionType *Ty = FunctionType::get(Builder.getInt8Ty(), Params, false);
     F = Function::Create(Ty, Linkage, Name, M);
   }
 
-  Value *Args[] = { LowerBoundPtr, UpperBoundPtr, };
+  Value *Args[] = {LowerBoundPtr, UpperBoundPtr};
 
   Value *Return = Builder.CreateCall(F, Args);
   Return = Builder.CreateICmpNE(
