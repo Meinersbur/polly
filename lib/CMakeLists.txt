@@ -49,6 +49,7 @@ add_polly_library(LLVMPollyLib
   Analysis/ScopGraphPrinter.cpp
   Analysis/ScopPass.cpp
   Analysis/TempScopInfo.cpp
+  Analysis/FieldAccess.cpp
   CodeGen/BlockGenerators.cpp
   ${CLOOG_FILES}
   ${ISL_CODEGEN_FILES}

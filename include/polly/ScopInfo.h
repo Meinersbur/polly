@@ -760,11 +760,11 @@ public:
 
   /// @name RegionPass interface
   //@{
-  const char *getPassName() const LLVM_OVERRIDE { return "polly::ScopInfo"; }
-  virtual bool runOnRegion(Region *R, RGPassManager &RGM) LLVM_OVERRIDE;
-  virtual void getAnalysisUsage(AnalysisUsage &AU) const LLVM_OVERRIDE;
-  virtual void releaseMemory() LLVM_OVERRIDE { clear(); }
-  virtual void print(raw_ostream &OS, const Module *) const LLVM_OVERRIDE {
+  const char *getPassName() const override { return "polly::ScopInfo"; }
+  virtual bool runOnRegion(Region *R, RGPassManager &RGM) override;
+  virtual void getAnalysisUsage(AnalysisUsage &AU) const override;
+  virtual void releaseMemory() override { clear(); }
+  virtual void print(raw_ostream &OS, const Module *) const override {
     if (scop)
       scop->print(OS);
     else
