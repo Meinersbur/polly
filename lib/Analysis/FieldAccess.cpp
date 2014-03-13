@@ -1,16 +1,71 @@
 // This file contains implementations of FieldAccess methods that are independent of Molly
 #include "polly/FieldAccess.h"
 
+#include <llvm/Analysis/ScalarEvolution.h>
+
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Function.h>
-#include <llvm/Analysis/ScalarEvolution.h>
+#include <llvm/IR/IntrinsicInst.h>
 #include <llvm/IR/Intrinsics.h>
 
 #include <isl/space.h>
 
+
 using namespace polly;
 using namespace llvm;
 using namespace std;
+
+
+static bool isMollyPtr(llvm::Value *val) {
+  if (auto intrCall = dyn_cast<IntrinsicInst>(val)) {
+    return intrCall->getIntrinsicID() == Intrinsic::molly_ptr;
+  }
+  return false;
+}
+
+
+void FieldAccess::loadFromMemcpy(llvm::IntrinsicInst *instr) {
+  assert(instr->getIntrinsicID() == Intrinsic::memcpy); // TODO: Intrinsic::memmove
+  assert(instr->getNumArgOperands() == 5);
+
+  auto dstPtr = instr->getArgOperand(0)->stripPointerCasts();
+  auto srcPtr = instr->getArgOperand(1)->stripPointerCasts();
+  auto cnt = instr->getArgOperand(2);
+  auto alignment = instr->getArgOperand(3); // Ignored at the moment
+  auto isVolatile = instr->getArgOperand(4); // Ignored at the moment
+
+  bool isRead = false;
+  bool isWrite = false;
+  IntrinsicInst *ptrcall = NULL;
+  assert(!isMollyPtr(dstPtr) || !isMollyPtr(srcPtr)); // Can access just one field at once; TODO: In order to support this, need to duplicate every property; one for a read access, another for a write access; client code need to check both
+
+  if (isMollyPtr(srcPtr)) {
+    isRead = true;
+    ptrcall = cast<IntrinsicInst>(srcPtr);
+  }
+
+  if (isMollyPtr(dstPtr)) {
+    assert(!ptrcall);
+    isWrite = true;
+    ptrcall = cast<IntrinsicInst>(dstPtr);
+  }
+
+  if (ptrcall) {
+    auto nArgs = ptrcall->getNumArgOperands();
+    assert(nArgs >= 2); // At least the reference to field + one coordinate
+    auto field = ptrcall->getArgOperand(0);
+
+    auto llvmEltPtrTy = ptrcall->getType();
+    auto llvmEltTy = cast<llvm::PointerType>(llvmEltPtrTy)->getElementType();
+
+    this->reads = isRead;
+    this->writes = isWrite;
+    this->accessor = instr;
+    this->fieldCall = ptrcall;
+    this->mollyfunc = ptrcall->getCalledFunction();
+    this->elttype = llvmEltTy;
+  }
+}
 
 
 void FieldAccess::loadFromInstruction(llvm::Instruction *instr) {
@@ -22,18 +77,20 @@ void FieldAccess::loadFromInstruction(llvm::Instruction *instr) {
 
   assert(instr);
   clear();
+#if 0
   if (auto call = dyn_cast<CallInst>(instr)) {
     auto func = call->getCalledFunction();
     if (!func)
-      return ; 
-    if (func->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_get")) { 
+      return;
+    if (func->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_get")) {
       assert(false);
     }
     if (func->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_set")){
       assert(false);
     }
-    return ; // Call of something else
+    //return; // Call of something else
   }
+#endif
 
   const Value *ptr;
   bool isRead = false;
@@ -45,23 +102,29 @@ void FieldAccess::loadFromInstruction(llvm::Instruction *instr) {
   } else if (auto st = dyn_cast<StoreInst>(instr)) {
     ptr = st->getPointerOperand();
     isWrite = true;
-  } else 
-    return ; // Not an access
+  } else if (auto call = dyn_cast<IntrinsicInst>(instr)) {
+    if (call->getIntrinsicID() == Intrinsic::memcpy) { // TODO: or memmove
+      loadFromMemcpy(call);
+      return;
+    } else
+      return;
+  } else
+    return; // Not an access
 
   auto ptrcall = const_cast<CallInst*>(dyn_cast<CallInst>(ptr)); //TODO: A constant offset might be added to the ptr to access a struct member
   if (!ptrcall)
-    return ; // access to something else
+    return; // access to something else
   //assert(ptrcall->getParent() == instr->getParent() && "At the moment we depend on both being in the same BasicBlock");
 
   auto func = ptrcall->getCalledFunction();
   if (!func)
-    return ; // field functions are never called dynamically
+    return; // field functions are never called dynamically
 
-  auto intrID = func->getIntrinsicID(); 
+  auto intrID = func->getIntrinsicID();
   if (intrID == Intrinsic::molly_ptr) {
   } else if (func->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_ptr")) {
   } else
-    return ; // Not a reference to a field
+    return; // Not a reference to a field
 
 
   auto nArgs = ptrcall->getNumArgOperands();
@@ -69,7 +132,7 @@ void FieldAccess::loadFromInstruction(llvm::Instruction *instr) {
   auto field = ptrcall->getArgOperand(0);
 
   auto llvmEltPtrTy = func->getReturnType();
-  auto llvmEltTy = cast<llvm::PointerType>(llvmEltPtrTy)->getElementType(); 
+  auto llvmEltTy = cast<llvm::PointerType>(llvmEltPtrTy)->getElementType();
 
   this->accessor = instr;
   this->fieldCall = ptrcall;
@@ -82,17 +145,17 @@ void FieldAccess::loadFromInstruction(llvm::Instruction *instr) {
 }
 
 
-llvm::LoadInst *FieldAccess::getLoadInst() const { 
+llvm::LoadInst *FieldAccess::getLoadInst() const {
   assert(isRead());
-  assert(isa<LoadInst>(accessor)); 
-  return cast<LoadInst>(accessor); 
+  assert(isa<LoadInst>(accessor));
+  return cast<LoadInst>(accessor);
 }
 
 
-llvm::StoreInst *FieldAccess::getStoreInst() { 
+llvm::StoreInst *FieldAccess::getStoreInst() {
   assert(isWrite());
-  assert(isa<StoreInst>(accessor)); 
-  return cast<StoreInst>(accessor); 
+  assert(isa<StoreInst>(accessor));
+  return cast<StoreInst>(accessor);
 }
 
 
@@ -176,7 +239,7 @@ FieldAccess FieldAccess::fromAccessInstruction(llvm::Instruction *instr) {
 
 
 unsigned FieldAccess::getNumDims() const {
-  auto nArgs = fieldCall->getNumArgOperands(); 
+  auto nArgs = fieldCall->getNumArgOperands();
   assert(nArgs == mollyfunc->getArgumentList().size());
   //auto nArgs = mollyfunc->getArgumentList().size();
   if (isSetFunc(mollyfunc)) {
@@ -209,7 +272,7 @@ std::vector<llvm::Value*> FieldAccess::getCoordinates() const {
   auto nDims = getNumDims();
   result.reserve(nDims);
   assert(fieldCall->getNumArgOperands() >= nDims);
-  for (auto i = nDims-nDims; i < nDims; i+=1) {
+  for (auto i = nDims - nDims; i < nDims; i += 1) {
     auto arg = getCoordinate(i);
     result.push_back(arg);
   }
@@ -220,7 +283,7 @@ std::vector<llvm::Value*> FieldAccess::getCoordinates() const {
 void FieldAccess::getCoordinates(llvm::SmallVectorImpl<llvm::Value*> &list) {
   auto nDims = getNumDims();
   assert(fieldCall->getNumArgOperands() >= nDims);
-  for (auto i = nDims-nDims; i < nDims; i+=1) {
+  for (auto i = nDims - nDims; i < nDims; i += 1) {
     auto arg = getCoordinate(i);
     list.push_back(arg);
   }

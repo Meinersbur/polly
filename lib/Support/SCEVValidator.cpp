@@ -249,6 +249,16 @@ public:
     return ValidatorResult(SCEVType::INVALID);
   }
 
+#ifdef MOLLY 
+  class ValidatorResult visitModExpr(const SCEVModExpr *Expr) {
+    ValidatorResult LHS = visit(Expr->getLHS());
+    ValidatorResult RHS = visit(Expr->getRHS());
+
+    assert(RHS.isConstant()); // FIXME: isConstant() here means something else
+    return LHS;
+  }
+#endif /* MOLLY */
+
   class ValidatorResult visitAddRecExpr(const SCEVAddRecExpr *Expr) {
     if (!Expr->isAffine()) {
       DEBUG(dbgs() << "INVALID: AddRec is not affine");
@@ -418,6 +428,12 @@ public:
 
     return false;
   }
+
+#ifdef MOLLY
+  bool visitModExpr(const SCEVModExpr *Expr) {
+    return visit(Expr->getLHS()) || visit(Expr->getRHS());
+  }
+#endif /* MOLLY */
 
   bool visitAddRecExpr(const SCEVAddRecExpr *Expr) {
     if (visit(Expr->getStart()))

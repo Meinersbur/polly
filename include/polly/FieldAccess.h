@@ -15,6 +15,7 @@ namespace llvm {
   class Function;
   class Value;
   template<typename T> class SmallVectorImpl;
+  class IntrinsicInst;
 } // namespace llvm
 
 namespace polly {
@@ -68,6 +69,7 @@ namespace polly {
 
   public:
     virtual void loadFromInstruction(llvm::Instruction *instr);
+    void loadFromMemcpy(llvm::IntrinsicInst *instr);
 
   public:
     ~FieldAccess() {}

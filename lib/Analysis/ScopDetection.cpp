@@ -68,6 +68,9 @@
 #include "llvm/Support/Debug.h"
 
 #include <set>
+#ifdef MOLLY
+#include "llvm/IR/IntrinsicInst.h"
+#endif
 
 using namespace llvm;
 using namespace polly;
@@ -315,11 +318,22 @@ bool ScopDetection::isValidCallInst(CallInst &CI) {
   assert(CalledFunction);
 
 #ifdef MOLLY
-  if (CalledFunction && CalledFunction->hasFnAttribute("molly_pure"))
-    return true;
+  if (CalledFunction) {
+    if (CalledFunction->hasFnAttribute("molly_pure"))
+      return true;
 
-  if (FieldAccess::isFieldCall(&CI))
-    return true;
+    if (FieldAccess::isFieldCall(&CI))
+      return true;
+   
+    auto intrId = CalledFunction->getIntrinsicID();
+    if (intrId == llvm::Intrinsic::memcpy) {
+      // WARNING
+      // This might be nothing else than an assignment of an aggregate, including a load or store of a field element
+      // We are generous here and any memcopy
+      // This is clearly to much, memcopy might just overwrite any memory!!!!!
+      return true;
+    }
+  }
 #endif
 
   if (CI.mayHaveSideEffects() || CI.doesNotReturn())
@@ -821,6 +835,9 @@ bool ScopDetection::runOnFunction(llvm::Function &F) {
   DEBUG(llvm::dbgs() << "run ScopDetection in func " << F.getName() << "\n");
   if (F.getName() == "test") {
     int a = 0;
+  }
+  if (F.getName() == "HoppingMatrix") {
+    int b = 0;
   }
 
   LI = &getAnalysis<LoopInfo>();

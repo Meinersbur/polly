@@ -84,6 +84,9 @@ private:
   __isl_give isl_pw_aff *visitAddExpr(const SCEVAddExpr *Expr);
   __isl_give isl_pw_aff *visitMulExpr(const SCEVMulExpr *Expr);
   __isl_give isl_pw_aff *visitUDivExpr(const SCEVUDivExpr *Expr);
+#ifdef MOLLY
+  __isl_give isl_pw_aff *visitModExpr(const SCEVModExpr *Expr);
+#endif /* MOLLY */
   __isl_give isl_pw_aff *visitAddRecExpr(const SCEVAddRecExpr *Expr);
   __isl_give isl_pw_aff *visitSMaxExpr(const SCEVSMaxExpr *Expr);
   __isl_give isl_pw_aff *visitUMaxExpr(const SCEVUMaxExpr *Expr);
@@ -204,6 +207,19 @@ __isl_give isl_pw_aff *SCEVAffinator::visitMulExpr(const SCEVMulExpr *Expr) {
 __isl_give isl_pw_aff *SCEVAffinator::visitUDivExpr(const SCEVUDivExpr *Expr) {
   llvm_unreachable("SCEVUDivExpr not yet supported");
 }
+
+#ifdef MOLLY
+__isl_give isl_pw_aff *SCEVAffinator::visitModExpr(const SCEVModExpr *Expr) {
+  auto divident = visit(Expr->getDivident());
+  auto divisor = cast<SCEVConstant>(Expr->getDivisor()); // FIXME: Who ensures that it actually is constant?
+  auto divisorValue = divisor->getValue();
+  auto &divisorAP = divisorValue->getValue();
+  auto divisorVal = isl_valFromAPInt(isl_pw_aff_get_ctx(divident), divisorAP, true); // Should be positive
+
+  auto result = isl_pw_aff_mod_val(divident, divisorVal); divident = NULL; divisorVal = NULL;
+  return result;
+}
+#endif /* MOLLY */
 
 __isl_give isl_pw_aff *
 SCEVAffinator::visitAddRecExpr(const SCEVAddRecExpr *Expr) {
@@ -405,6 +421,9 @@ MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
 
   assert(Access.isRead() == !Access.isWrite());
   this->Type = Access.isRead() ? READ : (must ? MUST_WRITE : MAY_WRITE);
+  if (Access.isWrite()) {
+    int d = 0;
+  }
 
   accessRel = isl_map_set_tuple_name(accessRel, isl_dim_out, ("var_" + getBaseName()).c_str());
   this->AccessRelation = accessRel; accessRel = NULL;
@@ -637,7 +656,7 @@ MemoryAccess *ScopStmt::addAccess(MemoryAccess::AccessType type, const Value *ba
 #ifdef MOLLY
   assert(BB && AccInst->getParent() == BB && "access to a different ScopStmt");
   assert(!lookupAccessFor(AccInst) && "Only one MemoryAccess per instruction");
-#endif
+#endif /* MOLLY */
   auto access = new MemoryAccess(type, base, accessRelation, AccInst, this);
   MemAccs.push_back(access);
   InstructionToAccess[access->getAccessInstruction()] = access; 
@@ -659,7 +678,7 @@ void ScopStmt::buildAccesses(TempScop &tempScop, const Region &CurRegion) {
     // as a single instruction could then possibly perform multiple accesses.
     if (!I->first.isScalar()) {
       assert(!InstructionToAccess.count(I->second) &&
-             "Unexpected 1-to-N mapping on instruction to access map!");
+             "Unexpected 1-to-N mapping on instruction to access map!"); //MOLLY FIXME: This is an invalid claim for llvm.memcpy and function calls with sret/byval attributes
       InstructionToAccess[I->second] = MemAccs.back();
     }
   }
@@ -761,7 +780,17 @@ __isl_give isl_set *ScopStmt::buildDomain(TempScop &tempScop,
 
   Space = isl_space_set_alloc(getIslCtx(), 0, getNumIterators());
 
+#ifdef MOLLY
+  // Make the id less long
+  llvm::StringRef oldName = getBaseName();
+  auto pos = oldName.find_last_of('_');
+  if (pos==StringRef::npos)
+    Id = isl_id_alloc(getIslCtx(), getBaseName(), this);
+  else
+    Id = isl_id_alloc(getIslCtx(), oldName.substr(pos+1).str().c_str(), this);
+#else
   Id = isl_id_alloc(getIslCtx(), getBaseName(), this);
+#endif
 
   Domain = isl_set_universe(Space);
   Domain = addLoopBoundsToDomain(Domain, tempScop);
@@ -1431,6 +1460,11 @@ void ScopInfo::getAnalysisUsage(AnalysisUsage &AU) const {
 }
 
 bool ScopInfo::runOnRegion(Region *R, RGPassManager &RGM) {
+  auto func = R->getEntry()->getParent();
+  if (func->getName() == "HoppingMatrix") {
+    int b = 0;
+  }
+
   LoopInfo &LI = getAnalysis<LoopInfo>();
   ScalarEvolution &SE = getAnalysis<ScalarEvolution>();
 #ifdef MOLLY

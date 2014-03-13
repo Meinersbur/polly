@@ -28,6 +28,7 @@
 #include "llvm/IR/DataLayout.h"
 
 #ifdef MOLLY
+#include "llvm/IR/IntrinsicInst.h"
 #include "polly/FieldAccess.h"
 #endif /* MOLLY */
 
@@ -163,7 +164,6 @@ IRAccess TempScopInfo::buildIRAccess(Instruction *Inst, Loop *L, Region *R) {
   auto facc = FieldAccess::fromAccessInstruction(Inst);
   if (facc.isValid()) {
     // This is an access to a Molly-like field
-
     auto nCoords = facc.getNumDims();
     SmallVector<const SCEV *, 4> coords;
     coords.reserve(nCoords);
@@ -171,6 +171,10 @@ IRAccess TempScopInfo::buildIRAccess(Instruction *Inst, Loop *L, Region *R) {
       auto coord = facc.getCoordinate(i);
       auto AccessFunction = SE->getSCEVAtScope(coord, L);
       coords.push_back(AccessFunction);
+    }
+
+    if (facc.isWrite()) {
+      int c = 0;
     }
 
     auto type = facc.isRead() ? IRAccess::READ : IRAccess::WRITE;
@@ -208,6 +212,74 @@ void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {
 
   for (BasicBlock::iterator I = BB.begin(), E = --BB.end(); I != E; ++I) {
     Instruction *Inst = I;
+#ifdef MOLLY
+    if (auto call = dyn_cast<CallInst>(Inst)) {
+      auto calledFunc = call->getCalledFunction();
+      if (calledFunc && calledFunc->getIntrinsicID() == llvm::Intrinsic::memcpy) {
+        auto dstPtr = call->getArgOperand(0)->stripPointerCasts();
+        auto srcPtr = call->getArgOperand(1)->stripPointerCasts();
+
+        auto facc = FieldAccess::fromAccessInstruction(Inst);
+        if (facc.isValid()) {
+          auto eltTy = facc.getElementType();
+          auto eltSize = TD->getTypeStoreSize(eltTy);
+          assert(eltSize == cast<ConstantInt>(call->getArgOperand(2))->getValue());
+
+          // With a memcpy, there are two accesses: 
+          // (facc.isRead)  load from field, store in alloca 
+          // (facc.isWrite) load from alloca, store in field
+          if (facc.isRead()) {
+            Functions.push_back(std::make_pair(buildIRAccess(Inst, L, &R), Inst)); // Load
+
+            assert(isa<AllocaInst>(dstPtr)); // Should be on the stack
+            IRAccess iracc(IRAccess::SCALARWRITE, dstPtr, ZeroOffset, eltSize, true);
+            Functions.push_back(std::make_pair(iracc, Inst)); // Store
+          } else {
+            assert(facc.isWrite());
+
+            assert(isa<AllocaInst>(srcPtr)); // Should be on the stack
+            IRAccess iracc(IRAccess::SCALARREAD, srcPtr, ZeroOffset, eltSize, true);
+            Functions.push_back(std::make_pair(iracc, Inst)); // Load
+
+            Functions.push_back(std::make_pair(buildIRAccess(Inst, L, &R), Inst)); // Store
+          }
+        } else {
+          llvm_unreachable("What is this? Assignment to arbitrary memory? We could handle alloca-to-alloca, but does it ever occur?");
+        }
+      } else {
+        // Call to some arbitrary functions
+        // These may access stack values passed by sret (= out parameter), byval (= in parameter), nothing (= inout/byref parameter)
+        // This are, of course, memory accesses as well
+        auto nargs = call->getNumOperands();
+        for (auto i = nargs - nargs; i < nargs; i += 1) { 
+          auto attrIndex = i+1; // 0 is return value attributes
+          auto arg = call->getOperand(i)->stripPointerCasts(); //auto ptrTy = dyn_cast<PointerType>(arg->getType()); if (!ptrTy) continue;
+
+          if (call->getAttributes().hasAttribute(attrIndex, Attribute::ByVal)) {
+            assert(isa<AllocaInst>(arg));
+            auto eltSize = TD->getTypeStoreSize(arg->getType()->getPointerElementType());
+            IRAccess iracc(IRAccess::SCALARREAD, arg, ZeroOffset, eltSize, true);
+            Functions.push_back(std::make_pair(iracc, Inst));
+          } else if (call->getAttributes().hasAttribute(attrIndex, Attribute::StructRet)) {
+            assert(isa<AllocaInst>(arg));
+            auto eltSize = TD->getTypeStoreSize(arg->getType()->getPointerElementType());
+            IRAccess iracc(IRAccess::SCALARWRITE, arg, ZeroOffset, eltSize, true);
+            Functions.push_back(std::make_pair(iracc, Inst));
+          } else if (isa<AllocaInst>(arg)) {
+            // We assume, without further verification, this is a element on the stack, a nonfield memory access
+            auto eltSize = TD->getTypeStoreSize(arg->getType()->getPointerElementType());
+
+            IRAccess irreadacc(IRAccess::SCALARREAD, arg, ZeroOffset, eltSize, true);
+            Functions.push_back(std::make_pair(irreadacc, Inst));
+
+            IRAccess irwriteacc(IRAccess::SCALARWRITE, arg, ZeroOffset, eltSize, true);
+            Functions.push_back(std::make_pair(irwriteacc, Inst));
+          }
+        }
+      }
+    }
+#endif /* MOLLY */
+
     if (isa<LoadInst>(Inst) || isa<StoreInst>(Inst))
       Functions.push_back(std::make_pair(buildIRAccess(Inst, L, &R), Inst));
 
@@ -359,6 +431,10 @@ void TempScopInfo::print(raw_ostream &OS, const Module *) const {
 }
 
 bool TempScopInfo::runOnFunction(Function &F) {
+  if (F.getName() == "HoppingMatrix") {
+    int b = 0;
+  }
+
   DT = &getAnalysis<DominatorTreeWrapperPass>().getDomTree();
   PDT = &getAnalysis<PostDominatorTree>();
   SE = &getAnalysis<ScalarEvolution>();
