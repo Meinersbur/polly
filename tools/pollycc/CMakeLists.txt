@@ -43,5 +43,5 @@ target_link_libraries(pollycc
   )
 
 target_link_libraries(pollycc 
-  LLVMPollyLib
+  Polly
 )

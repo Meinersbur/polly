@@ -22,7 +22,6 @@
 #include "clang/Frontend/TextDiagnosticPrinter.h"
 #include "clang/Frontend/Utils.h"
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
@@ -46,6 +45,7 @@
 #include "llvm/Support/Timer.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/system_error.h"
+#include <memory>
 using namespace clang;
 using namespace clang::driver;
 using namespace llvm::opt;
@@ -103,14 +103,12 @@ static void ApplyOneQAOverride(raw_ostream &OS,
       SaveStringInSet(SavedStrings, Edit.substr(1));
     OS << "### Adding argument " << Str << " at beginning\n";
     Args.insert(Args.begin() + 1, Str);
-  }
-  else if (Edit[0] == '+') {
+  } else if (Edit[0] == '+') {
     const char *Str =
       SaveStringInSet(SavedStrings, Edit.substr(1));
     OS << "### Adding argument " << Str << " at end\n";
     Args.push_back(Str);
-  }
-  else if (Edit[0] == 's' && Edit[1] == '/' && Edit.endswith("/") &&
+  } else if (Edit[0] == 's' && Edit[1] == '/' && Edit.endswith("/") &&
     Edit.slice(2, Edit.size() - 1).find('/') != StringRef::npos) {
     StringRef MatchPattern = Edit.substr(2).split('/').first;
     StringRef ReplPattern = Edit.substr(2).split('/').second;
@@ -124,8 +122,7 @@ static void ApplyOneQAOverride(raw_ostream &OS,
         Args[i] = SaveStringInSet(SavedStrings, Repl);
       }
     }
-  }
-  else if (Edit[0] == 'x' || Edit[0] == 'X') {
+  } else if (Edit[0] == 'x' || Edit[0] == 'X') {
     std::string Option = Edit.substr(1, std::string::npos);
     for (unsigned i = 1; i < Args.size();) {
       if (Option == Args[i]) {
@@ -135,16 +132,13 @@ static void ApplyOneQAOverride(raw_ostream &OS,
           if (i < Args.size()) {
             OS << "### Deleting argument " << Args[i] << '\n';
             Args.erase(Args.begin() + i);
-          }
-          else
+          } else
             OS << "### Invalid X edit, end of command line!\n";
         }
-      }
-      else
+      } else
         ++i;
     }
-  }
-  else if (Edit[0] == 'O') {
+  } else if (Edit[0] == 'O') {
     for (unsigned i = 1; i < Args.size();) {
       const char *A = Args[i];
       if (A[0] == '-' && A[1] == 'O' &&
@@ -153,14 +147,12 @@ static void ApplyOneQAOverride(raw_ostream &OS,
         ('0' <= A[2] && A[2] <= '9'))))) {
         OS << "### Deleting argument " << Args[i] << '\n';
         Args.erase(Args.begin() + i);
-      }
-      else
+      } else
         ++i;
     }
     OS << "### Adding argument " << Edit << " at end\n";
     Args.push_back(SaveStringInSet(SavedStrings, '-' + Edit.str()));
-  }
-  else {
+  } else {
     OS << "### Unrecognized edit: " << Edit << "\n";
   }
 }
@@ -349,11 +341,10 @@ int main(int argc_, const char **argv_) {
 
   IntrusiveRefCntPtr<DiagnosticOptions> DiagOpts = new DiagnosticOptions;
   {
-    OwningPtr<OptTable> Opts(createDriverOptTable());
+    std::unique_ptr<OptTable> Opts(createDriverOptTable());
     unsigned MissingArgIndex, MissingArgCount;
-    OwningPtr<InputArgList> Args(Opts->ParseArgs(argv.begin() + 1, argv.end(),
-      MissingArgIndex,
-      MissingArgCount));
+    std::unique_ptr<InputArgList> Args(Opts->ParseArgs(
+      argv.begin() + 1, argv.end(), MissingArgIndex, MissingArgCount));
     // We ignore MissingArgCount and the return value of ParseDiagnosticArgs.
     // Any errors that would be diagnosed here will also be diagnosed later,
     // when the DiagnosticsEngine actually exists.
@@ -416,7 +407,7 @@ int main(int argc_, const char **argv_) {
   if (TheDriver.CCLogDiagnostics)
     TheDriver.CCLogDiagnosticsFilename = ::getenv("CC_LOG_DIAGNOSTICS_FILE");
 
-  OwningPtr<Compilation> C(TheDriver.BuildCompilation(argv));
+  std::unique_ptr<Compilation> C(TheDriver.BuildCompilation(argv));
   int Res = 0;
   SmallVector<std::pair<int, const Command *>, 4> FailingCommands;
   if (C.get())
