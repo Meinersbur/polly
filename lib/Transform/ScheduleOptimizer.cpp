@@ -43,37 +43,40 @@ bool DisablePollyTiling;
 static cl::opt<bool, true>
 DisableTiling("polly-no-tiling", cl::desc("Disable tiling in the scheduler"),
               cl::location(polly::DisablePollyTiling), cl::init(false),
-              cl::cat(PollyCategory));
+              cl::ZeroOrMore, cl::cat(PollyCategory));
 
 static cl::opt<std::string>
 OptimizeDeps("polly-opt-optimize-only",
              cl::desc("Only a certain kind of dependences (all/raw)"),
-             cl::Hidden, cl::init("all"), cl::cat(PollyCategory));
+             cl::Hidden, cl::init("all"), cl::ZeroOrMore,
+             cl::cat(PollyCategory));
 
 static cl::opt<std::string>
 SimplifyDeps("polly-opt-simplify-deps",
              cl::desc("Dependences should be simplified (yes/no)"), cl::Hidden,
-             cl::init("yes"), cl::cat(PollyCategory));
+             cl::init("yes"), cl::ZeroOrMore, cl::cat(PollyCategory));
 
 static cl::opt<int>
 MaxConstantTerm("polly-opt-max-constant-term",
                 cl::desc("The maximal constant term allowed (-1 is unlimited)"),
-                cl::Hidden, cl::init(20), cl::cat(PollyCategory));
+                cl::Hidden, cl::init(20), cl::ZeroOrMore,
+                cl::cat(PollyCategory));
 
 static cl::opt<int>
 MaxCoefficient("polly-opt-max-coefficient",
                cl::desc("The maximal coefficient allowed (-1 is unlimited)"),
-               cl::Hidden, cl::init(20), cl::cat(PollyCategory));
+               cl::Hidden, cl::init(20), cl::ZeroOrMore,
+               cl::cat(PollyCategory));
 
 static cl::opt<std::string>
 FusionStrategy("polly-opt-fusion",
                cl::desc("The fusion strategy to choose (min/max)"), cl::Hidden,
-               cl::init("min"), cl::cat(PollyCategory));
+               cl::init("min"), cl::ZeroOrMore, cl::cat(PollyCategory));
 
 static cl::opt<std::string>
 MaximizeBandDepth("polly-opt-maximize-bands",
                   cl::desc("Maximize the band depth (yes/no)"), cl::Hidden,
-                  cl::init("yes"), cl::cat(PollyCategory));
+                  cl::init("yes"), cl::ZeroOrMore, cl::cat(PollyCategory));
 
 namespace {
 
@@ -395,12 +398,17 @@ IslScheduleOptimizer::getScheduleForBandList(isl_band_list *BandList) {
           isl_union_map_flat_range_product(PartialSchedule, SuffixSchedule);
       isl_band_list_free(Children);
     } else if (PollyVectorizerChoice != VECTORIZER_NONE) {
-      for (int j = 0; j < isl_band_n_member(Band); j++) {
+      // In case we are at the innermost band, we try to prepare for
+      // vectorization. This means, we look for the innermost parallel loop
+      // and strip mine this loop to the innermost level using a strip-mine
+      // factor corresponding to the number of vector iterations.
+      int NumDims = isl_band_n_member(Band);
+      for (int j = NumDims - 1; j >= 0; j--) {
         if (isl_band_member_is_coincident(Band, j)) {
           isl_map *TileMap;
           isl_union_map *TileUMap;
 
-          TileMap = getPrevectorMap(ctx, ScheduleDimensions - j - 1,
+          TileMap = getPrevectorMap(ctx, ScheduleDimensions - NumDims + j,
                                     ScheduleDimensions);
           TileUMap = isl_union_map_from_map(TileMap);
           TileUMap =

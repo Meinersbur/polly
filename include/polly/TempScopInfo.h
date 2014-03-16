@@ -28,7 +28,6 @@ class DataLayout;
 using namespace llvm;
 
 namespace polly {
-class MayAliasSetInfo;
 
 //===---------------------------------------------------------------------===//
 /// @brief A memory access described by a SCEV expression and the access type.
@@ -164,9 +163,6 @@ class TempScop {
 
   // Access function of bbs.
   const AccFuncMapType &AccFuncMap;
-
-  // The alias information about this SCoP.
-  MayAliasSetInfo *MayASInfo;
 
   friend class TempScopInfo;
 

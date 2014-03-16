@@ -1,6 +1,3 @@
-# build a monolithic libLLVMPollyLib.$shlibext
-# and a thin module LLVMPolly.moduleext that links to that shared library
-
 set(LLVM_NO_RTTI 1)
 
 if (PLUTO_FOUND)
@@ -36,13 +33,13 @@ endif (OPENSCOP_FOUND)
 
 if (SCOPLIB_FOUND)
   set(POLLY_SCOPLIB_FILES
-      Pocc.cpp
+      Transform/Pocc.cpp
       Exchange/ScopLib.cpp
       Exchange/ScopLibExporter.cpp
       Exchange/ScopLibImporter.cpp)
 endif (SCOPLIB_FOUND)
 
-add_polly_library(LLVMPollyLib
+add_polly_library(Polly
   Analysis/Dependences.cpp
   Analysis/ScopDetection.cpp
   Analysis/ScopInfo.cpp
@@ -58,40 +55,37 @@ add_polly_library(LLVMPollyLib
   CodeGen/IRBuilder.cpp
   CodeGen/Utils.cpp
   ${GPGPU_CODEGEN_FILES}
+  Exchange/JSONExporter.cpp
+  ${POLLY_SCOPLIB_FILES}
   Support/GICHelper.cpp
   Support/SCEVValidator.cpp
+  Support/RegisterPasses.cpp
   Support/ScopHelper.cpp
-  Exchange/JSONExporter.cpp
   ${POLLY_JSON_FILES}
   ${POLLY_OPENSCOP_FILES}
-  Canonicalization.cpp
-  CodePreparation.cpp
-  DeadCodeElimination.cpp
-  IndependentBlocks.cpp
-  IndVarSimplify.cpp
-  Pocc.cpp
-  RegisterPasses.cpp
-  ScheduleOptimizer.cpp
-  ${POLLY_SCOPLIB_FILES}
+  Transform/Canonicalization.cpp
+  Transform/CodePreparation.cpp
+  Transform/DeadCodeElimination.cpp
+  Transform/IndependentBlocks.cpp
+  Transform/IndVarSimplify.cpp
+  Transform/ScheduleOptimizer.cpp
   ${POLLY_PLUTO_FILES}
   )
 
+# Build a monolithic Polly.a and a thin module LLVMPolly.moduleext that links to
+# that static library.
 add_polly_loadable_module(LLVMPolly
-  PollyModule.cpp
+  Polly.cpp
 )
 
 if (TARGET intrinsics_gen)
   # Check if we are building as part of an LLVM build
-  add_dependencies(LLVMPolly intrinsics_gen)
+  add_dependencies(Polly intrinsics_gen)
 endif()
 
-target_link_libraries(LLVMPolly LLVMPollyLib)
+target_link_libraries(LLVMPolly Polly)
 
 set_target_properties(LLVMPolly
   PROPERTIES
   LINKER_LANGUAGE CXX
   PREFIX "")
-
-if (PLUTO_FOUND)
-  target_link_libraries(LLVMPolly ${PLUTO_LIBRARY})
-endif(PLUTO_FOUND)
