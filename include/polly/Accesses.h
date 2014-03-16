@@ -2,6 +2,7 @@
 #define MOLLY_ACCESSES_H
 
 #include <llvm/IR/IntrinsicInst.h>
+#include <llvm/ADT/SmallVector.h>
 #include <assert.h>
 
 namespace llvm {
@@ -57,11 +58,27 @@ namespace polly {
 
   protected:
     Access() {}
+    Access(bool flagRead, bool flagWrite, llvm::Instruction *accessInstr, int ptrOperandIdx, llvm::Value *ptrOperand) 
+    : flagRead(flagRead), flagWrite(flagWrite), instr(accessInstr), ptrOperator(ptrOperandIdx) {
+      assert(accessInstr);
+      assert(0 <= ptrOperandIdx && ptrOperandIdx < accessInstr->getNumOperands());
+      analyzePtr(ptrOperand);
+    }
+
+    void analyzePtr(llvm::Value *ptr);
 
   public:
+    static Access fromLoadInst(llvm::LoadInst *ld);
+    static Access fromStoreInst(llvm::StoreInst *st);
+    static Access fromMemcpy(llvm::MemTransferInst *intr, int operand);
+    static Access fromMemcpy(llvm::MemTransferInst *intr, bool reading, bool writing);
+    static Access fromCall(llvm::CallInst *call, int operand, bool reading, bool writing);
+    static Access fromInstruction(llvm::Instruction *instr, int operand, bool reading, bool writing);
+
+    
     static Access fromIRAccess(polly::IRAccess *iracc);
     static Access fromMemoryAccess(polly::MemoryAccess *memacc);
-   
+  
     bool isValid() const {return flagRead || flagWrite;}
     bool isRead() const { assert(flagRead != flagWrite); return flagRead; }
     bool isWrite() const{ assert(flagRead != flagWrite);  return flagWrite; }
@@ -112,12 +129,71 @@ namespace polly {
       llvm_unreachable("Other cases not yet implemented; Other access can have coordinates too, like C-array subscripts");
     }
 
+
+    //llvm::Value *getWrittenValue() const;
+
+#pragma region For read accesses
+    /// Returns the value that contains the read result
+    /// Or null if the result is written to a pointer
+    llvm::Value *getReadResultRegister() const {
+      assert(isRead());
+      return llvm::dyn_cast<llvm::LoadInst>(instr);
+    }
+
+
+    llvm::Value *getReadResultPtr() const {
+      assert(isRead());
+      if (auto memcpyCall = llvm::dyn_cast<llvm::MemTransferInst>(instr)) {
+        return memcpyCall->getDest();
+      }
+      return nullptr;
+    }
+
+
+    /// Return the memory access that the read result is written to
+    /// Only exists if value is not a register; use getRegisterReadResult for this case
+    Access getReadResultAccess() const {
+      assert(isRead());
+      return fromInstruction(instr, ptrOperator, false, true);
+    }
+#pragma endregion
+
+
+#pragma region For write accesses
+    /// Returns the register that is written to memory
+    /// or NULL if the value is taken from a pointer
+    llvm::Value *getWrittenValueRegister() const {
+      assert(isWrite());
+      if (auto st = llvm::dyn_cast<llvm::StoreInst>(instr)) {
+        return st->getValueOperand();
+      }
+      return nullptr;
+    }
+
+
+    llvm::Value *getWrittenValuePtr() const {
+      assert(isWrite());
+      if (auto memcpyCall = llvm::dyn_cast<llvm::MemTransferInst>(instr)) {
+        return memcpyCall->getSource();
+      }
+      // CallInst doesn't have an explicit value that is written
+      return nullptr;
+    }
+
+
+    Access getAccessValueAccess() {
+      assert(isWrite());
+      return fromInstruction(instr, ptrOperator, true, false);
+    }
+#pragma endregion
   }; // class Access
 
 
   /// To enumerate all the accesses by an instruction
   class Accesses {
   private:
+    llvm::SmallVector<Access, 2> accs;
+
   protected:
     Accesses() {}
   public:

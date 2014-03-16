@@ -290,6 +290,7 @@ class ScopStmt {
   /// The memory accesses of this statement.
   ///
   /// The only side effects of a statement are its memory accesses.
+  // TODO: Get rid of this; there is no one-to-one relationship anymore
   typedef SmallVector<MemoryAccess *, 8> MemoryAccessVec;
   MemoryAccessVec MemAccs;
   std::map<const Instruction *, MemoryAccess *> InstructionToAccess;
