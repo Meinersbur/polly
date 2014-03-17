@@ -8,99 +8,104 @@
 using namespace llvm;
 using namespace polly;
 
- Access Access::fromIRAccess(polly::IRAccess *iracc) {
-   auto base = iracc->getBase();
-   llvm_unreachable("Not yet implemented");
+Access Access::fromIRAccess(polly::IRAccess *iracc) {
+  auto base = iracc->getBase();
+  llvm_unreachable("Not yet implemented");
 }
 
 
- void Access::analyzePtr(llvm::Value *ptr) {
-   assert(ptr);
-   auto typedPtr = ptr->stripPointerCasts();
+void Access::analyzePtr(llvm::Value *ptr) {
+  assert(ptr);
+  auto typedPtr = ptr->stripPointerCasts();
 
-   this->flagField = false;
-   this->flagStack = false;
-   if (auto mollyPtr = dyn_cast<MollyPtrInst>(typedPtr)) {
-     this->flagField = true;
-   } else if (auto alloca = dyn_cast<AllocaInst>(typedPtr)) {
-     this->flagStack = true;
-   }
- }
-
-
- Access Access::fromLoadInst(llvm::LoadInst *ld) {
-   assert(ld);
-   return Access(true, false, ld, ld->getPointerOperandIndex(), ld->getPointerOperand());
- }
+  this->flagField = false;
+  this->flagStack = false;
+  if (auto mollyPtr = dyn_cast<MollyPtrInst>(typedPtr)) {
+    this->flagField = true;
+  } else if (auto alloca = dyn_cast<AllocaInst>(typedPtr)) {
+    this->flagStack = true;
+  }
+}
 
 
- Access Access::fromStoreInst(llvm::StoreInst *st) {
-   assert(st);
-   return Access(false, true, st, st->getPointerOperandIndex(), st->getPointerOperand());
- }
+Access Access::fromLoadInst(llvm::LoadInst *ld) {
+  assert(ld);
+  return Access(true, false, ld, ld->getPointerOperandIndex(), ld->getPointerOperand());
+}
 
 
- Access Access::fromMemcpy(llvm::MemTransferInst *intr, int operand) {
-   switch (operand)
-   {
-   case 0:
-     return fromMemcpy(intr, false, true);
-   case 1:
-     return fromMemcpy(intr, true, false);
-   default:
-     llvm_unreachable("Non-valid operand for memcpy");
-   }
- }
+Access Access::fromStoreInst(llvm::StoreInst *st) {
+  assert(st);
+  return Access(false, true, st, st->getPointerOperandIndex(), st->getPointerOperand());
+}
 
 
- Access Access::fromMemcpy(llvm::MemTransferInst *intr, bool reading, bool writing) {
-   if (writing && !reading)
-    return Access( reading, writing, intr, 0, intr->getRawDest());
-   else if (reading && !writing)
-     return Access(reading, writing, intr, 1, intr->getRawSource());
-   llvm_unreachable("An access is either reading or writing, but currently not both (use two Access for byref args)");
- }
+Access Access::fromMemcpy(llvm::MemTransferInst *intr, int operand) {
+  switch (operand) {
+  case 0:
+    return fromMemcpy(intr, false, true);
+  case 1:
+    return fromMemcpy(intr, true, false);
+  default:
+    llvm_unreachable("Non-valid operand for memcpy");
+  }
+}
 
 
- Access Access::fromCall(llvm::CallInst *call, int operand, bool reading, bool writing) {
-   assert(reading != writing);
-
-   if (auto memcpyCall = dyn_cast<MemTransferInst>(call)) {
-     assert((operand == 0 && writing) || (operand == 1 && reading));
-     return fromMemcpy(memcpyCall, operand);
-   }
-
-   if (call->getAttributes().hasAttribute(operand + 1, Attribute::StructRet)) {
-     assert(reading);
-   }
-
-   if (call->getAttributes().hasAttribute(operand + 1, Attribute::ByVal)) {
-     assert(writing);
-   }
-
-   return Access(reading, writing, call, operand, call->getArgOperand(operand));
- }
+Access Access::fromMemcpy(llvm::MemTransferInst *intr, bool reading, bool writing) {
+  if (writing && !reading)
+    return Access(reading, writing, intr, 0, intr->getRawDest());
+  else if (reading && !writing)
+    return Access(reading, writing, intr, 1, intr->getRawSource());
+  llvm_unreachable("An access is either reading or writing, but currently not both (use two Access for byref args)");
+}
 
 
- Access Access:: fromInstruction(llvm::Instruction *instr, int operand, bool reading, bool writing) {
-   assert(reading != writing);
+Access Access::fromCall(llvm::CallInst *call, int operand, bool reading, bool writing) {
+  assert(reading != writing);
 
-   switch (instr->getOpcode()) {
-   case Instruction::Load:
-     assert(operand == LoadInst::getPointerOperandIndex());
-     assert(reading && !writing);
-     return fromLoadInst(cast<LoadInst>(instr));
-   case Instruction::Store:
-     assert(operand == StoreInst::getPointerOperandIndex());
-     assert(writing && !reading);
-     return fromStoreInst(cast<StoreInst>(instr));
-   case Instruction::Call: {
-     return fromCall(cast<CallInst>(instr), operand, reading, writing);
-   }
-   default:
-     llvm_unreachable("unrecognized memory access instruction");
-   }
- }
+  if (auto memcpyCall = dyn_cast<MemTransferInst>(call)) {
+    if ((operand == 0 && writing) || (operand == 1 && reading))
+      return fromMemcpy(memcpyCall, operand);
+    return Access();
+  }
+
+#ifndef NDEBUG
+  if (call->getAttributes().hasAttribute(operand + 1, Attribute::StructRet)) {
+    assert(reading);
+  }
+
+  if (call->getAttributes().hasAttribute(operand + 1, Attribute::ByVal)) {
+    assert(writing);
+  }
+#endif
+
+  return Access(reading, writing, call, operand, call->getArgOperand(operand));
+}
+
+
+Access Access::fromInstruction(llvm::Instruction *instr, int operand, bool reading, bool writing) {
+  assert(reading != writing);
+
+  switch (instr->getOpcode()) {
+  case Instruction::Load:
+    if (writing)
+      return Access();
+    if (operand != LoadInst::getPointerOperandIndex())
+      return Access();
+    return fromLoadInst(cast<LoadInst>(instr));
+  case Instruction::Store:
+    if (reading)
+      return Access();
+    if (operand != StoreInst::getPointerOperandIndex());
+    return Access();
+    return fromStoreInst(cast<StoreInst>(instr));
+  case Instruction::Call:
+    return fromCall(cast<CallInst>(instr), operand, reading, writing);
+  default:
+    return Access();
+  }
+}
 
 
 Access Access::fromMemoryAccess(polly::MemoryAccess *memacc) {
@@ -143,14 +148,14 @@ Access Access::fromMemoryAccess(polly::MemoryAccess *memacc) {
     for (auto it = call->op_begin(), end = call->op_end(); it != end; ++it) {
       auto op = it->get();
       if (base == op) {
-        assert(ptrOperator==-1 && "Multiple matching accesses found");
+        assert(ptrOperator == -1 && "Multiple matching accesses found");
         ptrOperator = it->getOperandNo();
       }
     }
     assert(ptrOperator >= 0 && "Access not found");
 
-   assert(isWriting || !call->getAttributes().hasAttribute(ptrOperator+1, Attribute::StructRet));
-   assert(isReading || !call->getAttributes().hasAttribute(ptrOperator + 1, Attribute::ByVal));
+    assert(isWriting || !call->getAttributes().hasAttribute(ptrOperator + 1, Attribute::StructRet));
+    assert(isReading || !call->getAttributes().hasAttribute(ptrOperator + 1, Attribute::ByVal));
   }
 
   // Get the origin of the pointer

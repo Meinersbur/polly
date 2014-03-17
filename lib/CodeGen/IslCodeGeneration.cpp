@@ -312,7 +312,14 @@ Value *IslExprBuilder::createOpBin(__isl_take isl_ast_expr *Expr) {
     break;
   }
   case isl_ast_op_pdiv_r: // Dividend is non-negative
+#ifdef MOLLY
+    // No worries about sign, maybe more effective
+    // RHS is always positive
+    // Overflow cannot occur with remainder (MIN_INT % -1 == MIN_INT ??)
+    Res = Builder.CreateURem(LHS, RHS);
+#else
     Res = Builder.CreateSRem(LHS, RHS);
+#endif /* MOLLY */
     break;
   }
 

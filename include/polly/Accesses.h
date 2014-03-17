@@ -33,8 +33,8 @@ namespace polly {
     }
 
     unsigned getNumDimensions() const {
-      assert(getNumOperands() >= 2);
-      return getNumOperands() - 1; // First operand is the field variable
+      assert(getNumArgOperands() >= 2);
+      return getNumArgOperands() - 1; // First operand is the field variable
     }
 
     llvm::Value *getCoordOperand(unsigned d) const {
@@ -57,7 +57,6 @@ namespace polly {
     int ptrOperator;
 
   protected:
-    Access() {}
     Access(bool flagRead, bool flagWrite, llvm::Instruction *accessInstr, int ptrOperandIdx, llvm::Value *ptrOperand) 
     : flagRead(flagRead), flagWrite(flagWrite), instr(accessInstr), ptrOperator(ptrOperandIdx) {
       assert(accessInstr);
@@ -68,6 +67,8 @@ namespace polly {
     void analyzePtr(llvm::Value *ptr);
 
   public:
+    Access() : flagRead(false), flagWrite(false) {} // Initialize invalid
+
     static Access fromLoadInst(llvm::LoadInst *ld);
     static Access fromStoreInst(llvm::StoreInst *st);
     static Access fromMemcpy(llvm::MemTransferInst *intr, int operand);
@@ -75,7 +76,6 @@ namespace polly {
     static Access fromCall(llvm::CallInst *call, int operand, bool reading, bool writing);
     static Access fromInstruction(llvm::Instruction *instr, int operand, bool reading, bool writing);
 
-    
     static Access fromIRAccess(polly::IRAccess *iracc);
     static Access fromMemoryAccess(polly::MemoryAccess *memacc);
   
@@ -90,7 +90,33 @@ namespace polly {
 
     /// The instruction doing the access
     /// Can be: LoadInst, StoreInst, llvm.memcpy, llvm.memmove, CallInst, InvokeInst
-    llvm::Instruction * getInstruction() {return instr;}
+    llvm::Instruction * getInstruction() const {return instr;}
+    llvm::StoreInst *getInstructionAsStore() const  { return llvm::dyn_cast<llvm::StoreInst>(instr); }
+    llvm::LoadInst *getInstructionAsLoad() const { return llvm::dyn_cast<llvm::LoadInst>(instr); }
+    llvm::MemTransferInst *getInstructionAsMemcpy() const { return llvm::dyn_cast<llvm::MemTransferInst>(instr); }
+    llvm::CallInst *getInstructionAsCall() const { 
+      //if (llvm::isa<llvm::MemTransferInst>(instr))
+      //  return nullptr; // Should be handled separately
+      return llvm::dyn_cast<llvm::CallInst>(instr); 
+    }
+
+    int getOperandIdx() const { return ptrOperator; }
+
+    llvm::Type *getElementPtrType() const {
+      return getTypedPtr()->getType();
+    }
+    llvm::Type *getElementType() const {
+      auto result = getElementPtrType()->getPointerElementType();
+#ifndef NDEBUG
+      if (auto ldInst = llvm::dyn_cast<llvm::LoadInst>(instr)) {
+        assert(result == ldInst->getType());
+      }
+      if (auto stInst = llvm::dyn_cast<llvm::StoreInst>(instr)) {
+        assert(result = stInst->getValueOperand()->getType());
+      }
+#endif
+    return result;
+    }
 
 
     /// Returns the pointer value read or written to
@@ -113,11 +139,42 @@ namespace polly {
 
     /// Only valid if isFieldAccess()
     /// Returns the pointer to the field object, usually a GlobalVariable
-    llvm::Value *getFieldPtr() const {
+    /// Currently this must be a global variable
+    llvm::GlobalValue *getFieldPtr() const {
       assert(isFieldAccess());
 
       auto mollyptr = llvm::cast<MollyPtrInst>(getTypedPtr());
-      return mollyptr->getFieldVar();
+      return llvm::cast<llvm::GlobalValue>(mollyptr->getFieldVar());
+    }
+
+    // TODO: May cache this for speed
+    int getNumCoordinates() const {
+      auto ptr = getTypedPtr();
+      if (auto mollyptr = llvm::dyn_cast<MollyPtrInst>(ptr)) {
+        return mollyptr->getNumDimensions();
+      }
+      return 0; // Assume scalar for everything else
+    }
+
+    llvm::Value *getCoordinateValue(int d) const {
+      assert(0 <= d && d < getNumCoordinates());
+
+      auto ptr = getTypedPtr();
+      if (auto mollyptr = llvm::dyn_cast<MollyPtrInst>(ptr)) {
+        return mollyptr->getCoordOperand(d);
+      }
+      llvm_unreachable("non-field coordinates currently not supported");
+    }
+
+    // TODO: Better an iterator
+    std::vector<llvm::Value*> getCoordinateValues() {
+      std::vector<llvm::Value*> result;
+      auto dims = getNumCoordinates();
+      result.reserve(dims);
+      for (auto d = dims - dims; d < dims; d += 1) {
+        result.push_back(getCoordinateValue(d)); 
+      }
+      return result; // NRVO
     }
 
 
@@ -135,7 +192,7 @@ namespace polly {
 #pragma region For read accesses
     /// Returns the value that contains the read result
     /// Or null if the result is written to a pointer
-    llvm::Value *getReadResultRegister() const {
+    llvm::LoadInst *getReadResultRegister() const {
       assert(isRead());
       return llvm::dyn_cast<llvm::LoadInst>(instr);
     }
@@ -146,6 +203,9 @@ namespace polly {
       if (auto memcpyCall = llvm::dyn_cast<llvm::MemTransferInst>(instr)) {
         return memcpyCall->getDest();
       }
+      //if (auto call = dyn_cast<CallInst>(instr)) {
+      //  return instr->getOperand(ptrOperator);
+      //}
       return nullptr;
     }
 
