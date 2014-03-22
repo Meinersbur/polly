@@ -302,6 +302,8 @@ Value *IslExprBuilder::createOpBin(__isl_take isl_ast_expr *Expr) {
     //       incorrect overflow in some bordercases.
     //
     // floord(n,d) ((n < 0) ? (n - d + 1) : n) / d
+    // Check: (a_numerator / a_denominator) + ((a_numerator % a_denominator) >> 31)
+    // Check: (a - (((a % b) + b) % b)) / b
     Value *One = ConstantInt::get(MaxType, 1);
     Value *Zero = ConstantInt::get(MaxType, 0);
     Value *Sum1 = Builder.CreateSub(LHS, RHS);
