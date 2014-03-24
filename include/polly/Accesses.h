@@ -79,19 +79,19 @@ namespace polly {
     static Access fromIRAccess(polly::IRAccess *iracc);
     static Access fromMemoryAccess(polly::MemoryAccess *memacc);
   
-    bool isValid() const {return flagRead || flagWrite;}
+    bool isValid() const { return flagRead || flagWrite;}
     bool isRead() const { assert(flagRead != flagWrite); return flagRead; }
-    bool isWrite() const{ assert(flagRead != flagWrite);  return flagWrite; }
-    bool isStackAccess() const{ assert(flagStack != flagField); return flagStack; }
-    bool isFieldAccess()const{ assert(flagStack != flagField); return flagField; }
+    bool isWrite() const { assert(flagRead != flagWrite);  return flagWrite; }
+    bool isStackAccess() const { assert(flagStack != flagField); return flagStack; }
+    bool isFieldAccess() const { assert(flagStack != flagField); return flagField; }
     bool isRegisterAccess() const { return false; } // Not yet implemented
     bool isGlobalAccess() const { return false; }
 
 
     /// The instruction doing the access
     /// Can be: LoadInst, StoreInst, llvm.memcpy, llvm.memmove, CallInst, InvokeInst
-    llvm::Instruction * getInstruction() const {return instr;}
-    llvm::StoreInst *getInstructionAsStore() const  { return llvm::dyn_cast<llvm::StoreInst>(instr); }
+    llvm::Instruction *getInstruction() const { return instr;}
+    llvm::StoreInst *getInstructionAsStore() const { return llvm::dyn_cast<llvm::StoreInst>(instr); }
     llvm::LoadInst *getInstructionAsLoad() const { return llvm::dyn_cast<llvm::LoadInst>(instr); }
     llvm::MemTransferInst *getInstructionAsMemcpy() const { return llvm::dyn_cast<llvm::MemTransferInst>(instr); }
     llvm::CallInst *getInstructionAsCall() const { 
@@ -115,7 +115,7 @@ namespace polly {
         assert(result = stInst->getValueOperand()->getType());
       }
 #endif
-    return result;
+      return result;
     }
 
 
@@ -147,6 +147,21 @@ namespace polly {
       return llvm::cast<llvm::GlobalValue>(mollyptr->getFieldVar());
     }
 
+#if 0
+    llvm::Value *getBase() const {
+      assert(!isFieldAccess());
+    
+      auto ptr = getTypedPtr();
+      if (auto gep = llvm::dyn_cast<llvm::GetElementPtrInst>(ptr)) {
+      } else if (auto alloca = llvm::dyn_cast<llvm::AllocaInst>(ptr)) {
+        return ptr;
+      } else if (auto mollyPtr = llvm::dyn_cast<MollyPtrInst>(ptr)) {
+         return nullptr;
+      }
+      //return nullptr;
+    }
+#endif
+
     // TODO: May cache this for speed
     int getNumCoordinates() const {
       auto ptr = getTypedPtr();
@@ -155,6 +170,7 @@ namespace polly {
       }
       return 0; // Assume scalar for everything else
     }
+
 
     llvm::Value *getCoordinateValue(int d) const {
       assert(0 <= d && d < getNumCoordinates());
@@ -165,6 +181,7 @@ namespace polly {
       }
       llvm_unreachable("non-field coordinates currently not supported");
     }
+
 
     // TODO: Better an iterator
     std::vector<llvm::Value*> getCoordinateValues() {

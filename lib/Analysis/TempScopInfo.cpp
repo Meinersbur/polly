@@ -15,6 +15,7 @@
 
 #include "polly/TempScopInfo.h"
 #include "polly/LinkAllPasses.h"
+#include "polly/Accesses.h"
 #include "polly/CodeGen/BlockGenerators.h"
 #include "polly/Support/GICHelper.h"
 #include "polly/Support/SCEVValidator.h"
@@ -160,6 +161,7 @@ bool TempScopInfo::buildScalarDependences(Instruction *Inst, Region *R) {
 
 IRAccess TempScopInfo::buildIRAccess(Instruction *Inst, Loop *L, Region *R) {
 #ifdef MOLLY
+#if 0
   auto facc = FieldAccess::fromAccessInstruction(Inst);
   if (facc.isValid()) {
     // This is an access to a Molly-like field
@@ -177,8 +179,9 @@ IRAccess TempScopInfo::buildIRAccess(Instruction *Inst, Loop *L, Region *R) {
     }
 
     auto type = facc.isRead() ? IRAccess::READ : IRAccess::WRITE;
-    return IRAccess(type, facc.getBaseField(), coords, 0/*size per field element unknown*/, true);
+    return IRAccess(type, nullptr, coords, 0/*size per field element unknown*/, true);
   }
+#endif
 #endif /* MOLLY */
   unsigned Size;
   enum IRAccess::TypeKind Type;
@@ -205,6 +208,13 @@ IRAccess TempScopInfo::buildIRAccess(Instruction *Inst, Loop *L, Region *R) {
                   IsAffine);
 }
 
+#ifdef MOLLY
+void buildFieldAccessFunction(Region &R, BasicBlock &BB, llvm::Instruction *Inst, int opIdx, bool writing) {
+  auto acc = Access::fromInstruction(Inst, opIdx, !writing, writing);
+}
+#endif /* MOLLY */
+
+
 void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {
   AccFuncSetType Functions;
   Loop *L = LI->getLoopFor(&BB);
@@ -212,75 +222,64 @@ void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {
   for (BasicBlock::iterator I = BB.begin(), E = --BB.end(); I != E; ++I) {
     Instruction *Inst = I;
 #ifdef MOLLY
-    if (auto call = dyn_cast<CallInst>(Inst)) {
-      auto calledFunc = call->getCalledFunction();
-      if (calledFunc && calledFunc->getIntrinsicID() == llvm::Intrinsic::memcpy) {
-        auto dstPtr = call->getArgOperand(0)->stripPointerCasts();
-        auto srcPtr = call->getArgOperand(1)->stripPointerCasts();
+    for (auto op = Inst->op_begin(), end = Inst->op_end(); op != end; ++op) {
+      auto opIdx = op->getOperandNo();
 
-        auto facc = FieldAccess::fromAccessInstruction(Inst);
-        if (facc.isValid()) {
-          auto eltTy = facc.getElementType();
-          auto eltSize = TD->getTypeStoreSize(eltTy);
-          assert(eltSize == cast<ConstantInt>(call->getArgOperand(2))->getValue());
+      auto accRead = Access::fromInstruction(Inst, opIdx, true, false);
+      auto accWrite = Access::fromInstruction(Inst, opIdx, false, true);
+      //buildFieldAccessFunction(R, BB, Inst, opIdx, false);
+      //buildFieldAccessFunction(R, BB, Inst, opIdx, true);
 
-          // With a memcpy, there are two accesses: 
-          // (facc.isRead)  load from field, store in alloca 
-          // (facc.isWrite) load from alloca, store in field
-          if (facc.isRead()) {
-            Functions.push_back(std::make_pair(buildIRAccess(Inst, L, &R), Inst)); // Load
+      if (!accRead.isValid() && !accWrite.isValid())
+        continue;
 
-            assert(isa<AllocaInst>(dstPtr)); // Should be on the stack
-            IRAccess iracc(IRAccess::SCALARWRITE, dstPtr, ZeroOffset, eltSize, true);
-            Functions.push_back(std::make_pair(iracc, Inst)); // Store
-          } else {
-            assert(facc.isWrite());
+      auto acc = accRead;
+      if (!acc.isValid())
+        acc = accWrite;
 
-            assert(isa<AllocaInst>(srcPtr)); // Should be on the stack
-            IRAccess iracc(IRAccess::SCALARREAD, srcPtr, ZeroOffset, eltSize, true);
-            Functions.push_back(std::make_pair(iracc, Inst)); // Load
+      auto size = TD->getTypeStoreSize(acc.getElementType());
 
-            Functions.push_back(std::make_pair(buildIRAccess(Inst, L, &R), Inst)); // Store
-          }
-        } else {
-          llvm_unreachable("What is this? Assignment to arbitrary memory? We could handle alloca-to-alloca, but does it ever occur?");
+      if (acc.isFieldAccess()) {
+        auto nCoords = acc.getNumCoordinates();
+        SmallVector<const SCEV *, 4> coords;
+        coords.reserve(nCoords);
+        for (auto i = nCoords - nCoords; i < nCoords; i += 1) {
+          auto coord = acc.getCoordinate(i);
+          auto AccessFunction = SE->getSCEVAtScope(coord, L);
+          coords.push_back(AccessFunction);
+        }
+
+        if (accRead.isValid()) {
+          IRAccess iracc(IRAccess::READ, nullptr, coords, size, true);
+          Functions.push_back(std::make_pair(iracc, Inst));
+        } 
+
+        if (accWrite.isValid()) {
+          IRAccess iracc(IRAccess::WRITE, nullptr, coords, size, true);
+          Functions.push_back(std::make_pair(iracc, Inst));
         }
       } else {
-        // Call to some arbitrary functions
-        // These may access stack values passed by sret (= out parameter), byval (= in parameter), nothing (= inout/byref parameter)
-        // This are, of course, memory accesses as well
-        auto nargs = call->getNumOperands();
-        for (auto i = nargs - nargs; i < nargs; i += 1) { 
-          auto attrIndex = i+1; // 0 is return value attributes
-          auto arg = call->getOperand(i)->stripPointerCasts(); //auto ptrTy = dyn_cast<PointerType>(arg->getType()); if (!ptrTy) continue;
+        auto AccessFunction = SE->getSCEVAtScope(accRead.getPtr(), L);
+        auto BasePointer = dyn_cast<SCEVUnknown>(SE->getPointerBase(AccessFunction));
+        assert(BasePointer && "Could not find base pointer");
+        auto offset = SE->getMinusSCEV(AccessFunction, BasePointer);
+        bool isAffine = isAffineExpr(&R, offset, *SE, BasePointer->getValue());
 
-          if (call->getAttributes().hasAttribute(attrIndex, Attribute::ByVal)) {
-            assert(isa<AllocaInst>(arg));
-            auto eltSize = TD->getTypeStoreSize(arg->getType()->getPointerElementType());
-            IRAccess iracc(IRAccess::SCALARREAD, arg, ZeroOffset, eltSize, true);
-            Functions.push_back(std::make_pair(iracc, Inst));
-          } else if (call->getAttributes().hasAttribute(attrIndex, Attribute::StructRet)) {
-            assert(isa<AllocaInst>(arg));
-            auto eltSize = TD->getTypeStoreSize(arg->getType()->getPointerElementType());
-            IRAccess iracc(IRAccess::SCALARWRITE, arg, ZeroOffset, eltSize, true);
-            Functions.push_back(std::make_pair(iracc, Inst));
-          } else if (isa<AllocaInst>(arg)) {
-            // We assume, without further verification, this is a element on the stack, a nonfield memory access
-            auto eltSize = TD->getTypeStoreSize(arg->getType()->getPointerElementType());
+        if (accRead.isValid()) {
+          IRAccess iracc(IRAccess::READ, BasePointer->getValue(), offset, size, isAffine);
+          Functions.push_back(std::make_pair(iracc, Inst));
+        }
 
-            IRAccess irreadacc(IRAccess::SCALARREAD, arg, ZeroOffset, eltSize, true);
-            Functions.push_back(std::make_pair(irreadacc, Inst));
-
-            IRAccess irwriteacc(IRAccess::SCALARWRITE, arg, ZeroOffset, eltSize, true);
-            Functions.push_back(std::make_pair(irwriteacc, Inst));
-          }
+        if (accWrite.isValid()) {
+          IRAccess iracc(IRAccess::WRITE, BasePointer->getValue(), offset, size, isAffine);
+          Functions.push_back(std::make_pair(iracc, Inst));
         }
       }
     }
-#endif /* MOLLY */
-
+#else /* MOLLY */
     if (isa<LoadInst>(Inst) || isa<StoreInst>(Inst))
       Functions.push_back(std::make_pair(buildIRAccess(Inst, L, &R), Inst));
+#endif /* MOLLY */
 
     if (!isa<StoreInst>(Inst) && buildScalarDependences(Inst, &R)) {
       // If the Instruction is used outside the statement, we need to build the
@@ -432,6 +431,9 @@ void TempScopInfo::print(raw_ostream &OS, const Module *) const {
 bool TempScopInfo::runOnFunction(Function &F) {
   if (F.getName() == "HoppingMatrix") {
     int b = 0;
+  }
+  if (F.getName() == "Jacobi") {
+    int c = 0;
   }
 
   DT = &getAnalysis<DominatorTreeWrapperPass>().getDomTree();

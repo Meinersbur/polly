@@ -322,6 +322,9 @@ class TempScopInfo : public FunctionPass {
   ///             Access is required.
   bool buildScalarDependences(Instruction *Inst, Region *R);
 
+#ifdef MOLLY
+  //void buildFieldAccessFunction(Region &R, BasicBlock &BB, llvm::Instruction *Inst, int opIdx, bool writing);
+#endif /* MOLLY */
   void buildAccessFunctions(Region &RefRegion, BasicBlock &BB);
 
   void buildLoopBounds(TempScop &Scop);

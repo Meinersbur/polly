@@ -63,23 +63,42 @@ Access Access::fromMemcpy(llvm::MemTransferInst *intr, bool reading, bool writin
 
 Access Access::fromCall(llvm::CallInst *call, int operand, bool reading, bool writing) {
   assert(reading != writing);
+  if (operand >= call->getNumArgOperands()) 
+    return Access(); // Executing the function does not count as access
 
-  if (auto memcpyCall = dyn_cast<MemTransferInst>(call)) {
-    if ((operand == 0 && writing) || (operand == 1 && reading))
-      return fromMemcpy(memcpyCall, operand);
+  auto called = call->getCalledFunction();
+  if (called) {
+    switch (called->getIntrinsicID()) {
+    case 0: // No intrinsic
+      break;
+    case Intrinsic::memcpy:
+    case Intrinsic::memmove:
+      if ((operand == 0 && writing) || (operand == 1 && reading))
+        return fromMemcpy(cast<MemTransferInst>(called), operand);
+      return Access();
+    case Intrinsic::molly_ptr:
+    default:
+      return Access(); // Generally intrinsics do no access memory???
+    }
+  }
+
+  if (call->doesNotAccessMemory())
     return Access();
-  }
 
-#ifndef NDEBUG
-  if (call->getAttributes().hasAttribute(operand + 1, Attribute::StructRet)) {
-    assert(reading);
-  }
 
-  if (call->getAttributes().hasAttribute(operand + 1, Attribute::ByVal)) {
-    assert(writing);
-  }
-#endif
+  if (reading && call->getAttributes().hasAttribute(operand + 1, Attribute::ReadOnly))
+    return Access();
 
+  if (reading && call->getAttributes().hasAttribute(operand + 1, Attribute::StructRet))
+    return Access();
+
+  if (writing && call->getAttributes().hasAttribute(operand + 1, Attribute::ByVal))
+    return Access();
+
+  auto arg = call->getOperand(operand);
+  if (!arg->getType()->isPointerTy())
+    return Access(); // non-pointer cannot be dereferences; TODO: What are the properties that tell whether pointer is actually dereferenced?
+  
   return Access(reading, writing, call, operand, call->getArgOperand(operand));
 }
 
@@ -110,9 +129,7 @@ Access Access::fromInstruction(llvm::Instruction *instr, int operand, bool readi
 
 Access Access::fromMemoryAccess(polly::MemoryAccess *memacc) {
   assert(memacc->isRead() != memacc->isWrite()); // Only readin or writing
-  auto rel = memacc->getAccessRelation();
   auto base = memacc->getBaseAddr();
-  auto name = memacc->getBaseName();
   auto instr = const_cast<llvm::Instruction*>(memacc->getAccessInstruction()); // Why is it const?
   bool isReading = memacc->isRead();
   bool isWriting = memacc->isWrite();
@@ -123,15 +140,11 @@ Access Access::fromMemoryAccess(polly::MemoryAccess *memacc) {
   if (auto ld = dyn_cast<LoadInst>(instr)) {
     assert(memacc->isRead());
     assert(!memacc->isWrite());
-    ptrOperator = ld->getPointerOperandIndex();
-    assert(ld->getPointerOperand() == base); // TODO: There might be pointer-arithmetic instructions before
-    assert(isReading && !isWriting);
+    return fromLoadInst(ld);
   } else if (auto st = dyn_cast<StoreInst>(instr)) {
     assert(memacc->isWrite()); // No distinction between MAY_READ and MUST_READ yet
     assert(!memacc->isRead());
-    ptrOperator = st->getPointerOperandIndex();
-    assert(st->getPointerOperand() == base);
-    assert(isWriting && !isReading);
+    return fromStoreInst(st);
   } else if (auto cpy = dyn_cast<MemTransferInst>(instr)) {
 
     if (memacc->isRead()) {

@@ -61,15 +61,13 @@
 #include "llvm/IR/DiagnosticPrinter.h"
 #include "llvm/IR/LLVMContext.h"
 
-//#include "polly/MollyMeta.h"
-#include "polly/FieldAccess.h"
-
 #define DEBUG_TYPE "polly"
 #include "llvm/Support/Debug.h"
 
 #include <set>
 #ifdef MOLLY
 #include "llvm/IR/IntrinsicInst.h"
+#include "polly/FieldAccess.h"
 #endif
 
 using namespace llvm;
@@ -127,6 +125,14 @@ VerifyScops("polly-detect-verify",
             cl::desc("Verify the detected SCoPs after each transformation"),
             cl::Hidden, cl::init(false), cl::ZeroOrMore,
             cl::cat(PollyCategory));
+
+#ifdef MOLLY
+static cl::opt<bool>
+PollyOnlyMarked("polly-only-marked",
+cl::desc("Only find scops in function marked with [[polly::process]]"),
+cl::Hidden, cl::init(false), cl::ZeroOrMore,
+cl::cat(PollyCategory));
+#endif /* MOLLY */
 
 bool polly::PollyTrackFailures = false;
 
@@ -844,6 +850,9 @@ bool ScopDetection::runOnFunction(llvm::Function &F) {
   if (F.getName() == "HoppingMatrix") {
     int b = 0;
   }
+  if (F.getName() == "Jacobi") {
+    int c = 0;
+  }
 
   LI = &getAnalysis<LoopInfo>();
   RI = &getAnalysis<RegionInfo>();
@@ -858,6 +867,14 @@ bool ScopDetection::runOnFunction(llvm::Function &F) {
 
   if (OnlyFunction != "" && F.getName() != OnlyFunction)
     return false;
+
+#ifdef MOLLY
+  if (PollyOnlyMarked && !F.hasFnAttribute("polly_process"))
+    return false;
+
+  if (F.hasFnAttribute("polly_ignore"))
+    return false;
+#endif /* MOLLY */
 
   if (!isValidFunction(F))
     return false;

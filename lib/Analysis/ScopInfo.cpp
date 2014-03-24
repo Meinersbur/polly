@@ -50,6 +50,7 @@
 
 #ifdef MOLLY
 #include "polly/FieldAccess.h"
+#include "polly/Accesses.h"
 #endif
 
 using namespace llvm;
@@ -307,6 +308,19 @@ static void makeIslCompatible(std::string &str) {
 
 void MemoryAccess::setBaseName() {
   raw_string_ostream OS(BaseName);
+#ifdef MOLLY
+  if (!BaseAddr) {
+    // Must be a field access
+    auto acc = Access::fromMemoryAccess(this);
+    assert(acc.isValid());
+    auto field = acc.getFieldPtr();
+    field->printAsOperand(OS, false);
+    OS.flush();
+    makeIslCompatible(BaseName);
+    BaseName = "FieldRef_" + BaseName;
+    return;
+  }
+#endif /* MOLLY */
   getBaseAddr()->printAsOperand(OS, false);
   BaseName = OS.str();
 
@@ -378,9 +392,10 @@ MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
   statement = Statement;
 
   BaseAddr = Access.getBase();
+#ifdef MOLLY
+  this->Type = Access.isRead() ? READ : MAY_WRITE;
   setBaseName();
 
-#ifdef MOLLY
   auto islctx = Statement->getIslCtx();
   auto nCoords = Access.getOffsets().size();
 
@@ -420,14 +435,15 @@ MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
   }
 
   assert(Access.isRead() == !Access.isWrite());
-  this->Type = Access.isRead() ? READ : (must ? MUST_WRITE : MAY_WRITE);
   if (Access.isWrite()) {
     int d = 0;
   }
 
+  this->Type = Access.isRead() ? READ : (must ? MUST_WRITE : MAY_WRITE);
   accessRel = isl_map_set_tuple_name(accessRel, isl_dim_out, ("var_" + getBaseName()).c_str());
   this->AccessRelation = accessRel; accessRel = NULL;
 #else
+  setBaseName();
 
   if (!Access.isAffine()) {
     // We overapproximate non-affine accesses with a possible access to the
@@ -788,9 +804,9 @@ __isl_give isl_set *ScopStmt::buildDomain(TempScop &tempScop,
     Id = isl_id_alloc(getIslCtx(), getBaseName(), this);
   else
     Id = isl_id_alloc(getIslCtx(), oldName.substr(pos+1).str().c_str(), this);
-#else
+#else /* MOLLY */
   Id = isl_id_alloc(getIslCtx(), getBaseName(), this);
-#endif
+#endif /* MOLLY */
 
   Domain = isl_set_universe(Space);
   Domain = addLoopBoundsToDomain(Domain, tempScop);
@@ -1463,6 +1479,9 @@ bool ScopInfo::runOnRegion(Region *R, RGPassManager &RGM) {
   auto func = R->getEntry()->getParent();
   if (func->getName() == "HoppingMatrix") {
     int b = 0;
+  }
+  if (func->getName() == "Jacobi") {
+    int c = 0;
   }
 
   LoopInfo &LI = getAnalysis<LoopInfo>();
