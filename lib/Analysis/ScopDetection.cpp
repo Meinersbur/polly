@@ -844,13 +844,17 @@ void ScopDetection::printLocations(llvm::Function &F) {
 
 bool ScopDetection::runOnFunction(llvm::Function &F) {
   DEBUG(llvm::dbgs() << "run ScopDetection in func " << F.getName() << "\n");
-  if (F.getName() == "test") {
+  auto funcname = F.getName();
+  if (funcname == "test") {
     int a = 0;
   }
-  if (F.getName() == "HoppingMatrix") {
+  if (funcname == "HoppingMatrix") {
     int b = 0;
   }
-  if (F.getName() == "Jacobi") {
+  if (funcname == "Jacobi") {
+    int c = 0;
+  }
+  if (funcname == "reduce") {
     int c = 0;
   }
 

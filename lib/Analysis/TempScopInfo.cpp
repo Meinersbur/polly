@@ -259,7 +259,7 @@ void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {
           Functions.push_back(std::make_pair(iracc, Inst));
         }
       } else {
-        auto AccessFunction = SE->getSCEVAtScope(accRead.getPtr(), L);
+        auto AccessFunction = SE->getSCEVAtScope(acc.getPtr(), L);
         auto BasePointer = dyn_cast<SCEVUnknown>(SE->getPointerBase(AccessFunction));
         assert(BasePointer && "Could not find base pointer");
         auto offset = SE->getMinusSCEV(AccessFunction, BasePointer);
@@ -429,11 +429,15 @@ void TempScopInfo::print(raw_ostream &OS, const Module *) const {
 }
 
 bool TempScopInfo::runOnFunction(Function &F) {
-  if (F.getName() == "HoppingMatrix") {
+  auto funcname = F.getName();
+  if (funcname == "HoppingMatrix") {
     int b = 0;
   }
-  if (F.getName() == "Jacobi") {
+  if (funcname == "Jacobi") {
     int c = 0;
+  }
+  if (funcname == "reduce") {
+    int d = 0;
   }
 
   DT = &getAnalysis<DominatorTreeWrapperPass>().getDomTree();

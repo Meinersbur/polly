@@ -303,6 +303,11 @@ Value *BlockGenerator::generateLocationAccessed(const Instruction *Inst,
                                                 ValueMapT &BBMap,
                                                 ValueMapT &GlobalMap,
                                                 LoopToScevMapT &LTS) {
+#ifdef MOLLY
+  auto memacc = Statement.lookupAccessFor(Inst);
+  if (!memacc)
+    return getNewValue(Pointer, BBMap, GlobalMap, LTS, getLoopForInst(Inst)); // No access information for this, NewAccessRelation not applicable
+#endif /* MOLLY */
   const MemoryAccess &Access = Statement.getAccessFor(Inst);
   isl_map *CurrentAccessRelation = Access.getAccessRelation();
   isl_map *NewAccessRelation = Access.getNewAccessRelation();

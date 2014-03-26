@@ -369,14 +369,14 @@ public:
   /// @return The BasicBlock represented by this ScopStmt.
   BasicBlock *getBasicBlock() const { return BB; }
 
-  // MOLLY TODO: No 1-to-{0,1} relationship between instructions and accesses; At the moment potential accesses are flagged SCALAR, st these are not added here
+  // MOLLY TODO: No 1-to-{0,1} relationship between instructions and accesses; At the moment potential accesses are flagged SCALAR, s.t. these are not added here
   const MemoryAccess &getAccessFor(const Instruction *Inst) const {
     MemoryAccess *A = lookupAccessFor(Inst);
     assert(A && "Cannot get memory access because it does not exist!");
     return *A;
   }
 
-  // MOLLY TODO: No 1-to-{0,1} relationship between instructions and accesses; At the moment potential accesses are flagged SCALAR, st these are not added here
+  // MOLLY TODO: No 1-to-{0,1} relationship between instructions and accesses; At the moment potential accesses are flagged SCALAR, s.t. these are not added here
   MemoryAccess *lookupAccessFor(const Instruction *Inst) const {
     std::map<const Instruction *, MemoryAccess *>::const_iterator at =
         InstructionToAccess.find(Inst);

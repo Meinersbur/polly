@@ -116,8 +116,8 @@ Access Access::fromInstruction(llvm::Instruction *instr, int operand, bool readi
   case Instruction::Store:
     if (reading)
       return Access();
-    if (operand != StoreInst::getPointerOperandIndex());
-    return Access();
+    if (operand != StoreInst::getPointerOperandIndex())
+      return Access();
     return fromStoreInst(cast<StoreInst>(instr));
   case Instruction::Call:
     return fromCall(cast<CallInst>(instr), operand, reading, writing);
