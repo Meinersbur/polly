@@ -802,8 +802,14 @@ __isl_give isl_set *ScopStmt::buildDomain(TempScop &tempScop,
   auto pos = oldName.find_last_of('_');
   if (pos==StringRef::npos)
     Id = isl_id_alloc(getIslCtx(), getBaseName(), this);
-  else
-    Id = isl_id_alloc(getIslCtx(), oldName.substr(pos+1).str().c_str(), this);
+  else {
+    auto midName = oldName.substr(0,pos);
+    auto midpos = midName.find_last_of('_');
+    if (midpos==StringRef::npos)
+      Id = isl_id_alloc(getIslCtx(), getBaseName(), this);
+    else
+      Id = isl_id_alloc(getIslCtx(), oldName.substr(midpos + 1).str().c_str(), this);
+  }
 #else /* MOLLY */
   Id = isl_id_alloc(getIslCtx(), getBaseName(), this);
 #endif /* MOLLY */
