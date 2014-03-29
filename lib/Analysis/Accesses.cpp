@@ -74,7 +74,7 @@ Access Access::fromCall(llvm::CallInst *call, int operand, bool reading, bool wr
     case Intrinsic::memcpy:
     case Intrinsic::memmove:
       if ((operand == 0 && writing) || (operand == 1 && reading))
-        return fromMemcpy(cast<MemTransferInst>(called), operand);
+        return fromMemcpy(cast<MemTransferInst>(call), operand);
       return Access();
     case Intrinsic::molly_ptr:
     default:

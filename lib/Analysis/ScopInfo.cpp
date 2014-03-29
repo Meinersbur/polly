@@ -692,7 +692,11 @@ void ScopStmt::buildAccesses(TempScop &tempScop, const Region &CurRegion) {
     // We do not have a use for this information at the moment. If we need this
     // at some point, the "instruction -> access" mapping needs to be enhanced
     // as a single instruction could then possibly perform multiple accesses.
+#ifdef MOLLY
+    if (!I->first.isScalar() && (isa<LoadInst>(I->second) || isa<StoreInst>(I->second))) {
+#else
     if (!I->first.isScalar()) {
+#endif /* MOOLLY */
       assert(!InstructionToAccess.count(I->second) &&
              "Unexpected 1-to-N mapping on instruction to access map!"); //MOLLY FIXME: This is an invalid claim for llvm.memcpy and function calls with sret/byval attributes
       InstructionToAccess[I->second] = MemAccs.back();
