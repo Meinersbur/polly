@@ -1037,9 +1037,6 @@ public:
     ParallelLoops.insert(ParallelLoops.begin(),
                          CodeGen.getParallelLoops().begin(),
                          CodeGen.getParallelLoops().end());
-//BEGIN Molly
-    S.setPendingCodegen(false);
-//END Molly
     return true;
   }
 
