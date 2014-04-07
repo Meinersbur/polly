@@ -61,7 +61,7 @@
 #include "llvm/IR/DiagnosticPrinter.h"
 #include "llvm/IR/LLVMContext.h"
 
-#define DEBUG_TYPE "polly"
+#define DEBUG_TYPE "molly"
 #include "llvm/Support/Debug.h"
 
 #include <set>
@@ -337,12 +337,28 @@ bool ScopDetection::isValidCallInst(CallInst &CI) {
       return true;
    
     auto intrId = CalledFunction->getIntrinsicID();
-    if (intrId == llvm::Intrinsic::memcpy) {
+    switch (intrId) {
+    case Intrinsic::memcpy:
       // WARNING
       // This might be nothing else than an assignment of an aggregate, including a load or store of a field element
       // We are generous here and any memcopy
       // This is clearly to much, memcopy might just overwrite any memory!!!!!
       return true;
+    case Intrinsic::dbg_value:
+    case Intrinsic::dbg_declare:
+      // Ignore debug information
+      // CI.mayHaveSideEffects() returns false anyway
+      return true;
+    case Intrinsic::lifetime_start:
+    case Intrinsic::lifetime_end:
+    case Intrinsic::invariant_start:
+    case Intrinsic::invariant_end:
+      // Inserted when optimization enabled
+      CI.mayWriteToMemory();
+      // Why does CI.mayWriteToMemory() return true?
+      return true; // TODO: Maybe remove those markers for Polly since it messes with the lifetimes
+    default:
+      break;
     }
   }
 #endif

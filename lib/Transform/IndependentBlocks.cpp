@@ -517,6 +517,10 @@ void IndependentBlocks::getAnalysisUsage(AnalysisUsage &AU) const {
 }
 
 bool IndependentBlocks::runOnFunction(llvm::Function &F) {
+  auto funcName = F.getName();
+  if (funcName == "init") {
+    int a = 0;
+  }
   bool Changed = false;
 
   RI = &getAnalysis<RegionInfo>();
