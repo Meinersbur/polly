@@ -14,6 +14,7 @@
 #ifndef POLLY_REGISTER_PASSES_H
 #define POLLY_REGISTER_PASSES_H
 
+#include "polly/Config/config.h"
 #include "llvm/PassManager.h"
 #include <llvm/Support/CommandLine.h>
 

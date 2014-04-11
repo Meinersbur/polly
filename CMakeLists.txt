@@ -170,7 +170,7 @@ macro(add_polly_library name)
     set_source_files_properties(${srcs} PROPERTIES HEADER_FILE_ONLY ON)
   endif(MSVC_IDE OR XCODE)
   
-  set(_addlibs ${ISL_LIBRARY} ${GMP_LIBRARY})
+  set(_addlibs ${ISL_TARGET} ${ISL_LIBRARY} ${GMP_LIBRARY})
   if (CLOOG_FOUND)
     list(APPEND _addlibs ${CLOOG_LIBRARY})
   endif(CLOOG_FOUND)
