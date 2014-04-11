@@ -859,7 +859,7 @@ void ScopDetection::printLocations(llvm::Function &F) {
 }
 
 bool ScopDetection::runOnFunction(llvm::Function &F) {
-  DEBUG(llvm::dbgs() << "run ScopDetection in func " << F.getName() << "\n");
+#ifdef MOLLY
   auto funcname = F.getName();
   if (funcname == "test") {
     int a = 0;
@@ -874,27 +874,28 @@ bool ScopDetection::runOnFunction(llvm::Function &F) {
     int c = 0;
   }
 
-  LI = &getAnalysis<LoopInfo>();
-  RI = &getAnalysis<RegionInfo>();
-  if (!DetectScopsWithoutLoops && LI->empty())
-    return false;
-
-  AA = &getAnalysis<AliasAnalysis>();
-  SE = &getAnalysis<ScalarEvolution>();
-  Region *TopRegion = RI->getTopLevelRegion();
-
-  releaseMemory();
-
-  if (OnlyFunction != "" && F.getName() != OnlyFunction)
-    return false;
-
-#ifdef MOLLY
   if (PollyOnlyMarked && !F.hasFnAttribute("polly_process"))
     return false;
 
   if (F.hasFnAttribute("polly_ignore"))
     return false;
 #endif /* MOLLY */
+
+  if (OnlyFunction != "" && F.getName() != OnlyFunction)
+    return false;
+
+  LI = &getAnalysis<LoopInfo>();
+  RI = &getAnalysis<RegionInfo>();
+  if (!DetectScopsWithoutLoops && LI->empty())
+    return false;
+
+  DEBUG(llvm::dbgs() << "run ScopDetection in func " << F.getName() << "\n");
+
+  AA = &getAnalysis<AliasAnalysis>();
+  SE = &getAnalysis<ScalarEvolution>();
+  Region *TopRegion = RI->getTopLevelRegion();
+
+  releaseMemory();
 
   if (!isValidFunction(F))
     return false;
