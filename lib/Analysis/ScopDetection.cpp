@@ -392,7 +392,7 @@ bool ScopDetection::isValidMemoryAccess(Instruction &Inst,
   auto fieldAcc = FieldAccess::fromAccessInstruction(&Inst);
   if (fieldAcc.isValid())
     return true; // Always assume field accesses do not employ any aliasing not found by the Dependence pass
-#endif
+#endif /* MOLLY */
 
   Value *Ptr = getPointerOperand(Inst);
   Loop *L = LI->getLoopFor(Inst.getParent());

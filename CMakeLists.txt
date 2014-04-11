@@ -86,7 +86,9 @@ SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 add_llvm_external_project(isl)
 if (NOT LLVM_EXTERNAL_ISL_BUILD)
   FIND_PACKAGE(Isl REQUIRED)
-  set(POLLY_LINK_LIBS ${ISL_LIBRARY})
+  list(APPEND POLLY_LINK_LIBS ${ISL_LIBRARY})
+else()
+  message("External ISL")
 endif ()
 
 

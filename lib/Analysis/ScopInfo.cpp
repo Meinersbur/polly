@@ -355,7 +355,7 @@ MemoryAccess::MemoryAccess(AccessType type, const Value *base, __isl_take isl_ma
   this->FieldVar = nullptr;
   this->newAccessRelation = NULL;
   this->Type = type;
-  this->statement = Statement;
+  this->Statement = Statement;
 
   this->BaseAddr = base;
   setBaseName();
@@ -392,10 +392,13 @@ MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
   BaseAddr = Access.getBase();
 #ifdef MOLLY
   this->Type = Access.isRead() ? READ : MAY_WRITE;
+#endif /* MOLLY */
+#if 0
+
   setBaseName();
 
   auto islctx = Statement->getIslCtx();
-  auto nCoords = Access.getOffsets().size();
+  auto nCoords = Access.Subscripts.size();
 
   auto accessSpace = isl_space_set_alloc(islctx, 0, nCoords);
   accessSpace = isl_space_align_params(accessSpace, Statement->getDomainSpace());
@@ -403,7 +406,7 @@ MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
 
   bool must = true;
   for (auto i = nCoords-nCoords; i < nCoords; i+=1) {
-    auto coord = Access.getOffsets()[i];
+    auto coord = Access.Subscripts[i];
 
     // We do not use the Access.IsAffine flag, but assume that the following returns NULL if it is not affine
     auto aff = SCEVAffinator::getPwAff(Statement, coord);
@@ -413,7 +416,7 @@ MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
       continue;
     }
 
-    if (!Access.areCoordinates()) {
+    if (Access.areOffsets()) {
       // Divide the access function by the size of the elements in the array.
       //
       // A stride one array access in C expressed as A[i] is expressed in LLVM-IR
@@ -463,7 +466,11 @@ MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
     isl_pw_aff *Affine =
         SCEVAffinator::getPwAff(Statement, Access.Subscripts[i]);
 
+#ifdef MOLLY
+    if (i == Size - 1 && Access.areOffsets()) {
+#else /* MOLLY */
     if (i == Size - 1) {
+#endif /* MOLLY */
       // Divide the access function of the last subscript by the size of the
       // elements in the array.
       //
@@ -489,7 +496,7 @@ MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
   isl_space_free(Space);
   AccessRelation = isl_map_set_tuple_name(AccessRelation, isl_dim_out,
                                           getBaseName().c_str());
-#endif /* MOLLY */
+#endif
 }
 
 void MemoryAccess::realignParams() {
@@ -530,7 +537,7 @@ void MemoryAccess::dump() const { print(errs()); }
 
 #ifdef MOLLY
 isl_id *MemoryAccess::getTupleId() const {
-  return isl_id_alloc(statement->getIslCtx(), (llvm::Twine() + statement->getBaseName() + "__" + BaseName).str().c_str(), const_cast<MemoryAccess*>(this));
+  return isl_id_alloc(Statement->getIslCtx(), (llvm::Twine() + Statement->getBaseName() + "__" + BaseName).str().c_str(), const_cast<MemoryAccess*>(this));
 }
 #endif /* MOLLY */
 

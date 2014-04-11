@@ -38,17 +38,12 @@ public:
   const Value *BaseAddress;
 
 #ifdef MOLLY
-  // A vector for multi-dimensional accesses
-  typedef SmallVector<const SCEV*, 4> OffsetsType; // So IRAccess is no POD anymore
-  OffsetsType Offsets;
-
   /// If true, offsets are coordinates, with difference 1 between elements
   /// If false, offsets are byte distances from base
-  bool offsetsAreCoords;
-#else /* MOLLY */
-  const SCEV *Offset;
+  bool subscriptsAreOffsets;
 #endif /* MOLLY */
-  
+  const SCEV *Offset;
+
   // The type of the scev affine function
   enum TypeKind {
     READ = 0x1,
@@ -58,49 +53,40 @@ public:
 private:
   unsigned ElemBytes;
   TypeKind Type;
-#ifndef MOLLY
   bool IsAffine;
-#endif /* MOLLY */
 
 public:
   SmallVector<const SCEV *, 4> Subscripts, Sizes;
 
 #ifdef MOLLY
-  // Old non-Molly constructor
-  explicit IRAccess (TypeKind Type, const Value *BaseAddress, const SCEV* offset, unsigned elemBytes, bool Affine)
-  : BaseAddress(BaseAddress), ElemBytes(elemBytes), Type(Type), offsetsAreCoords(false) {
-      this->Offsets.push_back(offset);
-  }
-
-  explicit IRAccess (TypeKind Type, const Value *BaseAddress, ArrayRef<const SCEV*> offsets, unsigned elemBytes, bool offsetsAreCoords)
-  : BaseAddress(BaseAddress), ElemBytes(elemBytes), Type(Type), offsetsAreCoords(offsetsAreCoords) {
-      this->Offsets.append(offsets.begin(), offsets.end());
-  }
-#else
+  explicit IRAccess(TypeKind Type, const Value *BaseAddress, const SCEV *Offset,
+    unsigned elemBytes, bool Affine,
+    SmallVector<const SCEV *, 4> Subscripts,
+    SmallVector<const SCEV *, 4> Sizes, bool subscriptsAreOffsets)
+    : BaseAddress(BaseAddress), Offset(Offset), ElemBytes(elemBytes),
+    Type(Type), IsAffine(Affine), Subscripts(Subscripts), Sizes(Sizes), subscriptsAreOffsets(subscriptsAreOffsets) {}
+#else /* MOLLY */
     explicit IRAccess(TypeKind Type, const Value *BaseAddress, const SCEV *Offset,
                     unsigned elemBytes, bool Affine,
                     SmallVector<const SCEV *, 4> Subscripts,
                     SmallVector<const SCEV *, 4> Sizes)
       : BaseAddress(BaseAddress), Offset(Offset), ElemBytes(elemBytes),
         Type(Type), IsAffine(Affine), Subscripts(Subscripts), Sizes(Sizes) {}
-#endif
+#endif /* MOLLY */
         
   enum TypeKind getType() const { return Type; }
 
   const Value *getBase() const { return BaseAddress; }
 
 #ifdef MOLLY
-  const OffsetsType &getOffsets() const { return Offsets; }
-   bool areCoordinates() const { return offsetsAreCoords; }
-#else /* MOLLY */
-  const SCEV *getOffset() const { return Offset; }
+  bool areOffsets() const { return subscriptsAreOffsets; }
+  bool areCoordinates() const { return !subscriptsAreOffsets; }
 #endif /* MOLLY */
+  const SCEV *getOffset() const { return Offset; }
   
   unsigned getElemSizeInBytes() const { return ElemBytes; }
 
-#ifndef MOLLY
   bool isAffine() const { return IsAffine; }
-#endif /* MOLLY */
 
   bool isRead() const { return Type == READ; }
 

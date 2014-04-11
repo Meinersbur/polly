@@ -51,7 +51,7 @@ void IRAccess::print(raw_ostream &OS) const {
 #ifdef MOLLY
   OS << BaseAddress->getName() << '[';
   bool first = true;
-  for (auto offset : Offsets) {
+  for (auto offset : Subscripts) {
     if (!first)
       OS << ", ";
     OS << *offset;
@@ -154,7 +154,7 @@ bool TempScopInfo::buildScalarDependences(Instruction *Inst, Region *R) {
     // Use the def instruction as base address of the IRAccess, so that it will
     // become the name of the scalar access in the polyhedral form.
     IRAccess ScalarAccess(IRAccess::READ, Inst, ZeroOffset, 1, true, Subscripts,
-                          Sizes);
+                          Sizes, false/*doesn't matter for zero dimensions*/);
     AccFuncMap[UseParent].push_back(std::make_pair(ScalarAccess, UI));
   }
 
@@ -237,7 +237,7 @@ IRAccess TempScopInfo::buildIRAccess(Instruction *Inst, Loop *L, Region *R) {
   }
 
   return IRAccess(Type, BasePointer->getValue(), AccessFunction, Size, IsAffine,
-                  Subscripts, Sizes);
+                  Subscripts, Sizes, true);
 }
 
 #ifdef MOLLY
@@ -274,38 +274,68 @@ void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {
       if (acc.isFieldAccess()) {
         auto nCoords = acc.getNumCoordinates();
         SmallVector<const SCEV *, 4> coords;
+        SmallVector<const SCEV *, 4> sizes;
         coords.reserve(nCoords);
+        sizes.reserve(nCoords);
         for (auto i = nCoords - nCoords; i < nCoords; i += 1) {
           auto coord = acc.getCoordinate(i);
           auto AccessFunction = SE->getSCEVAtScope(coord, L);
           coords.push_back(AccessFunction);
+          sizes.push_back(nullptr); // FIXME: Sizes seems to be the length of the nested array of type; for this information, we actually need the field's metadata; I can't find where size is actually needed
         }
 
         if (accRead.isValid()) {
-          IRAccess iracc(IRAccess::READ, nullptr, coords, size, true);
+          IRAccess iracc(IRAccess::READ, nullptr, nullptr, size, true, coords, sizes, true);
           Functions.push_back(std::make_pair(iracc, Inst));
         } 
 
         if (accWrite.isValid()) {
-          IRAccess iracc(IRAccess::WRITE, nullptr, coords, size, true);
+          IRAccess iracc(IRAccess::WRITE, nullptr, nullptr, size, true, coords, sizes, true);
           Functions.push_back(std::make_pair(iracc, Inst));
         }
       } else {
-        auto AccessFunction = SE->getSCEVAtScope(acc.getPtr(), L);
-        auto BasePointer = dyn_cast<SCEVUnknown>(SE->getPointerBase(AccessFunction));
+        // This case is mostly copied from buildIRAccess, but modified such it takes its source from an Access object
+        Type *SizeType = acc.getElementType();
+        unsigned Size = TD->getTypeStoreSize(SizeType);
+        enum IRAccess::TypeKind Type = acc.isRead() ? IRAccess::READ : IRAccess::WRITE;
+        auto ptr = acc.getPtr();
+
+        const SCEV *AccessFunction = SE->getSCEVAtScope(ptr, L);
+        const SCEVUnknown *BasePointer = dyn_cast<SCEVUnknown>(SE->getPointerBase(AccessFunction));
+
         assert(BasePointer && "Could not find base pointer");
-        auto offset = SE->getMinusSCEV(AccessFunction, BasePointer);
-        bool isAffine = isAffineExpr(&R, offset, *SE, BasePointer->getValue());
+        AccessFunction = SE->getMinusSCEV(AccessFunction, BasePointer);
+        SmallVector<const SCEV *, 4> Subscripts, Sizes;
 
-        if (accRead.isValid()) {
-          IRAccess iracc(IRAccess::READ, BasePointer->getValue(), offset, size, isAffine);
-          Functions.push_back(std::make_pair(iracc, Inst));
+        bool IsAffine = isAffineExpr(&R, AccessFunction, *SE, BasePointer->getValue());
+        const SCEVAddRecExpr *AF = dyn_cast<SCEVAddRecExpr>(AccessFunction);
+
+        if (!IsAffine && PollyDelinearize && AF) {
+          const SCEV *Remainder = AF->delinearize(*SE, Subscripts, Sizes);
+          int NSubs = Subscripts.size();
+
+          if (NSubs > 0) {
+            // Normalize the last dimension: integrate the size of the "scalar
+            // dimension" and the remainder of the delinearization.
+            Subscripts[NSubs - 1] = SE->getMulExpr(Subscripts[NSubs - 1], Sizes[NSubs - 1]);
+            Subscripts[NSubs - 1] = SE->getAddExpr(Subscripts[NSubs - 1], Remainder);
+
+            IsAffine = true;
+            for (int i = 0; i < NSubs; ++i)
+              if (!isAffineExpr(&R, Subscripts[i], *SE, BasePointer->getValue())) {
+                IsAffine = false;
+                break;
+              }
+          }
         }
 
-        if (accWrite.isValid()) {
-          IRAccess iracc(IRAccess::WRITE, BasePointer->getValue(), offset, size, isAffine);
-          Functions.push_back(std::make_pair(iracc, Inst));
+        if (Subscripts.size() == 0) {
+          Subscripts.push_back(AccessFunction);
+          Sizes.push_back(SE->getConstant(ZeroOffset->getType(), Size));
         }
+
+        IRAccess iracc(Type, BasePointer->getValue(), AccessFunction, Size, IsAffine, Subscripts, Sizes, true);
+        Functions.push_back(std::make_pair(iracc, Inst));
       }
     }
 #else /* MOLLY */
@@ -318,7 +348,7 @@ void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {
       // write access.
       SmallVector<const SCEV *, 4> Subscripts, Sizes;
       IRAccess ScalarAccess(IRAccess::WRITE, Inst, ZeroOffset, 1, true,
-                            Subscripts, Sizes);
+                            Subscripts, Sizes, false/*doesn't matter for scalars*/);
       Functions.push_back(std::make_pair(ScalarAccess, Inst));
     }
   }
