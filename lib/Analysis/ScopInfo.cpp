@@ -387,9 +387,7 @@ static __isl_give isl_map* isl_map_from_multi_pw_aff(__isl_take isl_multi_pw_aff
 
 MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
                            ScopStmt *Statement)
-    : Inst(AccInst) {
-  newAccessRelation = NULL;
-  statement = Statement;
+    : Statement(Statement), Inst(AccInst), newAccessRelation(NULL) {
 
   BaseAddr = Access.getBase();
 #ifdef MOLLY
@@ -457,22 +455,35 @@ MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
 
   Type = Access.isRead() ? READ : MUST_WRITE;
 
-  isl_pw_aff *Affine = SCEVAffinator::getPwAff(Statement, Access.getOffset());
+  isl_space *Space = isl_space_alloc(Statement->getIslCtx(), 0,
+                                     Statement->getNumIterators(), 0);
+  AccessRelation = isl_map_universe(Space);
 
-  // Divide the access function by the size of the elements in the array.
-  //
-  // A stride one array access in C expressed as A[i] is expressed in LLVM-IR
-  // as something like A[i * elementsize]. This hides the fact that two
-  // subsequent values of 'i' index two values that are stored next to each
-  // other in memory. By this division we make this characteristic obvious
-  // again.
-  isl_val *v;
-  v = isl_val_int_from_si(isl_pw_aff_get_ctx(Affine),
-                          Access.getElemSizeInBytes());
-  Affine = isl_pw_aff_scale_down_val(Affine, v);
+  for (int i = 0, Size = Access.Subscripts.size(); i < Size; ++i) {
+    isl_pw_aff *Affine =
+        SCEVAffinator::getPwAff(Statement, Access.Subscripts[i]);
 
-  AccessRelation = isl_map_from_pw_aff(Affine);
-  isl_space *Space = Statement->getDomainSpace();
+    if (i == Size - 1) {
+      // Divide the access function of the last subscript by the size of the
+      // elements in the array.
+      //
+      // A stride one array access in C expressed as A[i] is expressed in
+      // LLVM-IR as something like A[i * elementsize]. This hides the fact that
+      // two subsequent values of 'i' index two values that are stored next to
+      // each other in memory. By this division we make this characteristic
+      // obvious again.
+      isl_val *v;
+      v = isl_val_int_from_si(isl_pw_aff_get_ctx(Affine),
+                              Access.getElemSizeInBytes());
+      Affine = isl_pw_aff_scale_down_val(Affine, v);
+    }
+
+    isl_map *SubscriptMap = isl_map_from_pw_aff(Affine);
+
+    AccessRelation = isl_map_flat_range_product(AccessRelation, SubscriptMap);
+  }
+
+  Space = Statement->getDomainSpace();
   AccessRelation = isl_map_set_tuple_id(
       AccessRelation, isl_dim_in, isl_space_get_tuple_id(Space, isl_dim_set));
   isl_space_free(Space);
@@ -482,18 +493,16 @@ MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
 }
 
 void MemoryAccess::realignParams() {
-  isl_space *ParamSpace = statement->getParent()->getParamSpace();
+  isl_space *ParamSpace = Statement->getParent()->getParamSpace();
   AccessRelation = isl_map_align_params(AccessRelation, ParamSpace);
 }
 
-MemoryAccess::MemoryAccess(const Value *BaseAddress, ScopStmt *Statement) {
+MemoryAccess::MemoryAccess(const Value *BaseAddress, ScopStmt *Statement)
+    : Type(READ), BaseAddr(BaseAddress), Statement(Statement),
+      newAccessRelation(nullptr) {
 #ifdef MOLLY
   this->FieldVar = nullptr;
 #endif /* MOLLY */
-  newAccessRelation = NULL;
-  BaseAddr = BaseAddress;
-  Type = READ;
-  statement = Statement;
 
   isl_basic_map *BasicAccessMap = createBasicAccessMap(Statement);
   AccessRelation = isl_map_from_basic_map(BasicAccessMap);
@@ -607,6 +616,10 @@ bool MemoryAccess::isStrideX(__isl_take const isl_map *Schedule,
 
 bool MemoryAccess::isStrideZero(const isl_map *Schedule) const {
   return isStrideX(Schedule, 0);
+}
+
+bool MemoryAccess::isScalar() const {
+  return isl_map_n_out(AccessRelation) == 0;
 }
 
 bool MemoryAccess::isStrideOne(const isl_map *Schedule) const {
@@ -1227,6 +1240,9 @@ void Scop::printStatements(raw_ostream &OS) const {
 }
 
 void Scop::print(raw_ostream &OS) const {
+  OS.indent(4) << "Function: " << getRegion().getEntry()->getParent()->getName()
+               << "\n";
+  OS.indent(4) << "Region: " << getNameStr() << "\n";
   printContext(OS.indent(4));
   printStatements(OS.indent(4));
 }

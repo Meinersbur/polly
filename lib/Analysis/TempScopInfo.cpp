@@ -95,7 +95,6 @@ void TempScop::print(raw_ostream &OS, ScalarEvolution *SE, LoopInfo *LI) const {
 
 void TempScop::printDetail(raw_ostream &OS, ScalarEvolution *SE, LoopInfo *LI,
                            const Region *CurR, unsigned ind) const {
-
   // FIXME: Print other details rather than memory accesses.
   for (const auto &CurBlock : CurR->blocks()) {
     AccFuncMapType::const_iterator AccSetIt = AccFuncMap.find(CurBlock);
@@ -150,9 +149,12 @@ bool TempScopInfo::buildScalarDependences(Instruction *Inst, Region *R) {
 
     assert(!isa<PHINode>(UI) && "Non synthesizable PHINode found in a SCoP!");
 
+    SmallVector<const SCEV *, 4> Subscripts, Sizes;
+
     // Use the def instruction as base address of the IRAccess, so that it will
     // become the name of the scalar access in the polyhedral form.
-    IRAccess ScalarAccess(IRAccess::SCALARREAD, Inst, ZeroOffset, 1, true);
+    IRAccess ScalarAccess(IRAccess::READ, Inst, ZeroOffset, 1, true, Subscripts,
+                          Sizes);
     AccFuncMap[UseParent].push_back(std::make_pair(ScalarAccess, UI));
   }
 
@@ -184,14 +186,17 @@ IRAccess TempScopInfo::buildIRAccess(Instruction *Inst, Loop *L, Region *R) {
 #endif
 #endif /* MOLLY */
   unsigned Size;
+  Type *SizeType;
   enum IRAccess::TypeKind Type;
 
   if (LoadInst *Load = dyn_cast<LoadInst>(Inst)) {
-    Size = TD->getTypeStoreSize(Load->getType());
+    SizeType = Load->getType();
+    Size = TD->getTypeStoreSize(SizeType);
     Type = IRAccess::READ;
   } else {
     StoreInst *Store = cast<StoreInst>(Inst);
-    Size = TD->getTypeStoreSize(Store->getValueOperand()->getType());
+    SizeType = Store->getValueOperand()->getType();
+    Size = TD->getTypeStoreSize(SizeType);
     Type = IRAccess::WRITE;
   }
 
@@ -201,11 +206,38 @@ IRAccess TempScopInfo::buildIRAccess(Instruction *Inst, Loop *L, Region *R) {
 
   assert(BasePointer && "Could not find base pointer");
   AccessFunction = SE->getMinusSCEV(AccessFunction, BasePointer);
+  SmallVector<const SCEV *, 4> Subscripts, Sizes;
 
   bool IsAffine = isAffineExpr(R, AccessFunction, *SE, BasePointer->getValue());
+  const SCEVAddRecExpr *AF = dyn_cast<SCEVAddRecExpr>(AccessFunction);
 
-  return IRAccess(Type, BasePointer->getValue(), AccessFunction, Size,
-                  IsAffine);
+  if (!IsAffine && PollyDelinearize && AF) {
+    const SCEV *Remainder = AF->delinearize(*SE, Subscripts, Sizes);
+    int NSubs = Subscripts.size();
+
+    if (NSubs > 0) {
+      // Normalize the last dimension: integrate the size of the "scalar
+      // dimension" and the remainder of the delinearization.
+      Subscripts[NSubs - 1] =
+          SE->getMulExpr(Subscripts[NSubs - 1], Sizes[NSubs - 1]);
+      Subscripts[NSubs - 1] = SE->getAddExpr(Subscripts[NSubs - 1], Remainder);
+
+      IsAffine = true;
+      for (int i = 0; i < NSubs; ++i)
+        if (!isAffineExpr(R, Subscripts[i], *SE, BasePointer->getValue())) {
+          IsAffine = false;
+          break;
+        }
+    }
+  }
+
+  if (Subscripts.size() == 0) {
+    Subscripts.push_back(AccessFunction);
+    Sizes.push_back(SE->getConstant(ZeroOffset->getType(), Size));
+  }
+
+  return IRAccess(Type, BasePointer->getValue(), AccessFunction, Size, IsAffine,
+                  Subscripts, Sizes);
 }
 
 #ifdef MOLLY
@@ -284,7 +316,9 @@ void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {
     if (!isa<StoreInst>(Inst) && buildScalarDependences(Inst, &R)) {
       // If the Instruction is used outside the statement, we need to build the
       // write access.
-      IRAccess ScalarAccess(IRAccess::SCALARWRITE, Inst, ZeroOffset, 1, true);
+      SmallVector<const SCEV *, 4> Subscripts, Sizes;
+      IRAccess ScalarAccess(IRAccess::WRITE, Inst, ZeroOffset, 1, true,
+                            Subscripts, Sizes);
       Functions.push_back(std::make_pair(ScalarAccess, Inst));
     }
   }

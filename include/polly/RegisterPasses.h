@@ -26,8 +26,6 @@ class PassManagerBase;
 
 namespace polly {
 void initializePollyPasses(llvm::PassRegistry &Registry);
-void registerPollyPasses(llvm::PassManagerBase &PM);
-bool shouldEnablePolly();
 }
 
 enum OptimizerChoice {

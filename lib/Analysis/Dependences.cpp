@@ -42,7 +42,7 @@ static cl::opt<int>
 OptComputeOut("polly-dependences-computeout",
               cl::desc("Bound the dependence analysis by a maximal amount of "
                        "computational steps"),
-              cl::Hidden, cl::init(100000), cl::ZeroOrMore,
+              cl::Hidden, cl::init(15000), cl::ZeroOrMore,
               cl::cat(PollyCategory));
 
 static cl::opt<bool>
@@ -98,7 +98,7 @@ void Dependences::collectInfo(Scop &S, isl_union_map **Read,
 void Dependences::calculateDependences(Scop &S) {
   isl_union_map *Read, *Write, *MayWrite, *Schedule;
 
-  DEBUG(dbgs() << "Scop: " << S << "\n");
+  DEBUG(dbgs() << "Scop: \n" << S << "\n");
 
   collectInfo(S, &Read, &Write, &MayWrite, &Schedule);
 
@@ -256,6 +256,11 @@ bool Dependences::isParallelDimension(__isl_take isl_set *ScheduleSubset,
   isl_union_map *Schedule, *Deps;
   isl_map *ScheduleDeps;
   Scop *S = &getCurScop();
+
+  if (!hasValidDependences()) {
+    isl_set_free(ScheduleSubset);
+    return false;
+  }
 
   Deps = getDependences(TYPE_ALL);
 
