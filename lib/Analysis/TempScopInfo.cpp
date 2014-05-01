@@ -285,19 +285,19 @@ void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {
         }
 
         if (accRead.isValid()) {
-          IRAccess iracc(IRAccess::READ, nullptr, nullptr, size, true, coords, sizes, true);
+          IRAccess iracc(IRAccess::READ, nullptr, nullptr, size, true, coords, sizes, false);
           Functions.push_back(std::make_pair(iracc, Inst));
         } 
 
         if (accWrite.isValid()) {
-          IRAccess iracc(IRAccess::WRITE, nullptr, nullptr, size, true, coords, sizes, true);
+          IRAccess iracc(IRAccess::WRITE, nullptr, nullptr, size, true, coords, sizes, false);
           Functions.push_back(std::make_pair(iracc, Inst));
         }
       } else {
         // This case is mostly copied from buildIRAccess, but modified such it takes its source from an Access object
         Type *SizeType = acc.getElementType();
         unsigned Size = TD->getTypeStoreSize(SizeType);
-        enum IRAccess::TypeKind Type = acc.isRead() ? IRAccess::READ : IRAccess::WRITE;
+        //enum IRAccess::TypeKind Type = acc.isRead() ? IRAccess::READ : IRAccess::WRITE;
         auto ptr = acc.getPtr();
 
         const SCEV *AccessFunction = SE->getSCEVAtScope(ptr, L);
@@ -334,8 +334,14 @@ void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {
           Sizes.push_back(SE->getConstant(ZeroOffset->getType(), Size));
         }
 
-        IRAccess iracc(Type, BasePointer->getValue(), AccessFunction, Size, IsAffine, Subscripts, Sizes, true);
-        Functions.push_back(std::make_pair(iracc, Inst));
+        if (accRead.isValid()) {
+          IRAccess iracc(IRAccess::READ, BasePointer->getValue(), AccessFunction, Size, IsAffine, Subscripts, Sizes, true);
+          Functions.push_back(std::make_pair(iracc, Inst));
+        } 
+        if (accWrite.isValid()) {
+          IRAccess iracc(IRAccess::WRITE, BasePointer->getValue(), AccessFunction, Size, IsAffine, Subscripts, Sizes, true);
+          Functions.push_back(std::make_pair(iracc, Inst));
+        }
       }
     }
 #else /* MOLLY */

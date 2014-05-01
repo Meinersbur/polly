@@ -391,12 +391,10 @@ MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
 
   BaseAddr = Access.getBase();
 #ifdef MOLLY
-  this->Type = Access.isRead() ? READ : MAY_WRITE;
+  this->Type = Access.isRead() ? READ : MUST_WRITE;
 #endif /* MOLLY */
-#if 0
-
   setBaseName();
-
+#if 0
   auto islctx = Statement->getIslCtx();
   auto nCoords = Access.Subscripts.size();
 
@@ -444,8 +442,6 @@ MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
   accessRel = isl_map_set_tuple_name(accessRel, isl_dim_out, ("var_" + getBaseName()).c_str());
   this->AccessRelation = accessRel; accessRel = NULL;
 #else
-  setBaseName();
-
   if (!Access.isAffine()) {
     // We overapproximate non-affine accesses with a possible access to the
     // whole array. For read accesses it does not make a difference, if an
@@ -714,9 +710,9 @@ void ScopStmt::buildAccesses(TempScop &tempScop, const Region &CurRegion) {
     // as a single instruction could then possibly perform multiple accesses.
 #ifdef MOLLY
     if (!I->first.isScalar() && (isa<LoadInst>(I->second) || isa<StoreInst>(I->second))) {
-#else
+#else /* MOLLY */
     if (!I->first.isScalar()) {
-#endif /* MOOLLY */
+#endif /* MOLLY */
       assert(!InstructionToAccess.count(I->second) &&
              "Unexpected 1-to-N mapping on instruction to access map!"); //MOLLY FIXME: This is an invalid claim for llvm.memcpy and function calls with sret/byval attributes
       InstructionToAccess[I->second] = MemAccs.back();
@@ -989,6 +985,10 @@ void ScopStmt::print(raw_ostream &OS) const {
     (*I)->print(OS);
 
 #ifdef MOLLY
+  if (this->whereMap) {
+    OS.indent(12) << "Where:\n";
+    OS.indent(16); isl_map_dump(this->whereMap); OS << "\n";
+  }
   auto bb = getBasicBlock();
   if (bb) {
     OS.indent(12) << "BasicBlock:";
