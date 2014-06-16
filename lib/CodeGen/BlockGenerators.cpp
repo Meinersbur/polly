@@ -235,10 +235,7 @@ void BlockGenerator::copyInstScalar(const Instruction *Inst, ValueMapT &BBMap,
   Instruction *NewInst = Inst->clone();
 
   // Replace old operands with the new ones.
-  for (Instruction::const_op_iterator OI = Inst->op_begin(),
-                                      OE = Inst->op_end();
-       OI != OE; ++OI) {
-    Value *OldOperand = *OI;
+  for (Value *OldOperand : Inst->operands()) {
     Value *NewOperand =
         getNewValue(OldOperand, BBMap, GlobalMap, LTS, getLoopForInst(Inst));
 
@@ -399,9 +396,8 @@ void BlockGenerator::copyBB(ValueMapT &GlobalMap, LoopToScevMapT &LTS) {
 
   ValueMapT BBMap;
 
-  for (BasicBlock::const_iterator II = BB->begin(), IE = BB->end(); II != IE;
-       ++II)
-    copyInstruction(II, BBMap, GlobalMap, LTS);
+  for (Instruction &Inst : *BB)
+    copyInstruction(&Inst, BBMap, GlobalMap, LTS);
 }
 
 VectorBlockGenerator::VectorBlockGenerator(PollyIRBuilder &B,
@@ -622,10 +618,8 @@ void VectorBlockGenerator::copyStore(const StoreInst *Store,
 
 bool VectorBlockGenerator::hasVectorOperands(const Instruction *Inst,
                                              ValueMapT &VectorMap) {
-  for (Instruction::const_op_iterator OI = Inst->op_begin(),
-                                      OE = Inst->op_end();
-       OI != OE; ++OI)
-    if (VectorMap.count(*OI))
+  for (Value *Operand : Inst->operands())
+    if (VectorMap.count(Operand))
       return true;
   return false;
 }
@@ -636,10 +630,8 @@ bool VectorBlockGenerator::extractScalarValues(const Instruction *Inst,
   bool HasVectorOperand = false;
   int VectorWidth = getVectorWidth();
 
-  for (Instruction::const_op_iterator OI = Inst->op_begin(),
-                                      OE = Inst->op_end();
-       OI != OE; ++OI) {
-    ValueMapT::iterator VecOp = VectorMap.find(*OI);
+  for (Value *Operand : Inst->operands()) {
+    ValueMapT::iterator VecOp = VectorMap.find(Operand);
 
     if (VecOp == VectorMap.end())
       continue;
@@ -653,10 +645,11 @@ bool VectorBlockGenerator::extractScalarValues(const Instruction *Inst,
       // If there is one scalar extracted, all scalar elements should have
       // already been extracted by the code here. So no need to check for the
       // existance of all of them.
-      if (SM.count(*OI))
+      if (SM.count(Operand))
         break;
 
-      SM[*OI] = Builder.CreateExtractElement(NewVector, Builder.getInt32(i));
+      SM[Operand] =
+          Builder.CreateExtractElement(NewVector, Builder.getInt32(i));
     }
   }
 
@@ -755,7 +748,6 @@ void VectorBlockGenerator::copyBB() {
   VectorValueMapT ScalarBlockMap(getVectorWidth());
   ValueMapT VectorBlockMap;
 
-  for (BasicBlock::const_iterator II = BB->begin(), IE = BB->end(); II != IE;
-       ++II)
-    copyInstruction(II, VectorBlockMap, ScalarBlockMap);
+  for (Instruction &Inst : *BB)
+    copyInstruction(&Inst, VectorBlockMap, ScalarBlockMap);
 }

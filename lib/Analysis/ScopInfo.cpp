@@ -468,8 +468,8 @@ MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
 #else /* MOLLY */
     if (i == Size - 1) {
 #endif /* MOLLY */
-      // Divide the access function of the last subscript by the size of the
-      // elements in the array.
+      // For the non delinearized arrays, divide the access function of the last
+      // subscript by the size of the elements in the array.
       //
       // A stride one array access in C expressed as A[i] is expressed in
       // LLVM-IR as something like A[i * elementsize]. This hides the fact that
@@ -722,8 +722,8 @@ void ScopStmt::buildAccesses(TempScop &tempScop, const Region &CurRegion) {
 }
 
 void ScopStmt::realignParams() {
-  for (memacc_iterator MI = memacc_begin(), ME = memacc_end(); MI != ME; ++MI)
-    (*MI)->realignParams();
+  for (MemoryAccess *MA : *this)
+    MA->realignParams();
 
   Domain = isl_set_align_params(Domain, Parent.getParamSpace());
   Scattering = isl_map_align_params(Scattering, Parent.getParamSpace());
@@ -1279,14 +1279,12 @@ __isl_give isl_union_map *Scop::getWrites() {
   for (Scop::iterator SI = this->begin(), SE = this->end(); SI != SE; ++SI) {
     ScopStmt *Stmt = *SI;
 
-    for (ScopStmt::memacc_iterator MI = Stmt->memacc_begin(),
-                                   ME = Stmt->memacc_end();
-         MI != ME; ++MI) {
-      if (!(*MI)->isWrite())
+    for (MemoryAccess *MA : *Stmt) {
+      if (!MA->isWrite())
         continue;
 
       isl_set *Domain = Stmt->getDomain();
-      isl_map *AccessDomain = (*MI)->getAccessRelation();
+      isl_map *AccessDomain = MA->getAccessRelation();
 
       AccessDomain = isl_map_intersect_domain(AccessDomain, Domain);
       Write = isl_union_map_add_map(Write, AccessDomain);
@@ -1301,14 +1299,12 @@ __isl_give isl_union_map *Scop::getReads() {
   for (Scop::iterator SI = this->begin(), SE = this->end(); SI != SE; ++SI) {
     ScopStmt *Stmt = *SI;
 
-    for (ScopStmt::memacc_iterator MI = Stmt->memacc_begin(),
-                                   ME = Stmt->memacc_end();
-         MI != ME; ++MI) {
-      if (!(*MI)->isRead())
+    for (MemoryAccess *MA : *Stmt) {
+      if (!MA->isRead())
         continue;
 
       isl_set *Domain = Stmt->getDomain();
-      isl_map *AccessDomain = (*MI)->getAccessRelation();
+      isl_map *AccessDomain = MA->getAccessRelation();
 
       AccessDomain = isl_map_intersect_domain(AccessDomain, Domain);
       Read = isl_union_map_add_map(Read, AccessDomain);

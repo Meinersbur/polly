@@ -121,6 +121,11 @@ TrackFailures("polly-detect-track-failures",
               cl::location(PollyTrackFailures), cl::Hidden, cl::ZeroOrMore,
               cl::init(false), cl::cat(PollyCategory));
 
+static cl::opt<bool> KeepGoing("polly-detect-keep-going",
+                               cl::desc("Do not fail on the first error."),
+                               cl::Hidden, cl::ZeroOrMore, cl::init(false),
+                               cl::cat(PollyCategory));
+
 static cl::opt<bool, true>
 PollyDelinearizeX("polly-delinearize",
                   cl::desc("Delinearize array access functions"),
@@ -194,11 +199,13 @@ inline bool ScopDetection::invalid(DetectionContext &Context, bool Assert,
                                    Args &&... Arguments) const {
 
   if (!Context.Verifying) {
-    RR RejectReason = RR(Arguments...);
-    if (PollyTrackFailures)
-      LastFailure = RejectReason.getMessage();
+    RejectLog &Log = Context.Log;
+    std::shared_ptr<RR> RejectReason = std::make_shared<RR>(Arguments...);
 
-    DEBUG(dbgs() << RejectReason.getMessage());
+    if (PollyTrackFailures)
+      Log.report(RejectReason);
+
+    DEBUG(dbgs() << RejectReason->getMessage());
     DEBUG(dbgs() << "\n");
   } else {
     assert(!Assert && "Verification of detected scop failed");
@@ -218,10 +225,20 @@ bool ScopDetection::isMaxRegionInScop(const Region &R, bool Verify) const {
 }
 
 std::string ScopDetection::regionIsInvalidBecause(const Region *R) const {
-  if (!InvalidRegions.count(R))
+  if (!RejectLogs.count(R))
     return "";
 
-  return InvalidRegions.find(R)->second;
+  // Get the first error we found. Even in keep-going mode, this is the first
+  // reason that caused the candidate to be rejected.
+  RejectLog Errors = RejectLogs.at(R);
+
+  // This can happen when we marked a region invalid, but didn't track
+  // an error for it.
+  if (Errors.size() == 0)
+    return "";
+
+  RejectReasonPtr RR = *Errors.begin();
+  return RR->getMessage();
 }
 
 bool ScopDetection::isValidCFG(BasicBlock &BB,
@@ -386,36 +403,45 @@ bool ScopDetection::isInvariant(const Value &Val, const Region &Reg) const {
   return true;
 }
 
+MapInsnToMemAcc InsnToMemAcc;
+
 bool ScopDetection::hasAffineMemoryAccesses(DetectionContext &Context) const {
   for (auto P : Context.NonAffineAccesses) {
     const SCEVUnknown *BasePointer = P.first;
     Value *BaseValue = BasePointer->getValue();
+    ArrayShape *Shape = new ArrayShape(BasePointer);
 
     // First step: collect parametric terms in all array references.
     SmallVector<const SCEV *, 4> Terms;
-    for (const SCEVAddRecExpr *AF : Context.NonAffineAccesses[BasePointer])
-      AF->collectParametricTerms(*SE, Terms);
+    for (PairInsnAddRec PIAF : Context.NonAffineAccesses[BasePointer])
+      PIAF.second->collectParametricTerms(*SE, Terms);
 
     // Also collect terms from the affine memory accesses.
-    for (const SCEVAddRecExpr *AF : Context.AffineAccesses[BasePointer])
-      AF->collectParametricTerms(*SE, Terms);
+    for (PairInsnAddRec PIAF : Context.AffineAccesses[BasePointer])
+      PIAF.second->collectParametricTerms(*SE, Terms);
 
     // Second step: find array shape.
-    SmallVector<const SCEV *, 4> Sizes;
-    SE->findArrayDimensions(Terms, Sizes);
+    SE->findArrayDimensions(Terms, Shape->DelinearizedSizes,
+                            Context.ElementSize[BasePointer]);
 
     // Third step: compute the access functions for each subscript.
-    for (const SCEVAddRecExpr *AF : Context.NonAffineAccesses[BasePointer]) {
-      if (Sizes.empty())
-        return invalid<ReportNonAffineAccess>(Context, /*Assert=*/true, AF);
+    for (PairInsnAddRec PIAF : Context.NonAffineAccesses[BasePointer]) {
+      const SCEVAddRecExpr *AF = PIAF.second;
+      const Instruction *Insn = PIAF.first;
+      if (Shape->DelinearizedSizes.empty())
+        return invalid<ReportNonAffineAccess>(Context, /*Assert=*/true,
+                                              PIAF.second);
 
-      SmallVector<const SCEV *, 4> Subscripts;
-      if (!AF->computeAccessFunctions(*SE, Subscripts, Sizes) ||
-          Sizes.empty() || Subscripts.empty())
+      MemAcc *Acc = new MemAcc(Insn, Shape);
+      InsnToMemAcc.insert({Insn, Acc});
+      AF->computeAccessFunctions(*SE, Acc->DelinearizedSubscripts,
+                                 Shape->DelinearizedSizes);
+      if (Shape->DelinearizedSizes.empty() ||
+          Acc->DelinearizedSubscripts.empty())
         return invalid<ReportNonAffineAccess>(Context, /*Assert=*/true, AF);
 
       // Check that the delinearized subscripts are affine.
-      for (const SCEV *S : Subscripts)
+      for (const SCEV *S : Acc->DelinearizedSubscripts)
         if (!isAffineExpr(&Context.CurRegion, S, *SE, BaseValue))
           return invalid<ReportNonAffineAccess>(Context, /*Assert=*/true, AF);
     }
@@ -467,17 +493,20 @@ bool ScopDetection::isValidMemoryAccess(Instruction &Inst,
       return invalid<ReportNonAffineAccess>(Context, /*Assert=*/true,
                                             AccessFunction);
 
+    const SCEV *ElementSize = SE->getElementSize(&Inst);
+    Context.ElementSize[BasePointer] = ElementSize;
+
     // Collect all non affine memory accesses, and check whether they are linear
     // at the end of scop detection. That way we can delinearize all the memory
     // accesses to the same array in a unique step.
     if (Context.NonAffineAccesses[BasePointer].size() == 0)
       Context.NonAffineAccesses[BasePointer] = AFs();
-    Context.NonAffineAccesses[BasePointer].push_back(AF);
+    Context.NonAffineAccesses[BasePointer].push_back({&Inst, AF});
   } else if (const SCEVAddRecExpr *AF =
                  dyn_cast<SCEVAddRecExpr>(AccessFunction)) {
     if (Context.AffineAccesses[BasePointer].size() == 0)
       Context.AffineAccesses[BasePointer] = AFs();
-    Context.AffineAccesses[BasePointer].push_back(AF);
+    Context.AffineAccesses[BasePointer].push_back({&Inst, AF});
   }
 
   // FIXME: Alias Analysis thinks IntToPtrInst aliases with alloca instructions
@@ -639,18 +668,21 @@ void ScopDetection::findScops(Region &R) {
   if (!DetectRegionsWithoutLoops && regionWithoutLoops(R, LI))
     return;
 
-  LastFailure = "";
+  bool IsValidRegion = isValidRegion(R);
+  bool HasErrors = RejectLogs.count(&R) > 0;
 
-  if (isValidRegion(R)) {
+  if (IsValidRegion && !HasErrors) {
     ++ValidRegion;
     ValidRegions.insert(&R);
     return;
   }
 
-  InvalidRegions[&R] = LastFailure;
-
   for (auto &SubRegion : R)
     findScops(*SubRegion);
+
+  // Do not expand when we had errors. Bad things may happen.
+  if (IsValidRegion && HasErrors)
+    return;
 
   // Try to expand regions.
   //
@@ -689,17 +721,17 @@ bool ScopDetection::allBlocksValid(DetectionContext &Context) const {
 
   for (const BasicBlock *BB : R.blocks()) {
     Loop *L = LI->getLoopFor(BB);
-    if (L && L->getHeader() == BB && !isValidLoop(L, Context))
+    if (L && L->getHeader() == BB && (!isValidLoop(L, Context) && !KeepGoing))
       return false;
   }
 
   for (BasicBlock *BB : R.blocks())
-    if (!isValidCFG(*BB, Context))
+    if (!isValidCFG(*BB, Context) && !KeepGoing)
       return false;
 
   for (BasicBlock *BB : R.blocks())
     for (BasicBlock::iterator I = BB->begin(), E = --BB->end(); I != E; ++I)
-      if (!isValidInstruction(*I, Context))
+      if (!isValidInstruction(*I, Context) && !KeepGoing)
         return false;
 
   if (!hasAffineMemoryAccesses(Context))
@@ -723,7 +755,18 @@ bool ScopDetection::isValidExit(DetectionContext &Context) const {
 
 bool ScopDetection::isValidRegion(Region &R) const {
   DetectionContext Context(R, *AA, false /*verifying*/);
-  return isValidRegion(Context);
+
+  bool RegionIsValid = isValidRegion(Context);
+  bool HasErrors = !RegionIsValid || Context.Log.size() > 0;
+
+  if (PollyTrackFailures && HasErrors) {
+    // std::map::insert does not replace.
+    std::pair<reject_iterator, bool> InsertedValue =
+        RejectLogs.insert(std::make_pair(&R, Context.Log));
+    assert(InsertedValue.second && "Two logs generated for the same Region.");
+  }
+
+  return RegionIsValid;
 }
 
 bool ScopDetection::isValidRegion(DetectionContext &Context) const {
@@ -779,29 +822,6 @@ bool ScopDetection::isValidRegion(DetectionContext &Context) const {
 
 bool ScopDetection::isValidFunction(llvm::Function &F) {
   return !InvalidFunctions.count(&F);
-}
-
-void ScopDetection::getDebugLocation(const Region *R, unsigned &LineBegin,
-                                     unsigned &LineEnd, std::string &FileName) {
-  LineBegin = -1;
-  LineEnd = 0;
-
-  for (const BasicBlock *BB : R->blocks())
-    for (const Instruction &Inst : *BB) {
-      DebugLoc DL = Inst.getDebugLoc();
-      if (DL.isUnknown())
-        continue;
-
-      DIScope Scope(DL.getScope(Inst.getContext()));
-
-      if (FileName.empty())
-        FileName = Scope.getFilename();
-
-      unsigned NewLine = DL.getLine();
-
-      LineBegin = std::min(LineBegin, NewLine);
-      LineEnd = std::max(LineEnd, NewLine);
-    }
 }
 
 void ScopDetection::printLocations(llvm::Function &F) {
@@ -902,7 +922,8 @@ void ScopDetection::print(raw_ostream &OS, const Module *) const {
 
 void ScopDetection::releaseMemory() {
   ValidRegions.clear();
-  InvalidRegions.clear();
+  RejectLogs.clear();
+
   // Do not clear the invalid function set.
 }
 

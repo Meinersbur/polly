@@ -76,18 +76,14 @@ void Dependences::collectInfo(Scop &S, isl_union_map **Read,
   *MayWrite = isl_union_map_empty(isl_space_copy(Space));
   *Schedule = isl_union_map_empty(Space);
 
-  for (Scop::iterator SI = S.begin(), SE = S.end(); SI != SE; ++SI) {
-    ScopStmt *Stmt = *SI;
-
-    for (ScopStmt::memacc_iterator MI = Stmt->memacc_begin(),
-                                   ME = Stmt->memacc_end();
-         MI != ME; ++MI) {
+  for (ScopStmt *Stmt : S) {
+    for (MemoryAccess *MA : *Stmt) {
       isl_set *domcp = Stmt->getDomain();
-      isl_map *accdom = (*MI)->getAccessRelation();
+      isl_map *accdom = MA->getAccessRelation();
 
       accdom = isl_map_intersect_domain(accdom, domcp);
 
-      if ((*MI)->isRead())
+      if (MA->isRead())
         *Read = isl_union_map_add_map(*Read, accdom);
       else
         *Write = isl_union_map_add_map(*Write, accdom);
@@ -195,12 +191,10 @@ bool Dependences::isValidScattering(StatementToIslMapTy *NewScattering) {
 
   isl_space *ScatteringSpace = 0;
 
-  for (Scop::iterator SI = S.begin(), SE = S.end(); SI != SE; ++SI) {
-    ScopStmt *Stmt = *SI;
-
+  for (ScopStmt *Stmt : S) {
     isl_map *StmtScat;
 
-    if (NewScattering->find(*SI) == NewScattering->end())
+    if (NewScattering->find(Stmt) == NewScattering->end())
       StmtScat = Stmt->getScattering();
     else
       StmtScat = isl_map_copy((*NewScattering)[Stmt]);
@@ -234,8 +228,7 @@ isl_union_map *getCombinedScheduleForSpace(Scop *scop, unsigned dimLevel) {
   isl_space *Space = scop->getParamSpace();
   isl_union_map *schedule = isl_union_map_empty(Space);
 
-  for (Scop::iterator SI = scop->begin(), SE = scop->end(); SI != SE; ++SI) {
-    ScopStmt *Stmt = *SI;
+  for (ScopStmt *Stmt : *scop) {
     unsigned remainingDimensions = Stmt->getNumScattering() - dimLevel;
     isl_map *Scattering = isl_map_project_out(
         Stmt->getScattering(), isl_dim_out, dimLevel, remainingDimensions);
@@ -303,24 +296,20 @@ bool Dependences::isParallelDimension(__isl_take isl_set *ScheduleSubset,
   return IsParallel;
 }
 
+static void printDependencyMap(raw_ostream &OS, __isl_keep isl_union_map *DM) {
+  if (DM)
+    OS << DM << "\n";
+  else
+    OS << "n/a\n";
+}
+
 void Dependences::printScop(raw_ostream &OS) const {
   OS << "\tRAW dependences:\n\t\t";
-  if (RAW)
-    OS << RAW << "\n";
-  else
-    OS << "n/a\n";
-
+  printDependencyMap(OS, RAW);
   OS << "\tWAR dependences:\n\t\t";
-  if (WAR)
-    OS << WAR << "\n";
-  else
-    OS << "n/a\n";
-
+  printDependencyMap(OS, WAR);
   OS << "\tWAW dependences:\n\t\t";
-  if (WAW)
-    OS << WAW << "\n";
-  else
-    OS << "n/a\n";
+  printDependencyMap(OS, WAW);
 }
 
 void Dependences::releaseMemory() {
