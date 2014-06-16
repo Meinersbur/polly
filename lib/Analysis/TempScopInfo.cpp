@@ -214,7 +214,7 @@ IRAccess TempScopInfo::buildIRAccess(Instruction *Inst, Loop *L, Region *R) {
   MemAcc *Acc = InsnToMemAcc[Inst];
   if (PollyDelinearize && Acc)
     return IRAccess(Type, BasePointer->getValue(), AccessFunction, Size, true,
-                    Acc->DelinearizedSubscripts, Acc->Shape->DelinearizedSizes);
+                    Acc->DelinearizedSubscripts, Acc->Shape->DelinearizedSizes, true);
 
   bool IsAffine = isAffineExpr(R, AccessFunction, *SE, BasePointer->getValue());
   Subscripts.push_back(AccessFunction);
@@ -280,49 +280,35 @@ void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {
         // This case is mostly copied from buildIRAccess, but modified such it takes its source from an Access object
         Type *SizeType = acc.getElementType();
         unsigned Size = TD->getTypeStoreSize(SizeType);
-        //enum IRAccess::TypeKind Type = acc.isRead() ? IRAccess::READ : IRAccess::WRITE;
-        auto ptr = acc.getPtr();
 
-        const SCEV *AccessFunction = SE->getSCEVAtScope(ptr, L);
+        const SCEV *AccessFunction = SE->getSCEVAtScope(getPointerOperand(*Inst), L);
         const SCEVUnknown *BasePointer = dyn_cast<SCEVUnknown>(SE->getPointerBase(AccessFunction));
 
         assert(BasePointer && "Could not find base pointer");
         AccessFunction = SE->getMinusSCEV(AccessFunction, BasePointer);
         SmallVector<const SCEV *, 4> Subscripts, Sizes;
 
-        bool IsAffine = isAffineExpr(&R, AccessFunction, *SE, BasePointer->getValue());
-        const SCEVAddRecExpr *AF = dyn_cast<SCEVAddRecExpr>(AccessFunction);
-
-        if (!IsAffine && PollyDelinearize && AF) {
-          const SCEV *Remainder = AF->delinearize(*SE, Subscripts, Sizes);
-          int NSubs = Subscripts.size();
-
-          if (NSubs > 0) {
-            // Normalize the last dimension: integrate the size of the "scalar
-            // dimension" and the remainder of the delinearization.
-            Subscripts[NSubs - 1] = SE->getMulExpr(Subscripts[NSubs - 1], Sizes[NSubs - 1]);
-            Subscripts[NSubs - 1] = SE->getAddExpr(Subscripts[NSubs - 1], Remainder);
-
-            IsAffine = true;
-            for (int i = 0; i < NSubs; ++i)
-              if (!isAffineExpr(&R, Subscripts[i], *SE, BasePointer->getValue())) {
-                IsAffine = false;
-                break;
-              }
-          }
-        }
-
-        if (Subscripts.size() == 0) {
+        MemAcc *Acc = InsnToMemAcc[Inst];
+        bool IsAffine;
+        SmallVector<const SCEV *, 4> *SubscriptsArgs, *SizesArgs;
+        if (PollyDelinearize && Acc) {
+          IsAffine = true;
+          SubscriptsArgs = &Acc->DelinearizedSubscripts;
+          SizesArgs = &Acc->Shape->DelinearizedSizes;
+        } else {
+          IsAffine = isAffineExpr(&R, AccessFunction, *SE, BasePointer->getValue());
           Subscripts.push_back(AccessFunction);
           Sizes.push_back(SE->getConstant(ZeroOffset->getType(), Size));
+          SubscriptsArgs = &Subscripts;
+          SizesArgs = &Sizes;
         }
 
         if (accRead.isValid()) {
-          IRAccess iracc(IRAccess::READ, BasePointer->getValue(), AccessFunction, Size, IsAffine, Subscripts, Sizes, true);
+          IRAccess iracc(IRAccess::READ, BasePointer->getValue(), AccessFunction, Size, IsAffine, *SubscriptsArgs, *SizesArgs, true);
           Functions.push_back(std::make_pair(iracc, Inst));
-        } 
+        }
         if (accWrite.isValid()) {
-          IRAccess iracc(IRAccess::WRITE, BasePointer->getValue(), AccessFunction, Size, IsAffine, Subscripts, Sizes, true);
+          IRAccess iracc(IRAccess::WRITE, BasePointer->getValue(), AccessFunction, Size, IsAffine, *SubscriptsArgs, *SizesArgs, true);
           Functions.push_back(std::make_pair(iracc, Inst));
         }
       }

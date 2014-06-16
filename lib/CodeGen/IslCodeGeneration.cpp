@@ -1204,7 +1204,7 @@ INITIALIZE_PASS_END(IslCodeGeneration, "polly-codegen-isl",
 #ifdef MOLLY
 llvm::Value *polly::codegenIslExpr(PollyIRBuilder &irBuilder, __isl_take struct isl_ast_expr *expr, const std::map<isl_id *, llvm::Value *> &values, llvm::Pass *pass) {
   //llvm::IRBuilder<> irBuilder(insertHere, insertBefore);
-  IslExprBuilder exprBuilder(irBuilder, const_cast<std::map<isl_id *, llvm::Value *>&>(values), pass);
+  IslExprBuilder exprBuilder(irBuilder, const_cast<std::map<isl_id *, llvm::Value *>&>(values));
   Value *result = exprBuilder.create(expr);
   assert(result);
   return result;

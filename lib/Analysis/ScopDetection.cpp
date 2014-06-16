@@ -421,8 +421,12 @@ bool ScopDetection::hasAffineMemoryAccesses(DetectionContext &Context) const {
       PIAF.second->collectParametricTerms(*SE, Terms);
 
     // Second step: find array shape.
+#if 0
+    SE->findArrayDimensions(Terms, Shape->DelinearizedSizes);
+#else
     SE->findArrayDimensions(Terms, Shape->DelinearizedSizes,
                             Context.ElementSize[BasePointer]);
+#endif
 
     // Third step: compute the access functions for each subscript.
     for (PairInsnAddRec PIAF : Context.NonAffineAccesses[BasePointer]) {

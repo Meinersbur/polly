@@ -20,7 +20,6 @@
 #include "clang/Frontend/FrontendDiagnostic.h"
 #include "clang/Frontend/TextDiagnosticPrinter.h"
 #include "clang/Frontend/Utils.h"
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/IR/DataLayout.h"
@@ -35,6 +34,7 @@
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCTargetAsmParser.h"
+#include "llvm/MC/MCTargetOptions.h"
 #include "llvm/Option/Arg.h"
 #include "llvm/Option/ArgList.h"
 #include "llvm/Option/OptTable.h"
@@ -54,6 +54,7 @@
 #include "llvm/Support/Timer.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/system_error.h"
+#include <memory>
 using namespace clang;
 using namespace clang::driver;
 using namespace llvm;
@@ -85,6 +86,8 @@ namespace {
     unsigned NoInitialTextSection : 1;
     unsigned SaveTemporaryLabels : 1;
     unsigned GenDwarfForAssembly : 1;
+    unsigned CompressDebugSections : 1;
+    unsigned DwarfVersion;
     std::string DwarfDebugFlags;
     std::string DwarfDebugProducer;
     std::string DebugCompilationDir;
@@ -135,6 +138,7 @@ namespace {
       ShowEncoding = 0;
       RelaxAll = 0;
       NoExecStack = 0;
+      DwarfVersion = 3;
     }
 
     static bool CreateFromArgs(AssemblerInvocation &Res, const char **ArgBegin,
@@ -151,9 +155,9 @@ bool AssemblerInvocation::CreateFromArgs(AssemblerInvocation &Opts,
   bool Success = true;
 
   // Parse the arguments.
-  OwningPtr<OptTable> OptTbl(createCC1AsOptTable());
+  std::unique_ptr<OptTable> OptTbl(createCC1AsOptTable());
   unsigned MissingArgIndex, MissingArgCount;
-  OwningPtr<InputArgList> Args(
+  std::unique_ptr<InputArgList> Args(
     OptTbl->ParseArgs(ArgBegin, ArgEnd, MissingArgIndex, MissingArgCount));
 
   // Check for missing argument error.
@@ -186,6 +190,13 @@ bool AssemblerInvocation::CreateFromArgs(AssemblerInvocation &Opts,
   Opts.NoInitialTextSection = Args->hasArg(OPT_n);
   Opts.SaveTemporaryLabels = Args->hasArg(OPT_msave_temp_labels);
   Opts.GenDwarfForAssembly = Args->hasArg(OPT_g);
+  Opts.CompressDebugSections = Args->hasArg(OPT_compress_debug_sections);
+  if (Args->hasArg(OPT_gdwarf_2))
+    Opts.DwarfVersion = 2;
+  if (Args->hasArg(OPT_gdwarf_3))
+    Opts.DwarfVersion = 3;
+  if (Args->hasArg(OPT_gdwarf_4))
+    Opts.DwarfVersion = 4;
   Opts.DwarfDebugFlags = Args->getLastArgValue(OPT_dwarf_debug_flags);
   Opts.DwarfDebugProducer = Args->getLastArgValue(OPT_dwarf_debug_producer);
   Opts.DebugCompilationDir = Args->getLastArgValue(OPT_fdebug_compilation_dir);
@@ -218,8 +229,7 @@ bool AssemblerInvocation::CreateFromArgs(AssemblerInvocation &Opts,
       Diags.Report(diag::err_drv_invalid_value)
         << A->getAsString(*Args) << Name;
       Success = false;
-    }
-    else
+    } else
       Opts.OutputType = FileType(OutputType);
   }
   Opts.ShowHelp = Args->hasArg(OPT_help);
@@ -272,13 +282,13 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
     return false;
   }
 
-  OwningPtr<MemoryBuffer> BufferPtr;
+  std::unique_ptr<MemoryBuffer> BufferPtr;
   if (error_code ec = MemoryBuffer::getFileOrSTDIN(Opts.InputFile, BufferPtr)) {
     Error = ec.message();
     Diags.Report(diag::err_fe_error_reading) << Opts.InputFile;
     return false;
   }
-  MemoryBuffer *Buffer = BufferPtr.take();
+  MemoryBuffer *Buffer = BufferPtr.release();
 
   SourceMgr SrcMgr;
 
@@ -289,11 +299,16 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
   // it later.
   SrcMgr.setIncludeDirs(Opts.IncludePaths);
 
-  OwningPtr<MCRegisterInfo> MRI(TheTarget->createMCRegInfo(Opts.Triple));
+  std::unique_ptr<MCRegisterInfo> MRI(TheTarget->createMCRegInfo(Opts.Triple));
   assert(MRI && "Unable to create target register info!");
 
-  OwningPtr<MCAsmInfo> MAI(TheTarget->createMCAsmInfo(*MRI, Opts.Triple));
+  std::unique_ptr<MCAsmInfo> MAI(TheTarget->createMCAsmInfo(*MRI, Opts.Triple));
   assert(MAI && "Unable to create target asm info!");
+
+  // Ensure MCAsmInfo initialization occurs before any use, otherwise sections
+  // may be created with a combination of default and explicit settings.
+  if (Opts.CompressDebugSections)
+    MAI->setCompressDebugSections(true);
 
   bool IsBinary = Opts.OutputType == AssemblerInvocation::FT_Obj;
   formatted_raw_ostream *Out = GetOutputStream(Opts, Diags, IsBinary);
@@ -302,7 +317,8 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
 
   // FIXME: This is not pretty. MCContext has a ptr to MCObjectFileInfo and
   // MCObjectFileInfo needs a MCContext reference in order to initialize itself.
-  OwningPtr<MCObjectFileInfo> MOFI(new MCObjectFileInfo());
+  std::unique_ptr<MCObjectFileInfo> MOFI(new MCObjectFileInfo());
+
   MCContext Ctx(MAI.get(), MRI.get(), MOFI.get(), &SrcMgr);
   // FIXME: Assembler behavior can change with -static.
   MOFI->InitMCObjectFileInfo(Opts.Triple,
@@ -319,6 +335,7 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
     Ctx.setCompilationDir(Opts.DebugCompilationDir);
   if (!Opts.MainFileName.empty())
     Ctx.setMainFileName(StringRef(Opts.MainFileName));
+  Ctx.setDwarfVersion(Opts.DwarfVersion);
 
   // Build up the feature string from the target feature list.
   std::string FS;
@@ -328,11 +345,11 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
       FS += "," + Opts.Features[i];
   }
 
-  OwningPtr<MCStreamer> Str;
+  std::unique_ptr<MCStreamer> Str;
 
-  OwningPtr<MCInstrInfo> MCII(TheTarget->createMCInstrInfo());
-  OwningPtr<MCSubtargetInfo>
-    STI(TheTarget->createMCSubtargetInfo(Opts.Triple, Opts.CPU, FS));
+  std::unique_ptr<MCInstrInfo> MCII(TheTarget->createMCInstrInfo());
+  std::unique_ptr<MCSubtargetInfo> STI(
+    TheTarget->createMCSubtargetInfo(Opts.Triple, Opts.CPU, FS));
 
   // FIXME: There is a bit of code duplication with addPassesToEmitFile.
   if (Opts.OutputType == AssemblerInvocation::FT_Asm) {
@@ -346,15 +363,12 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
       MAB = TheTarget->createMCAsmBackend(*MRI, Opts.Triple, Opts.CPU);
     }
     Str.reset(TheTarget->createAsmStreamer(Ctx, *Out, /*asmverbose*/true,
-      /*useCFI*/ true,
       /*useDwarfDirectory*/ true,
       IP, CE, MAB,
       Opts.ShowInst));
-  }
-  else if (Opts.OutputType == AssemblerInvocation::FT_Null) {
+  } else if (Opts.OutputType == AssemblerInvocation::FT_Null) {
     Str.reset(createNullStreamer(Ctx));
-  }
-  else {
+  } else {
     assert(Opts.OutputType == AssemblerInvocation::FT_Obj &&
       "Invalid file type!");
     MCCodeEmitter *CE = TheTarget->createMCCodeEmitter(*MCII, *MRI, *STI, Ctx);
@@ -366,9 +380,13 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
     Str.get()->InitSections();
   }
 
-  OwningPtr<MCAsmParser> Parser(createMCAsmParser(SrcMgr, Ctx,
-    *Str.get(), *MAI));
-  OwningPtr<MCTargetAsmParser> TAP(TheTarget->createMCAsmParser(*STI, *Parser, *MCII));
+  std::unique_ptr<MCAsmParser> Parser(
+    createMCAsmParser(SrcMgr, Ctx, *Str.get(), *MAI));
+
+  // FIXME: init MCTargetOptions from sanitizer flags here.
+  MCTargetOptions Options;
+  std::unique_ptr<MCTargetAsmParser> TAP(
+    TheTarget->createMCAsmParser(*STI, *Parser, *MCII, Options));
   if (!TAP) {
     Diags.Report(diag::err_target_unknown_triple) << Opts.Triple;
     return false;
@@ -430,7 +448,7 @@ int cc1as_main(const char **ArgBegin, const char **ArgEnd,
 
   // Honor -help.
   if (Asm.ShowHelp) {
-    OwningPtr<OptTable> Opts(driver::createCC1AsOptTable());
+    std::unique_ptr<OptTable> Opts(driver::createCC1AsOptTable());
     Opts->PrintHelp(llvm::outs(), "clang -cc1as", "Clang Integrated Assembler");
     return 0;
   }

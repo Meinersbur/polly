@@ -25,6 +25,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Config/config.h"
 #include "llvm/Option/ArgList.h"
 #include "llvm/Option/OptTable.h"
 #include "llvm/Option/Option.h"
@@ -213,22 +214,25 @@ static void ParseProgName(SmallVectorImpl<const char *> &ArgVector,
     const char *Suffix;
     const char *ModeFlag;
   } suffixes[] = {
-    { "clang", 0 },
-    { "clang++", "--driver-mode=g++" },
-    { "clang-c++", "--driver-mode=g++" },
-    { "clang-cc", 0 },
-    { "clang-cpp", "--driver-mode=cpp" },
-    { "clang-g++", "--driver-mode=g++" },
-    { "clang-gcc", 0 },
-    { "clang-cl", "--driver-mode=cl" },
-    { "cc", 0 },
-    { "cpp", "--driver-mode=cpp" },
-    { "cl", "--driver-mode=cl" },
-    { "++", "--driver-mode=g++" },
+      { "clang", 0 },
+      { "clang++", "--driver-mode=g++" },
+      { "clang-c++", "--driver-mode=g++" },
+      { "clang-cc", 0 },
+      { "clang-cpp", "--driver-mode=cpp" },
+      { "clang-g++", "--driver-mode=g++" },
+      { "clang-gcc", 0 },
+      { "clang-cl", "--driver-mode=cl" },
+      { "cc", 0 },
+      { "cpp", "--driver-mode=cpp" },
+      { "cl", "--driver-mode=cl" },
+      { "++", "--driver-mode=g++" },
   };
   std::string ProgName(llvm::sys::path::stem(ArgVector[0]));
+#ifdef LLVM_ON_WIN32
+  // Transform to lowercase for case insensitive file systems.
   std::transform(ProgName.begin(), ProgName.end(), ProgName.begin(),
     toLowercase);
+#endif
   StringRef ProgNameRef(ProgName);
   StringRef Prefix;
 
@@ -367,7 +371,7 @@ int main(int argc_, const char **argv_) {
   DiagnosticsEngine Diags(DiagID, &*DiagOpts, DiagClient);
   ProcessWarningOptions(Diags, *DiagOpts, /*ReportDiags=*/false);
 
-  Driver TheDriver(Path, llvm::sys::getDefaultTargetTriple(), "a.out", Diags);
+  Driver TheDriver(Path, llvm::sys::getDefaultTargetTriple(), Diags);
 
   // Attempt to find the original path used to invoke the driver, to determine
   // the installed path. We do this manually, because we want to support that
@@ -442,7 +446,7 @@ int main(int argc_, const char **argv_) {
 
   llvm::llvm_shutdown();
 
-#ifdef _WIN32
+#ifdef LLVM_ON_WIN32
   // Exit status should not be negative on Win32, unless abnormal termination.
   // Once abnormal termiation was caught, negative status should not be
   // propagated.
