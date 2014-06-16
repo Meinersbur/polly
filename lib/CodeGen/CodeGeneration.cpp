@@ -23,7 +23,6 @@
 #include "polly/CodeGen/Cloog.h"
 #ifdef CLOOG_FOUND
 
-#define DEBUG_TYPE "polly-codegen"
 #include "polly/Dependences.h"
 #include "polly/LinkAllPasses.h"
 #include "polly/Options.h"
@@ -57,6 +56,8 @@
 
 using namespace polly;
 using namespace llvm;
+
+#define DEBUG_TYPE "polly-codegen"
 
 struct isl_set;
 
@@ -116,7 +117,7 @@ Value *ClastExpCodeGen::codegen(const clast_name *e, Type *Ty) {
 }
 
 static APInt APInt_from_MPZ(const mpz_t mpz) {
-  uint64_t *p = NULL;
+  uint64_t *p = nullptr;
   size_t sz;
 
   p = (uint64_t *)mpz_export(p, &sz, -1, sizeof(uint64_t), 0, 0, mpz);
@@ -294,8 +295,8 @@ private:
                             std::vector<ValueMapT> *VectorVMap = 0,
                             std::vector<LoopToScevMapT> *VLTS = 0);
 
-  void codegen(const clast_user_stmt *u, std::vector<Value *> *IVS = NULL,
-               const char *iterator = NULL,
+  void codegen(const clast_user_stmt *u, std::vector<Value *> *IVS = nullptr,
+               const char *iterator = nullptr,
                __isl_take isl_set *scatteringDomain = 0);
 
   void codegen(const clast_block *b);
@@ -463,6 +464,7 @@ void ClastStmtCodeGen::codegen(const clast_user_stmt *u,
 
   if (VectorDimensions == 1) {
     BlockGenerator::generate(Builder, *Statement, ValueMap, LoopToScev, P);
+    isl_set_free(Domain);
     return;
   }
 
@@ -479,6 +481,13 @@ void ClastStmtCodeGen::codegen(const clast_user_stmt *u,
       i++;
     }
   }
+
+  // Copy the current value map into all vector maps if the key wasn't
+  // available yet. This is needed in case vector codegen is performed in
+  // OpenMP subfunctions.
+  for (auto KV : ValueMap)
+    for (int i = 0; i < VectorDimensions; ++i)
+      VectorMap[i].insert(KV);
 
   isl_map *Schedule = extractPartialSchedule(Statement, Domain);
   VectorBlockGenerator::generate(Builder, *Statement, VectorMap, VLTS, Schedule,
@@ -776,12 +785,12 @@ void ClastStmtCodeGen::codegenForGPGPU(const clast_for *F) {
                     CmpInst::ICMP_SLE);
     const Value *OldIV_ = Statement->getInductionVariableForDimension(2);
     Value *OldIV = const_cast<Value *>(OldIV_);
-    VMap.insert(std::make_pair<Value *, Value *>(OldIV, IV));
+    VMap.insert(std::make_pair(OldIV, IV));
   }
 
   updateWithValueMap(VMap);
 
-  BlockGenerator::generate(Builder, *Statement, ValueMap, P);
+  BlockGenerator::generate(Builder, *Statement, ValueMap, LoopToScev, P);
 
   if (AfterBB)
     Builder.SetInsertPoint(AfterBB->begin());

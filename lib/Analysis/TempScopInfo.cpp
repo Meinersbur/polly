@@ -27,17 +27,17 @@
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/IR/DataLayout.h"
-
 #ifdef MOLLY
 #include "llvm/IR/IntrinsicInst.h"
 #include "polly/FieldAccess.h"
 #endif /* MOLLY */
 
-#define DEBUG_TYPE "polly-analyze-ir"
 #include "llvm/Support/Debug.h"
 
 using namespace llvm;
 using namespace polly;
+
+#define DEBUG_TYPE "polly-analyze-ir"
 
 //===----------------------------------------------------------------------===//
 /// Helper Classes

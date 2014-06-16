@@ -31,8 +31,6 @@
 #include "llvm/Analysis/RegionIterator.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/Support/CommandLine.h"
-
-#define DEBUG_TYPE "polly-scops"
 #include "llvm/Support/Debug.h"
 
 #include "isl/constraint.h"
@@ -44,6 +42,7 @@
 #include "isl/local_space.h"
 #include "isl/options.h"
 #include "isl/val.h"
+
 #include <sstream>
 #include <string>
 #include <vector>
@@ -55,6 +54,8 @@
 
 using namespace llvm;
 using namespace polly;
+
+#define DEBUG_TYPE "polly-scops"
 
 STATISTIC(ScopFound, "Number of valid Scops");
 STATISTIC(RichScopFound, "Number of Scops containing a loop");
@@ -195,7 +196,7 @@ __isl_give isl_pw_aff *SCEVAffinator::visitMulExpr(const SCEVMulExpr *Expr) {
     if (!isl_pw_aff_is_cst(Product) && !isl_pw_aff_is_cst(NextOperand)) {
       isl_pw_aff_free(Product);
       isl_pw_aff_free(NextOperand);
-      return NULL;
+      return nullptr;
     }
 
     Product = isl_pw_aff_mul(Product, NextOperand);
@@ -387,7 +388,7 @@ static __isl_give isl_map* isl_map_from_multi_pw_aff(__isl_take isl_multi_pw_aff
 
 MemoryAccess::MemoryAccess(const IRAccess &Access, const Instruction *AccInst,
                            ScopStmt *Statement)
-    : Statement(Statement), Inst(AccInst), newAccessRelation(NULL) {
+    : Statement(Statement), Inst(AccInst), newAccessRelation(nullptr) {
 
   BaseAddr = Access.getBase();
 #ifdef MOLLY
@@ -647,7 +648,7 @@ void ScopStmt::restrictDomain(__isl_take isl_set *NewDomain) {
 }
 
 void ScopStmt::setScattering(__isl_take isl_map *NewScattering) {
-  assert(NewScattering && "New scattering is NULL");
+  assert(NewScattering && "New scattering is nullptr");
   isl_map_free(Scattering);
   Scattering = NewScattering;
 }
@@ -1077,7 +1078,7 @@ __isl_give isl_id *Scop::getIdForParam(const SCEV *Parameter) const {
   ParamIdType::const_iterator IdIter = ParameterIds.find(Parameter);
 
   if (IdIter == ParameterIds.end())
-    return NULL;
+    return nullptr;
 
   std::string ParameterName;
 
@@ -1089,7 +1090,8 @@ __isl_give isl_id *Scop::getIdForParam(const SCEV *Parameter) const {
   if (ParameterName == "" || ParameterName.substr(0, 2) == "p_")
     ParameterName = "p_" + utostr_32(IdIter->second);
 
-  return isl_id_alloc(getIslCtx(), ParameterName.c_str(), (void *)Parameter);
+  return isl_id_alloc(getIslCtx(), ParameterName.c_str(),
+                      const_cast<void *>((const void *)Parameter));
 }
 
 void Scop::buildContext() {
@@ -1259,7 +1261,7 @@ void Scop::dump() const { print(dbgs()); }
 isl_ctx *Scop::getIslCtx() const { return IslCtx; }
 
 __isl_give isl_union_set *Scop::getDomains() {
-  isl_union_set *Domain = NULL;
+  isl_union_set *Domain = nullptr;
 
   for (Scop::iterator SI = begin(), SE = end(); SI != SE; ++SI)
     if (!Domain)

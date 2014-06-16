@@ -23,13 +23,14 @@
 #include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Support/CommandLine.h"
 
-#define DEBUG_TYPE "polly-independent"
 #include "llvm/Support/Debug.h"
 
 #include <vector>
 
 using namespace polly;
 using namespace llvm;
+
+#define DEBUG_TYPE "polly-independent"
 
 static cl::opt<bool> DisableIntraScopScalarToArray(
     "disable-polly-intra-scop-scalar-to-array",
@@ -335,12 +336,9 @@ bool IndependentBlocks::splitExitBlock(Region *R) {
     Region *Reg = toUpdate.back();
     toUpdate.pop_back();
 
-    for (Region::iterator I = Reg->begin(), E = Reg->end(); I != E; ++I) {
-      Region *SubR = *I;
-
+    for (const auto &SubR : *Reg)
       if (SubR->getExit() == ExitBB)
-        toUpdate.push_back(SubR);
-    }
+        toUpdate.push_back(SubR.get());
 
     Reg->replaceExit(NewExit);
   }

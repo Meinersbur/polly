@@ -30,12 +30,12 @@
 #include "polly/LinkAllPasses.h"
 #include "polly/Options.h"
 #include "polly/ScopInfo.h"
-
-#define DEBUG_TYPE "polly-opt-isl"
 #include "llvm/Support/Debug.h"
 
 using namespace llvm;
 using namespace polly;
+
+#define DEBUG_TYPE "polly-opt-isl"
 
 namespace polly {
 bool DisablePollyTiling;
@@ -83,7 +83,7 @@ namespace {
 class IslScheduleOptimizer : public ScopPass {
 public:
   static char ID;
-  explicit IslScheduleOptimizer() : ScopPass(ID) { LastSchedule = NULL; }
+  explicit IslScheduleOptimizer() : ScopPass(ID) { LastSchedule = nullptr; }
 
   ~IslScheduleOptimizer() { isl_schedule_free(LastSchedule); }
 
@@ -183,9 +183,11 @@ private:
 
   static isl_union_map *getScheduleMap(isl_schedule *Schedule);
 
-  bool doFinalization() {
+  using llvm::Pass::doFinalization;
+
+  virtual bool doFinalization() {
     isl_schedule_free(LastSchedule);
-    LastSchedule = NULL;
+    LastSchedule = nullptr;
     return true;
   }
 };
@@ -442,7 +444,7 @@ bool IslScheduleOptimizer::runOnScop(Scop &S) {
     return false;
 
   isl_schedule_free(LastSchedule);
-  LastSchedule = NULL;
+  LastSchedule = nullptr;
 
   // Build input data.
   int ValidityKinds =

@@ -61,10 +61,7 @@
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/DiagnosticPrinter.h"
 #include "llvm/IR/LLVMContext.h"
-
-#define DEBUG_TYPE "molly"
 #include "llvm/Support/Debug.h"
-
 #include <set>
 #ifdef MOLLY
 #include "llvm/IR/IntrinsicInst.h"
@@ -73,6 +70,8 @@
 
 using namespace llvm;
 using namespace polly;
+
+#define DEBUG_TYPE "polly-detect"
 
 static cl::opt<bool>
 DetectScopsWithoutLoops("polly-detect-scops-in-functions-without-loops",
@@ -87,8 +86,9 @@ DetectRegionsWithoutLoops("polly-detect-scops-in-regions-without-loops",
                           cl::cat(PollyCategory));
 
 static cl::opt<std::string>
-OnlyFunction("polly-only-func", cl::desc("Only run on a single function"),
-             cl::value_desc("function-name"), cl::ValueRequired, cl::init(""),
+OnlyFunction("polly-only-func",
+             cl::desc("Only run on functions that contain a certain string"),
+             cl::value_desc("string"), cl::ValueRequired, cl::init(""),
              cl::cat(PollyCategory));
 
 static cl::opt<std::string>
@@ -386,6 +386,43 @@ bool ScopDetection::isInvariant(const Value &Val, const Region &Reg) const {
   return true;
 }
 
+bool ScopDetection::hasAffineMemoryAccesses(DetectionContext &Context) const {
+  for (auto P : Context.NonAffineAccesses) {
+    const SCEVUnknown *BasePointer = P.first;
+    Value *BaseValue = BasePointer->getValue();
+
+    // First step: collect parametric terms in all array references.
+    SmallVector<const SCEV *, 4> Terms;
+    for (const SCEVAddRecExpr *AF : Context.NonAffineAccesses[BasePointer])
+      AF->collectParametricTerms(*SE, Terms);
+
+    // Also collect terms from the affine memory accesses.
+    for (const SCEVAddRecExpr *AF : Context.AffineAccesses[BasePointer])
+      AF->collectParametricTerms(*SE, Terms);
+
+    // Second step: find array shape.
+    SmallVector<const SCEV *, 4> Sizes;
+    SE->findArrayDimensions(Terms, Sizes);
+
+    // Third step: compute the access functions for each subscript.
+    for (const SCEVAddRecExpr *AF : Context.NonAffineAccesses[BasePointer]) {
+      if (Sizes.empty())
+        return invalid<ReportNonAffineAccess>(Context, /*Assert=*/true, AF);
+
+      SmallVector<const SCEV *, 4> Subscripts;
+      if (!AF->computeAccessFunctions(*SE, Subscripts, Sizes) ||
+          Sizes.empty() || Subscripts.empty())
+        return invalid<ReportNonAffineAccess>(Context, /*Assert=*/true, AF);
+
+      // Check that the delinearized subscripts are affine.
+      for (const SCEV *S : Subscripts)
+        if (!isAffineExpr(&Context.CurRegion, S, *SE, BaseValue))
+          return invalid<ReportNonAffineAccess>(Context, /*Assert=*/true, AF);
+    }
+  }
+  return true;
+}
+
 bool ScopDetection::isValidMemoryAccess(Instruction &Inst,
                                         DetectionContext &Context) const {
 #ifdef MOLLY
@@ -425,21 +462,22 @@ bool ScopDetection::isValidMemoryAccess(Instruction &Inst,
   } else if (!isAffineExpr(&Context.CurRegion, AccessFunction, *SE,
                            BaseValue)) {
     const SCEVAddRecExpr *AF = dyn_cast<SCEVAddRecExpr>(AccessFunction);
+
     if (!PollyDelinearize || !AF)
       return invalid<ReportNonAffineAccess>(Context, /*Assert=*/true,
                                             AccessFunction);
 
-    // Try to delinearize AccessFunction only when the expression is known to
-    // not be affine: as all affine functions can be represented without
-    // problems in Polly, we do not have to delinearize them.
-    SmallVector<const SCEV *, 4> Subscripts, Sizes;
-    AF->delinearize(*SE, Subscripts, Sizes);
-    int size = Subscripts.size();
-
-    for (int i = 0; i < size; ++i)
-      if (!isAffineExpr(&Context.CurRegion, Subscripts[i], *SE, BaseValue))
-        return invalid<ReportNonAffineAccess>(Context, /*Assert=*/true,
-                                              AccessFunction);
+    // Collect all non affine memory accesses, and check whether they are linear
+    // at the end of scop detection. That way we can delinearize all the memory
+    // accesses to the same array in a unique step.
+    if (Context.NonAffineAccesses[BasePointer].size() == 0)
+      Context.NonAffineAccesses[BasePointer] = AFs();
+    Context.NonAffineAccesses[BasePointer].push_back(AF);
+  } else if (const SCEVAddRecExpr *AF =
+                 dyn_cast<SCEVAddRecExpr>(AccessFunction)) {
+    if (Context.AffineAccesses[BasePointer].size() == 0)
+      Context.AffineAccesses[BasePointer] = AFs();
+    Context.AffineAccesses[BasePointer].push_back(AF);
   }
 
   // FIXME: Alias Analysis thinks IntToPtrInst aliases with alloca instructions
@@ -523,7 +561,7 @@ bool ScopDetection::isValidLoop(Loop *L, DetectionContext &Context) const {
 
 Region *ScopDetection::expandRegion(Region &R) {
   // Initial no valid region was found (greater than R)
-  Region *LastValidRegion = NULL;
+  Region *LastValidRegion = nullptr;
   Region *ExpandedRegion = R.getExpandedRegion();
 
   DEBUG(dbgs() << "\tExpanding " << R.getNameStr() << "\n");
@@ -584,14 +622,14 @@ static bool regionWithoutLoops(Region &R, LoopInfo *LI) {
 //
 // Return the number of regions erased from Regs.
 static unsigned eraseAllChildren(std::set<const Region *> &Regs,
-                                 const Region *R) {
+                                 const Region &R) {
   unsigned Count = 0;
-  for (const Region *SubRegion : *R) {
-    if (Regs.find(SubRegion) != Regs.end()) {
+  for (auto &SubRegion : R) {
+    if (Regs.find(SubRegion.get()) != Regs.end()) {
       ++Count;
-      Regs.erase(SubRegion);
+      Regs.erase(SubRegion.get());
     } else {
-      Count += eraseAllChildren(Regs, SubRegion);
+      Count += eraseAllChildren(Regs, *SubRegion);
     }
   }
   return Count;
@@ -611,7 +649,7 @@ void ScopDetection::findScops(Region &R) {
 
   InvalidRegions[&R] = LastFailure;
 
-  for (Region *SubRegion : R)
+  for (auto &SubRegion : R)
     findScops(*SubRegion);
 
   // Try to expand regions.
@@ -622,8 +660,8 @@ void ScopDetection::findScops(Region &R) {
 
   std::vector<Region *> ToExpand;
 
-  for (Region *SubRegion : R)
-    ToExpand.push_back(SubRegion);
+  for (auto &SubRegion : R)
+    ToExpand.push_back(SubRegion.get());
 
   for (Region *CurrentRegion : ToExpand) {
     // Skip invalid regions. Regions may become invalid, if they are element of
@@ -642,7 +680,7 @@ void ScopDetection::findScops(Region &R) {
 
     // Erase all (direct and indirect) children of ExpandedR from the valid
     // regions and update the number of valid regions.
-    ValidRegion -= eraseAllChildren(ValidRegions, ExpandedR);
+    ValidRegion -= eraseAllChildren(ValidRegions, *ExpandedR);
   }
 }
 
@@ -663,6 +701,9 @@ bool ScopDetection::allBlocksValid(DetectionContext &Context) const {
     for (BasicBlock::iterator I = BB->begin(), E = --BB->end(); I != E; ++I)
       if (!isValidInstruction(*I, Context))
         return false;
+
+  if (!hasAffineMemoryAccesses(Context))
+    return false;
 
   return true;
 }
@@ -812,6 +853,9 @@ bool ScopDetection::runOnFunction(llvm::Function &F) {
   Region *TopRegion = RI->getTopLevelRegion();
 
   releaseMemory();
+
+  if (OnlyFunction != "" && !F.getName().count(OnlyFunction))
+    return false;
 
   if (!isValidFunction(F))
     return false;

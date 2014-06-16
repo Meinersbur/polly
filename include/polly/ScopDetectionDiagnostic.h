@@ -23,12 +23,11 @@
 #include "llvm/IR/Value.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+#include <string>
 
 #define DEBUG_TYPE "polly-detect"
-#include "llvm/Support/Debug.h"
-
-#include <string>
 
 #define BADSCOP_STAT(NAME, DESC)                                               \
   STATISTIC(Bad##NAME##ForScop, "Number of bad regions for Scop: " DESC)
@@ -64,7 +63,7 @@ template <typename T> std::string operator+(Twine LHS, const T &RHS) {
 class RejectReason {
   //===--------------------------------------------------------------------===//
 public:
-  virtual ~RejectReason() {};
+  virtual ~RejectReason() {}
 
   /// @brief Generate a reasonable diagnostic message describing this error.
   ///
@@ -87,7 +86,7 @@ class ReportNonBranchTerminator : public ReportCFG {
   BasicBlock *BB;
 
 public:
-  ReportNonBranchTerminator(BasicBlock *BB) : BB(BB) {};
+  ReportNonBranchTerminator(BasicBlock *BB) : BB(BB) {}
 
   /// @name RejectReason interface
   //@{
@@ -106,7 +105,7 @@ class ReportCondition : public ReportCFG {
   BasicBlock *BB;
 
 public:
-  ReportCondition(BasicBlock *BB) : BB(BB) {};
+  ReportCondition(BasicBlock *BB) : BB(BB) {}
 
   /// @name RejectReason interface
   //@{
@@ -136,7 +135,7 @@ class ReportUndefCond : public ReportAffFunc {
   BasicBlock *BB;
 
 public:
-  ReportUndefCond(BasicBlock *BB) : BB(BB) {};
+  ReportUndefCond(BasicBlock *BB) : BB(BB) {}
 
   /// @name RejectReason interface
   //@{
@@ -157,7 +156,7 @@ class ReportInvalidCond : public ReportAffFunc {
   BasicBlock *BB;
 
 public:
-  ReportInvalidCond(BasicBlock *BB) : BB(BB) {};
+  ReportInvalidCond(BasicBlock *BB) : BB(BB) {}
 
   /// @name RejectReason interface
   //@{
@@ -177,7 +176,7 @@ class ReportUndefOperand : public ReportAffFunc {
   BasicBlock *BB;
 
 public:
-  ReportUndefOperand(BasicBlock *BB) : BB(BB) {};
+  ReportUndefOperand(BasicBlock *BB) : BB(BB) {}
 
   /// @name RejectReason interface
   //@{
@@ -203,7 +202,7 @@ class ReportNonAffBranch : public ReportAffFunc {
 
 public:
   ReportNonAffBranch(BasicBlock *BB, const SCEV *LHS, const SCEV *RHS)
-      : BB(BB), LHS(LHS), RHS(RHS) {};
+      : BB(BB), LHS(LHS), RHS(RHS) {}
 
   /// @name RejectReason interface
   //@{
@@ -245,7 +244,7 @@ class ReportVariantBasePtr : public ReportAffFunc {
   Value *BaseValue;
 
 public:
-  ReportVariantBasePtr(Value *BaseValue) : BaseValue(BaseValue) {};
+  ReportVariantBasePtr(Value *BaseValue) : BaseValue(BaseValue) {}
 
   /// @name RejectReason interface
   //@{
@@ -265,7 +264,7 @@ class ReportNonAffineAccess : public ReportAffFunc {
 
 public:
   ReportNonAffineAccess(const SCEV *AccessFunction)
-      : AccessFunction(AccessFunction) {};
+      : AccessFunction(AccessFunction) {}
 
   /// @name RejectReason interface
   //@{
@@ -295,7 +294,7 @@ class ReportPhiNodeRefInRegion : public ReportIndVar {
   Instruction *Inst;
 
 public:
-  ReportPhiNodeRefInRegion(Instruction *Inst) : Inst(Inst) {};
+  ReportPhiNodeRefInRegion(Instruction *Inst) : Inst(Inst) {}
 
   /// @name RejectReason interface
   //@{
@@ -314,7 +313,7 @@ class ReportNonCanonicalPhiNode : public ReportIndVar {
   Instruction *Inst;
 
 public:
-  ReportNonCanonicalPhiNode(Instruction *Inst) : Inst(Inst) {};
+  ReportNonCanonicalPhiNode(Instruction *Inst) : Inst(Inst) {}
 
   /// @name RejectReason interface
   //@{
@@ -333,7 +332,7 @@ class ReportLoopHeader : public ReportIndVar {
   Loop *L;
 
 public:
-  ReportLoopHeader(Loop *L) : L(L) {};
+  ReportLoopHeader(Loop *L) : L(L) {}
 
   /// @name RejectReason interface
   //@{
@@ -372,7 +371,7 @@ class ReportLoopBound : public RejectReason {
 public:
   ReportLoopBound(Loop *L, const SCEV *LoopCount) : L(L), LoopCount(LoopCount) {
     ++BadLoopBoundForScop;
-  };
+  }
 
   /// @name RejectReason interface
   //@{
@@ -392,9 +391,7 @@ class ReportFuncCall : public RejectReason {
   Instruction *Inst;
 
 public:
-  ReportFuncCall(Instruction *Inst) : Inst(Inst) {
-    ++BadFuncCallForScop;
-  };
+  ReportFuncCall(Instruction *Inst) : Inst(Inst) { ++BadFuncCallForScop; }
 
   /// @name RejectReason interface
   //@{
@@ -493,7 +490,7 @@ class ReportIntToPtr : public ReportOther {
   Value *BaseValue;
 
 public:
-  ReportIntToPtr(Value *BaseValue) : BaseValue(BaseValue) {};
+  ReportIntToPtr(Value *BaseValue) : BaseValue(BaseValue) {}
 
   /// @name RejectReason interface
   //@{
@@ -510,7 +507,7 @@ class ReportAlloca : public ReportOther {
   Instruction *Inst;
 
 public:
-  ReportAlloca(Instruction *Inst) : Inst(Inst) {};
+  ReportAlloca(Instruction *Inst) : Inst(Inst) {}
 
   /// @name RejectReason interface
   //@{
@@ -525,7 +522,7 @@ class ReportUnknownInst : public ReportOther {
   Instruction *Inst;
 
 public:
-  ReportUnknownInst(Instruction *Inst) : Inst(Inst) {};
+  ReportUnknownInst(Instruction *Inst) : Inst(Inst) {}
 
   /// @name RejectReason interface
   //@{

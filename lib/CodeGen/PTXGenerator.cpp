@@ -83,7 +83,7 @@ void PTXGenerator::createSubfunction(SetVector<Value *> &UsedValues,
   BasicBlock *ExitBB = BasicBlock::Create(Context, "ptx.exit", FN);
   BasicBlock *BodyBB = BasicBlock::Create(Context, "ptx.loop_body", FN);
 
-  DominatorTree &DT = P->getAnalysis<DominatorTree>();
+  DominatorTree &DT = P->getAnalysis<DominatorTreeWrapperPass>().getDomTree();
   DT.addNewBlock(HeaderBB, PrevBB);
   DT.addNewBlock(ExitBB, HeaderBB);
   DT.addNewBlock(BodyBB, HeaderBB);
@@ -185,8 +185,7 @@ void PTXGenerator::createSubfunction(SetVector<Value *> &UsedValues,
   assert(OriginalIVS.size() == Substitutions.size() &&
          "The size of IVS should be equal to the size of substitutions.");
   for (unsigned i = 0; i < OriginalIVS.size(); ++i) {
-    VMap.insert(
-        std::make_pair(OriginalIVS[i], Substitutions[i]));
+    VMap.insert(std::make_pair(OriginalIVS[i], Substitutions[i]));
   }
 
   Builder.CreateBr(ExitBB);

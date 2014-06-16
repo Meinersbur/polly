@@ -133,7 +133,7 @@ int IslGenerator::mergeIslAffValues(__isl_take isl_set *Set,
                                     __isl_take isl_aff *Aff, void *User) {
   IslGenInfo *GenInfo = (IslGenInfo *)User;
 
-  assert((GenInfo->Result == NULL) &&
+  assert((GenInfo->Result == nullptr) &&
          "Result is already set. Currently only single isl_aff is supported");
   assert(isl_set_plain_is_universe(Set) &&
          "Code generation failed because the set is not universe");
@@ -146,7 +146,7 @@ int IslGenerator::mergeIslAffValues(__isl_take isl_set *Set,
 
 Value *IslGenerator::generateIslPwAff(__isl_take isl_pw_aff *PwAff) {
   IslGenInfo User;
-  User.Result = NULL;
+  User.Result = nullptr;
   User.Generator = this;
   isl_pw_aff_foreach_piece(PwAff, mergeIslAffValues, &User);
   assert(User.Result && "Code generation for isl_pw_aff failed");
@@ -192,7 +192,7 @@ Value *BlockGenerator::lookupAvailableValue(const Value *Old, ValueMapT &BBMap,
   if (Value *New = BBMap.lookup(Old))
     return New;
 
-  return NULL;
+  return nullptr;
 }
 
 Value *BlockGenerator::getNewValue(const Value *Old, ValueMapT &BBMap,
@@ -221,7 +221,7 @@ Value *BlockGenerator::getNewValue(const Value *Old, ValueMapT &BBMap,
   // Now the scalar dependence is neither available nor SCEVCodegenable, this
   // should never happen in the current code generator.
   llvm_unreachable("Unexpected scalar dependence in region!");
-  return NULL;
+  return nullptr;
 }
 
 void BlockGenerator::copyInstScalar(const Instruction *Inst, ValueMapT &BBMap,
@@ -457,7 +457,7 @@ VectorBlockGenerator::generateStrideOneLoad(const LoadInst *Load,
   Type *VectorPtrType = getVectorPtrTy(Pointer, VectorWidth);
   unsigned Offset = NegativeStride ? VectorWidth - 1 : 0;
 
-  Value *NewPointer = NULL;
+  Value *NewPointer = nullptr;
   NewPointer = getNewValue(Pointer, ScalarMaps[Offset], GlobalMaps[Offset],
                            VLTS[Offset], getLoopForInst(Load));
   Value *VectorPtr =
@@ -537,6 +537,10 @@ void VectorBlockGenerator::generateLoad(const LoadInst *Load,
 
   const MemoryAccess &Access = Statement.getAccessFor(Load);
 
+  // Make sure we have scalar values available to access the pointer to
+  // the data location.
+  extractScalarValues(Load, VectorMap, ScalarMaps);
+
   Value *NewLoad;
   if (Access.isStrideZero(isl_map_copy(Schedule)))
     NewLoad = generateStrideZeroLoad(Load, ScalarMaps[0]);
@@ -590,6 +594,10 @@ void VectorBlockGenerator::copyStore(const StoreInst *Store,
   const Value *Pointer = Store->getPointerOperand();
   Value *Vector = getVectorValue(Store->getValueOperand(), VectorMap,
                                  ScalarMaps, getLoopForInst(Store));
+
+  // Make sure we have scalar values available to access the pointer to
+  // the data location.
+  extractScalarValues(Store, VectorMap, ScalarMaps);
 
   if (Access.isStrideOne(isl_map_copy(Schedule))) {
     Type *VectorPtrType = getVectorPtrTy(Pointer, VectorWidth);

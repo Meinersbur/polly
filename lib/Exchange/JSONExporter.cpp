@@ -16,13 +16,11 @@
 #include "polly/Options.h"
 #include "polly/ScopInfo.h"
 #include "polly/ScopPass.h"
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/system_error.h"
-
-#define DEBUG_TYPE "polly-import-jscop"
 
 #include "json/reader.h"
 #include "json/writer.h"
@@ -32,10 +30,13 @@
 #include "isl/constraint.h"
 #include "isl/printer.h"
 
+#include <memory>
 #include <string>
 
 using namespace llvm;
 using namespace polly;
+
+#define DEBUG_TYPE "polly-import-jscop"
 
 STATISTIC(NewAccessMapFound, "Number of updated access functions");
 
@@ -192,7 +193,7 @@ bool JSONImporter::runOnScop(Scop &scop) {
   std::string FunctionName = R.getEntry()->getParent()->getName();
   errs() << "Reading JScop '" << R.getNameStr() << "' in function '"
          << FunctionName << "' from '" << FileName << "'.\n";
-  OwningPtr<MemoryBuffer> result;
+  std::unique_ptr<MemoryBuffer> result;
   error_code ec = MemoryBuffer::getFile(FileName, result);
 
   if (ec) {
