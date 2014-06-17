@@ -52,6 +52,7 @@ namespace polly {
     bool flagWrite;
     bool flagStack;
     bool flagField;
+    bool flagGlobal;
 
     llvm::Instruction *instr;
     int ptrOperator;
@@ -79,13 +80,13 @@ namespace polly {
     static Access fromIRAccess(polly::IRAccess *iracc);
     static Access fromMemoryAccess(polly::MemoryAccess *memacc);
   
-    bool isValid() const { return flagRead || flagWrite;}
+    bool isValid() const { return flagRead || flagWrite; }
     bool isRead() const { assert(flagRead != flagWrite); return flagRead; }
     bool isWrite() const { assert(flagRead != flagWrite);  return flagWrite; }
-    bool isStackAccess() const { assert(flagStack != flagField); return flagStack; }
-    bool isFieldAccess() const { assert(flagStack != flagField); return flagField; }
+    bool isStackAccess() const { return flagStack; }
+    bool isFieldAccess() const { return flagField; }
     bool isRegisterAccess() const { return false; } // Not yet implemented
-    bool isGlobalAccess() const { return false; }
+    bool isGlobalAccess() const { return flagGlobal; }
 
 
     /// The instruction doing the access

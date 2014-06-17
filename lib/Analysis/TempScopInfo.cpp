@@ -281,7 +281,7 @@ void TempScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB) {
         Type *SizeType = acc.getElementType();
         unsigned Size = TD->getTypeStoreSize(SizeType);
 
-        const SCEV *AccessFunction = SE->getSCEVAtScope(getPointerOperand(*Inst), L);
+        const SCEV *AccessFunction = SE->getSCEVAtScope(acc.getPtr(), L);
         const SCEVUnknown *BasePointer = dyn_cast<SCEVUnknown>(SE->getPointerBase(AccessFunction));
 
         assert(BasePointer && "Could not find base pointer");

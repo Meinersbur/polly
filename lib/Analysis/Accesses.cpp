@@ -20,10 +20,16 @@ void Access::analyzePtr(llvm::Value *ptr) {
 
   this->flagField = false;
   this->flagStack = false;
+  this->flagGlobal = false;
   if (auto mollyPtr = dyn_cast<MollyPtrInst>(typedPtr)) {
     this->flagField = true;
   } else if (auto alloca = dyn_cast<AllocaInst>(typedPtr)) {
     this->flagStack = true;
+  } else if (auto glob = dyn_cast<GlobalVariable>(typedPtr)) {
+    this->flagGlobal = true;
+  } else {
+    int a = 0;
+    assert(!"TODO: What case is this?");
   }
 }
 
