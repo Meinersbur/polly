@@ -28,8 +28,8 @@ void Access::analyzePtr(llvm::Value *ptr) {
   } else if (auto glob = dyn_cast<GlobalVariable>(typedPtr)) {
     this->flagGlobal = true;
   } else {
-    int a = 0;
-    assert(!"TODO: What case is this?");
+    // Something unrecognized
+    //TODO: Recognize GetElementPtr of GlobalVariable,AllocaInst
   }
 }
 

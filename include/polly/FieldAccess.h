@@ -38,6 +38,7 @@ namespace isl {
 
 
 namespace polly {
+  //TODO: deprecated by Acceses class
   class FieldAccess {
     //MollyContext *mollyContext;
     //FieldDetection *detector;
@@ -72,7 +73,7 @@ namespace polly {
     void loadFromMemcpy(llvm::IntrinsicInst *instr);
 
   public:
-    ~FieldAccess() {}
+    virtual ~FieldAccess() {}
     FieldAccess() {
       clear();
     }
