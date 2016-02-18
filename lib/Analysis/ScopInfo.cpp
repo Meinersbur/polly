@@ -3824,7 +3824,8 @@ void ScopInfo::buildEscapingDependences(Instruction *Inst) {
   }
 }
 
-bool ScopInfo::buildAccessMultiDimFixed(MemAccInst Inst) {
+bool ScopInfo::buildAccessMultiDimFixed(ScopStmt *Stmt, BasicBlock *BB,
+                                        MemAccInst Inst) {
   Value *Val = Inst.getValueOperand();
   Type *ElementType = Val->getType();
   Value *Address = Inst.getPointerOperand();
@@ -3873,12 +3874,13 @@ bool ScopInfo::buildAccessMultiDimFixed(MemAccInst Inst) {
     SizesSCEV.push_back(SE->getSCEV(
         ConstantInt::get(IntegerType::getInt64Ty(BasePtr->getContext()), V)));
 
-  addArrayAccess(Inst, Type, BasePointer->getValue(), ElementType, true,
-                 Subscripts, SizesSCEV, Val);
+  addArrayAccess(Stmt, BB, Inst, Type, BasePointer->getValue(), ElementType,
+                 true, Subscripts, SizesSCEV, Val);
   return true;
 }
 
-bool ScopInfo::buildAccessMultiDimParam(MemAccInst Inst) {
+bool ScopInfo::buildAccessMultiDimParam(ScopStmt *Stmt, BasicBlock *BB,
+                                        MemAccInst Inst) {
   if (!PollyDelinearize)
     return false;
 
@@ -3918,12 +3920,13 @@ bool ScopInfo::buildAccessMultiDimParam(MemAccInst Inst) {
   if (ElementSize != DelinearizedSize)
     scop->invalidate(DELINEARIZATION, Inst->getDebugLoc());
 
-  addArrayAccess(Inst, Type, BasePointer->getValue(), ElementType, true,
-                 AccItr->second.DelinearizedSubscripts, Sizes, Val);
+  addArrayAccess(Stmt, BB, Inst, Type, BasePointer->getValue(), ElementType,
+                 true, AccItr->second.DelinearizedSubscripts, Sizes, Val);
   return true;
 }
 
-bool ScopInfo::buildAccessMemIntrinsic(MemAccInst Inst) {
+bool ScopInfo::buildAccessMemIntrinsic(ScopStmt *Stmt, BasicBlock *BB,
+                                       MemAccInst Inst) {
   auto *MemIntr = dyn_cast_or_null<MemIntrinsic>(Inst);
 
   if (MemIntr == nullptr)
@@ -3951,7 +3954,8 @@ bool ScopInfo::buildAccessMemIntrinsic(MemAccInst Inst) {
   auto *DestPtrSCEV = dyn_cast<SCEVUnknown>(SE->getPointerBase(DestAccFunc));
   assert(DestPtrSCEV);
   DestAccFunc = SE->getMinusSCEV(DestAccFunc, DestPtrSCEV);
-  addArrayAccess(Inst, MemoryAccess::MUST_WRITE, DestPtrSCEV->getValue(),
+  addArrayAccess(Stmt, BB, Inst, MemoryAccess::MUST_WRITE,
+                 DestPtrSCEV->getValue(),
                  IntegerType::getInt8Ty(DestPtrVal->getContext()), false,
                  {DestAccFunc, LengthVal}, {}, Inst.getValueOperand());
 
@@ -3966,14 +3970,15 @@ bool ScopInfo::buildAccessMemIntrinsic(MemAccInst Inst) {
   auto *SrcPtrSCEV = dyn_cast<SCEVUnknown>(SE->getPointerBase(SrcAccFunc));
   assert(SrcPtrSCEV);
   SrcAccFunc = SE->getMinusSCEV(SrcAccFunc, SrcPtrSCEV);
-  addArrayAccess(Inst, MemoryAccess::READ, SrcPtrSCEV->getValue(),
+  addArrayAccess(Stmt, BB, Inst, MemoryAccess::READ, SrcPtrSCEV->getValue(),
                  IntegerType::getInt8Ty(SrcPtrVal->getContext()), false,
                  {SrcAccFunc, LengthVal}, {}, Inst.getValueOperand());
 
   return true;
 }
 
-bool ScopInfo::buildAccessCallInst(MemAccInst Inst) {
+bool ScopInfo::buildAccessCallInst(ScopStmt *Stmt, BasicBlock *BB,
+                                   MemAccInst Inst) {
   auto *CI = dyn_cast_or_null<CallInst>(Inst);
 
   if (CI == nullptr)
@@ -4008,7 +4013,7 @@ bool ScopInfo::buildAccessCallInst(MemAccInst Inst) {
         continue;
 
       auto *ArgBasePtr = cast<SCEVUnknown>(SE->getPointerBase(ArgSCEV));
-      addArrayAccess(Inst, AccType, ArgBasePtr->getValue(),
+      addArrayAccess(Stmt, BB, Inst, AccType, ArgBasePtr->getValue(),
                      ArgBasePtr->getType(), false, {AF}, {}, CI);
     }
     return true;
@@ -4017,7 +4022,8 @@ bool ScopInfo::buildAccessCallInst(MemAccInst Inst) {
   return true;
 }
 
-void ScopInfo::buildAccessSingleDim(MemAccInst Inst) {
+void ScopInfo::buildAccessSingleDim(ScopStmt *Stmt, BasicBlock *BB,
+                                    MemAccInst Inst) {
   Value *Address = Inst.getPointerOperand();
   Value *Val = Inst.getValueOperand();
   Type *ElementType = Val->getType();
@@ -4057,25 +4063,26 @@ void ScopInfo::buildAccessSingleDim(MemAccInst Inst) {
   if (!IsAffine && Type == MemoryAccess::MUST_WRITE)
     Type = MemoryAccess::MAY_WRITE;
 
-  addArrayAccess(Inst, Type, BasePointer->getValue(), ElementType, IsAffine,
-                 {AccessFunction}, {}, Val);
+  addArrayAccess(Stmt, BB, Inst, Type, BasePointer->getValue(), ElementType,
+                 IsAffine, {AccessFunction}, {}, Val);
 }
 
-void ScopInfo::buildMemoryAccess(MemAccInst Inst) {
+void ScopInfo::buildMemoryAccess(ScopStmt *Stmt, BasicBlock *BB,
+                                 MemAccInst Inst) {
 
-  if (buildAccessMemIntrinsic(Inst))
+  if (buildAccessMemIntrinsic(Stmt, BB, Inst))
     return;
 
-  if (buildAccessCallInst(Inst))
+  if (buildAccessCallInst(Stmt, BB, Inst))
     return;
 
-  if (buildAccessMultiDimFixed(Inst))
+  if (buildAccessMultiDimFixed(Stmt, BB, Inst))
     return;
 
-  if (buildAccessMultiDimParam(Inst))
+  if (buildAccessMultiDimParam(Stmt, BB, Inst))
     return;
 
-  buildAccessSingleDim(Inst);
+  buildAccessSingleDim(Stmt, BB, Inst);
 }
 
 void ScopInfo::buildAccessFunctions(Region &R, Region &SR) {
@@ -4115,6 +4122,8 @@ void ScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB,
   if (isErrorBlock(BB, R, *LI, *DT) && !IsExitBlock)
     return;
 
+  ScopStmt *Stmt = scop->getStmtFor(&BB);
+
   for (Instruction &Inst : BB) {
     PHINode *PHI = dyn_cast<PHINode>(&Inst);
     if (PHI)
@@ -4129,7 +4138,7 @@ void ScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB,
     //       there might be other invariant accesses that will be hoisted and
     //       that would allow to make a non-affine access affine.
     if (auto MemInst = MemAccInst::dyn_cast(Inst))
-      buildMemoryAccess(MemInst);
+      buildMemoryAccess(Stmt, &BB, MemInst);
 
     if (isIgnoredIntrinsic(&Inst))
       continue;
@@ -4141,15 +4150,11 @@ void ScopInfo::buildAccessFunctions(Region &R, BasicBlock &BB,
   }
 }
 
-MemoryAccess *ScopInfo::addMemoryAccess(BasicBlock *BB, Instruction *Inst,
-                                        MemoryAccess::AccessType AccType,
-                                        Value *BaseAddress, Type *ElementType,
-                                        bool Affine, Value *AccessValue,
-                                        ArrayRef<const SCEV *> Subscripts,
-                                        ArrayRef<const SCEV *> Sizes,
-                                        ScopArrayInfo::MemoryKind Kind) {
-  ScopStmt *Stmt = scop->getStmtFor(BB);
-
+MemoryAccess *ScopInfo::addMemoryAccess(
+    ScopStmt *Stmt, BasicBlock *BB, Instruction *Inst,
+    MemoryAccess::AccessType AccType, Value *BaseAddress, Type *ElementType,
+    bool Affine, Value *AccessValue, ArrayRef<const SCEV *> Subscripts,
+    ArrayRef<const SCEV *> Sizes, ScopArrayInfo::MemoryKind Kind) {
   // Do not create a memory access for anything not in the SCoP. It would be
   // ignored anyway.
   if (!Stmt)
@@ -4189,15 +4194,16 @@ MemoryAccess *ScopInfo::addMemoryAccess(BasicBlock *BB, Instruction *Inst,
   return &AccList.back();
 }
 
-void ScopInfo::addArrayAccess(MemAccInst MemAccInst,
+void ScopInfo::addArrayAccess(ScopStmt *Stmt, BasicBlock *BB,
+                              MemAccInst MemAccInst,
                               MemoryAccess::AccessType AccType,
                               Value *BaseAddress, Type *ElementType,
                               bool IsAffine, ArrayRef<const SCEV *> Subscripts,
                               ArrayRef<const SCEV *> Sizes,
                               Value *AccessValue) {
   ArrayBasePointers.insert(BaseAddress);
-  addMemoryAccess(MemAccInst->getParent(), MemAccInst, AccType, BaseAddress,
-                  ElementType, IsAffine, AccessValue, Subscripts, Sizes,
+  addMemoryAccess(Stmt, BB, MemAccInst, AccType, BaseAddress, ElementType,
+                  IsAffine, AccessValue, Subscripts, Sizes,
                   ScopArrayInfo::MK_Array);
 }
 
@@ -4212,7 +4218,7 @@ void ScopInfo::ensureValueWrite(Instruction *Inst) {
   if (Stmt->lookupValueWriteOf(Inst))
     return;
 
-  addMemoryAccess(Inst->getParent(), Inst, MemoryAccess::MUST_WRITE, Inst,
+  addMemoryAccess(Stmt, Inst->getParent(), Inst, MemoryAccess::MUST_WRITE, Inst,
                   Inst->getType(), true, Inst, ArrayRef<const SCEV *>(),
                   ArrayRef<const SCEV *>(), ScopArrayInfo::MK_Value);
 }
@@ -4262,9 +4268,9 @@ void ScopInfo::ensureValueRead(Value *V, BasicBlock *UserBB) {
   if (UserStmt->lookupValueReadOf(V))
     return;
 
-  addMemoryAccess(UserBB, nullptr, MemoryAccess::READ, V, V->getType(), true, V,
-                  ArrayRef<const SCEV *>(), ArrayRef<const SCEV *>(),
-                  ScopArrayInfo::MK_Value);
+  addMemoryAccess(UserStmt, UserBB, nullptr, MemoryAccess::READ, V,
+                  V->getType(), true, V, ArrayRef<const SCEV *>(),
+                  ArrayRef<const SCEV *>(), ScopArrayInfo::MK_Value);
   if (ValueInst)
     ensureValueWrite(ValueInst);
 }
@@ -4290,7 +4296,7 @@ void ScopInfo::ensurePHIWrite(PHINode *PHI, BasicBlock *IncomingBlock,
   }
 
   MemoryAccess *Acc = addMemoryAccess(
-      IncomingStmt->getEntryBlock(), PHI, MemoryAccess::MUST_WRITE, PHI,
+      IncomingStmt, IncomingBlock, PHI, MemoryAccess::MUST_WRITE, PHI,
       PHI->getType(), true, PHI, ArrayRef<const SCEV *>(),
       ArrayRef<const SCEV *>(),
       IsExitBlock ? ScopArrayInfo::MK_ExitPHI : ScopArrayInfo::MK_PHI);
@@ -4299,7 +4305,8 @@ void ScopInfo::ensurePHIWrite(PHINode *PHI, BasicBlock *IncomingBlock,
 }
 
 void ScopInfo::addPHIReadAccess(PHINode *PHI) {
-  addMemoryAccess(PHI->getParent(), PHI, MemoryAccess::READ, PHI,
+  ScopStmt *Stmt = scop->getStmtFor(PHI);
+  addMemoryAccess(Stmt, PHI->getParent(), PHI, MemoryAccess::READ, PHI,
                   PHI->getType(), true, PHI, ArrayRef<const SCEV *>(),
                   ArrayRef<const SCEV *>(), ScopArrayInfo::MK_PHI);
 }
@@ -4326,7 +4333,8 @@ void ScopInfo::buildScop(Region &R, AssumptionCache &AC) {
   auto *AF = SE->getConstant(IntegerType::getInt64Ty(SE->getContext()), 0);
   for (auto *GlobalRead : GlobalReads)
     for (auto *BP : ArrayBasePointers)
-      addArrayAccess(MemAccInst(GlobalRead), MemoryAccess::READ, BP,
+      addArrayAccess(scop->getStmtFor(GlobalRead), GlobalRead->getParent(),
+                     MemAccInst(GlobalRead), MemoryAccess::READ, BP,
                      BP->getType(), false, {AF}, {}, GlobalRead);
 
   scop->init(*AA, AC, *SD, *DT, *LI);
