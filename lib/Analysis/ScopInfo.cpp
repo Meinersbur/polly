@@ -3825,16 +3825,16 @@ void ScopInfo::buildEscapingDependences(Instruction *Inst) {
 }
 
 bool ScopInfo::buildAccessMultiDimFixed(ScopStmt *Stmt, BasicBlock *BB,
-                                        MemAccInst Inst) {
-  Value *Val = Inst.getValueOperand();
+                                        Instruction *Inst, Value *Val,
+                                        bool isLoad, MemAccInst AddrAlias) {
   Type *ElementType = Val->getType();
-  Value *Address = Inst.getPointerOperand();
-  Loop *L = LI->getLoopFor(Inst->getParent());
+  Value *Address = AddrAlias.getPointerOperand();
+  Loop *L = LI->getLoopFor(AddrAlias->getParent());
   const SCEV *AccessFunction = SE->getSCEVAtScope(Address, L);
   const SCEVUnknown *BasePointer =
       dyn_cast<SCEVUnknown>(SE->getPointerBase(AccessFunction));
   enum MemoryAccess::AccessType Type =
-      isa<LoadInst>(Inst) ? MemoryAccess::READ : MemoryAccess::MUST_WRITE;
+      isLoad ? MemoryAccess::READ : MemoryAccess::MUST_WRITE;
 
   if (auto *BitCast = dyn_cast<BitCastInst>(Address)) {
     auto *Src = BitCast->getOperand(0);
@@ -3880,17 +3880,17 @@ bool ScopInfo::buildAccessMultiDimFixed(ScopStmt *Stmt, BasicBlock *BB,
 }
 
 bool ScopInfo::buildAccessMultiDimParam(ScopStmt *Stmt, BasicBlock *BB,
-                                        MemAccInst Inst) {
+                                        Instruction *Inst, Value *Val,
+                                        bool isLoad, MemAccInst AddrAlias) {
   if (!PollyDelinearize)
     return false;
 
-  Value *Address = Inst.getPointerOperand();
-  Value *Val = Inst.getValueOperand();
+  Value *Address = AddrAlias.getPointerOperand();
   Type *ElementType = Val->getType();
   unsigned ElementSize = DL->getTypeAllocSize(ElementType);
   enum MemoryAccess::AccessType Type =
-      isa<LoadInst>(Inst) ? MemoryAccess::READ : MemoryAccess::MUST_WRITE;
-  Loop *L = LI->getLoopFor(Inst->getParent());
+      isLoad ? MemoryAccess::READ : MemoryAccess::MUST_WRITE;
+  Loop *L = LI->getLoopFor(AddrAlias->getParent());
   Region &R = scop->getRegion();
 
   const SCEV *AccessFunction = SE->getSCEVAtScope(Address, L);
@@ -4023,13 +4023,13 @@ bool ScopInfo::buildAccessCallInst(ScopStmt *Stmt, BasicBlock *BB,
 }
 
 void ScopInfo::buildAccessSingleDim(ScopStmt *Stmt, BasicBlock *BB,
-                                    MemAccInst Inst) {
-  Value *Address = Inst.getPointerOperand();
-  Value *Val = Inst.getValueOperand();
+                                    Instruction *Inst, Value *Val, bool isLoad,
+                                    MemAccInst AddrAlias) {
+  Value *Address = AddrAlias.getPointerOperand();
   Type *ElementType = Val->getType();
   enum MemoryAccess::AccessType Type =
-      isa<LoadInst>(Inst) ? MemoryAccess::READ : MemoryAccess::MUST_WRITE;
-  Loop *L = LI->getLoopFor(Inst->getParent());
+      isLoad ? MemoryAccess::READ : MemoryAccess::MUST_WRITE;
+  Loop *L = LI->getLoopFor(AddrAlias->getParent());
   Region *R = &scop->getRegion();
   const ScopDetection::BoxedLoopsSetTy *BoxedLoops = SD->getBoxedLoops(R);
   const InvariantLoadsSetTy &ScopRIL = *SD->getRequiredInvariantLoads(R);
@@ -4069,20 +4069,26 @@ void ScopInfo::buildAccessSingleDim(ScopStmt *Stmt, BasicBlock *BB,
 
 void ScopInfo::buildMemoryAccess(ScopStmt *Stmt, BasicBlock *BB,
                                  MemAccInst Inst) {
-
   if (buildAccessMemIntrinsic(Stmt, BB, Inst))
     return;
 
   if (buildAccessCallInst(Stmt, BB, Inst))
     return;
 
-  if (buildAccessMultiDimFixed(Stmt, BB, Inst))
+  buildMemoryAccessWithAlias(Stmt, BB, Inst, Inst.getValueOperand(),
+                             isa<LoadInst>(Inst), Inst);
+}
+
+void ScopInfo::buildMemoryAccessWithAlias(ScopStmt *Stmt, BasicBlock *BB,
+                                          Instruction *Inst, Value *Val,
+                                          bool isLoad, MemAccInst AddrAlias) {
+  if (buildAccessMultiDimFixed(Stmt, BB, Inst, Val, isLoad, AddrAlias))
     return;
 
-  if (buildAccessMultiDimParam(Stmt, BB, Inst))
+  if (buildAccessMultiDimParam(Stmt, BB, Inst, Val, isLoad, AddrAlias))
     return;
 
-  buildAccessSingleDim(Stmt, BB, Inst);
+  buildAccessSingleDim(Stmt, BB, Inst, Val, isLoad, AddrAlias);
 }
 
 void ScopInfo::buildAccessFunctions(Region &R, Region &SR) {
@@ -4195,14 +4201,14 @@ MemoryAccess *ScopInfo::addMemoryAccess(
 }
 
 void ScopInfo::addArrayAccess(ScopStmt *Stmt, BasicBlock *BB,
-                              MemAccInst MemAccInst,
+                              Instruction *AccInst,
                               MemoryAccess::AccessType AccType,
                               Value *BaseAddress, Type *ElementType,
                               bool IsAffine, ArrayRef<const SCEV *> Subscripts,
                               ArrayRef<const SCEV *> Sizes,
                               Value *AccessValue) {
   ArrayBasePointers.insert(BaseAddress);
-  addMemoryAccess(Stmt, BB, MemAccInst, AccType, BaseAddress, ElementType,
+  addMemoryAccess(Stmt, BB, AccInst, AccType, BaseAddress, ElementType,
                   IsAffine, AccessValue, Subscripts, Sizes,
                   ScopArrayInfo::MK_Array);
 }

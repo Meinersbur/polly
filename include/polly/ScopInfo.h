@@ -2086,22 +2086,31 @@ class ScopInfo : public RegionPass {
   /// @brief Try to build a multi-dimensional fixed sized MemoryAccess from
   ///        the Load/Store instruction.
   ///
-  /// @param Stmt        The statment to add the MemoryAccess into.
-  /// @param BB          The block where the access takes place.
-  /// @param Inst       The Load/Store instruction that access the memory
+  /// @param Stmt    The statment to add the MemoryAccess into.
+  /// @param BB      The block where the access takes place.
+  /// @param Inst    Instruction that requires the access.
+  /// @param Val     Value being read/written.
+  /// @param isLoad  Whether the value is being loaded or stored.
+  /// @param Addr    To determine the array element accessed.
   /// @returns True if the access could be built, False otherwise.
   bool buildAccessMultiDimFixed(ScopStmt *Stmt, BasicBlock *BB,
-                                MemAccInst Inst);
+                                Instruction *Inst, Value *Val, bool isLoad,
+                                MemAccInst Addr);
 
   /// @brief Try to build a multi-dimensional parameteric sized MemoryAccess
   ///        from the Load/Store instruction.
   ///
-  /// @param Stmt       The statment to add the MemoryAccess into.
-  /// @param BB         The block where the access takes place.
-  /// @param Inst       The Load/Store instruction that access the memory
+  /// @param Stmt    The statment to add the MemoryAccess into.
+  /// @param BB      The block where the access takes place.
+  /// @param Inst    Instruction that requires the access.
+  /// @param Val     Value being read/written.
+  /// @param isLoad  Whether the value is being loaded or stored.
+  /// @param Addr    To determine the array element accessed.
+  /// @returns True if the access could be built, False otherwise.
   /// @returns True if the access could be built, False otherwise.
   bool buildAccessMultiDimParam(ScopStmt *Stmt, BasicBlock *BB,
-                                MemAccInst Inst);
+                                Instruction *Inst, Value *ValueOperand,
+                                bool isLoad, MemAccInst Addr);
 
   /// @brief Try to build a MemoryAccess for a memory intrinsic.
   ///
@@ -2124,10 +2133,14 @@ class ScopInfo : public RegionPass {
   /// @brief Build a single-dimensional parameteric sized MemoryAccess
   ///        from the Load/Store instruction.
   ///
-  /// @param Stmt       The statment to add the MemoryAccess into.
-  /// @param BB         The block where the access takes place.
-  /// @param Inst       The Load/Store instruction that access the memory
-  void buildAccessSingleDim(ScopStmt *Stmt, BasicBlock *BB, MemAccInst Inst);
+  /// @param Stmt    The statment to add the MemoryAccess into.
+  /// @param BB      The block where the access takes place.
+  /// @param Inst    Instruction that requires the access.
+  /// @param Val     Value being read/written.
+  /// @param isLoad  Whether the value is being loaded or stored.
+  /// @param Addr    To determine the array element accessed.
+  void buildAccessSingleDim(ScopStmt *Stmt, BasicBlock *BB, Instruction *Inst,
+                            Value *Val, bool isLoad, MemAccInst Addr);
 
   /// @brief Build an instance of MemoryAccess from the Load/Store instruction.
   ///
@@ -2135,6 +2148,19 @@ class ScopInfo : public RegionPass {
   /// @param BB         The block where the access takes place.
   /// @param Inst       The Load/Store instruction that accesses the memory.
   void buildMemoryAccess(ScopStmt *Stmt, BasicBlock *BB, MemAccInst Inst);
+
+  /// @brief Build a MemoryAccess that accesses the array element specified by
+  /// @p Addr.
+  ///
+  /// @param Stmt    The statment to add the MemoryAccess into.
+  /// @param BB      The block where the access takes place.
+  /// @param Inst    Instruction that requires the access.
+  /// @param Val     Value being read/written.
+  /// @param isLoad  Whether the value is being loaded or stored.
+  /// @param Addr    To determine the array element accessed.
+  void buildMemoryAccessWithAlias(ScopStmt *Stmt, BasicBlock *BB,
+                                  Instruction *Inst, Value *Val, bool isLoad,
+                                  MemAccInst Addr);
 
   /// @brief Analyze and extract the cross-BB scalar dependences (or,
   ///        dataflow dependencies) of an instruction.
@@ -2214,7 +2240,7 @@ class ScopInfo : public RegionPass {
   ///
   /// @param Stmt        The statment to add the MemoryAccess into.
   /// @param BB          The block where the access takes place.
-  /// @param MemAccInst  The LoadInst or StoreInst.
+  /// @param AccInst     The LoadInst or StoreInst.
   /// @param AccType     The kind of access.
   /// @param BaseAddress The accessed array's base address.
   /// @param ElemType    The type of the accessed array elements.
@@ -2224,7 +2250,7 @@ class ScopInfo : public RegionPass {
   /// @param AccessValue Value read or written.
   ///
   /// @see ScopArrayInfo::MemoryKind
-  void addArrayAccess(ScopStmt *Stmt, BasicBlock *BB, MemAccInst MemAccInst,
+  void addArrayAccess(ScopStmt *Stmt, BasicBlock *BB, Instruction *AccInst,
                       MemoryAccess::AccessType AccType, Value *BaseAddress,
                       Type *ElemType, bool IsAffine,
                       ArrayRef<const SCEV *> Subscripts,
