@@ -78,11 +78,6 @@ for.body.a:                                       ; preds = %for.cond
   %arrayidx = getelementptr [1024 x float], [1024 x float]* @A, i64 0, i64 %indvar
   %scalar = load float, float* %arrayidx
   br label %for.body.b
-; CHECK:      Stmt_for_body_a
-; CHECK:          ReadAccess :=       [Reduction Type: NONE] [Scalar: 0]
-; CHECK-NEXT:         { Stmt_for_body_a[i0] -> MemRef_A[i0] };
-; CHECK:          MustWriteAccess :=  [Reduction Type: NONE] [Scalar: 1]
-; CHECK-NEXT:         { Stmt_for_body_a[i0] -> MemRef_scalar[] };
 
 for.body.b:                                       ; preds = %for.body.a
   %arrayidx2 = getelementptr [1024 x float], [1024 x float]* @A, i64 0, i64 %indvar
@@ -91,8 +86,8 @@ for.body.b:                                       ; preds = %for.body.a
   store float %sum, float* %arrayidx2
   br label %for.inc
 ; CHECK:      Stmt_for_body_b
-; CHECK:          ReadAccess :=       [Reduction Type: NONE] [Scalar: 1]
-; CHECK-NEXT:          { Stmt_for_body_b[i0] -> MemRef_scalar[] };
+; CHECK:          ReadAccess :=       [Reduction Type: NONE] [Scalar: 0] [MAPPED]
+; CHECK-NEXT:         { Stmt_for_body_b[i0] -> MemRef_A[i0] };
 ; CHECK:          MustWriteAccess :=  [Reduction Type: NONE] [Scalar: 0]
 ; CHECK-NEXT:         { Stmt_for_body_b[i0] -> MemRef_A[i0] };
 

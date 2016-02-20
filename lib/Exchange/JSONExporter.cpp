@@ -305,7 +305,8 @@ bool JSONImporter::runOnScop(Scop &S) {
       isl_id *OutId = isl_map_get_tuple_id(currentAccessMap, isl_dim_out);
       newAccessMap = isl_map_set_tuple_id(newAccessMap, isl_dim_out, OutId);
 
-      if (MA->isArrayKind()) {
+      if (MA->isArrayKind() &&
+          !MA->isMapped() /* MAPPED accesses don't have MA->getAccessInstruction() */) {
         // We keep the old alignment, thus we cannot allow accesses to memory
         // locations that were not accessed before if the alignment of the
         // access is not the default alignment.

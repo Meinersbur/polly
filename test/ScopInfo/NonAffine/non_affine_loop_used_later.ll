@@ -22,16 +22,16 @@
 ; CHECK-NEXT: [N] -> {  : 1 = 0 }
 ; CHECK-NEXT: p0: %N
 ; CHECK-NEXT: Arrays {
+; CHECK-NEXT:     i32 MemRef_A[*]; // Element size 4
 ; CHECK-NEXT:     i32 MemRef_j_0__phi; // Element size 4
 ; CHECK-NEXT:     i32 MemRef_j_0; // Element size 4
-; CHECK-NEXT:     i32 MemRef_A[*]; // Element size 4
 ; CHECK-NEXT:     i32 MemRef_j_2__phi; // Element size 4
 ; CHECK-NEXT:     i32 MemRef_j_2; // Element size 4
 ; CHECK-NEXT: }
 ; CHECK-NEXT: Arrays (Bounds as pw_affs) {
+; CHECK-NEXT:     i32 MemRef_A[*]; // Element size 4
 ; CHECK-NEXT:     i32 MemRef_j_0__phi; // Element size 4
 ; CHECK-NEXT:     i32 MemRef_j_0; // Element size 4
-; CHECK-NEXT:     i32 MemRef_A[*]; // Element size 4
 ; CHECK-NEXT:     i32 MemRef_j_2__phi; // Element size 4
 ; CHECK-NEXT:     i32 MemRef_j_2; // Element size 4
 ; CHECK-NEXT: }

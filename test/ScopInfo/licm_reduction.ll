@@ -1,8 +1,6 @@
 ; RUN: opt %loadPolly -basicaa -loop-rotate -indvars       -polly-prepare -polly-scops -analyze < %s | FileCheck %s
 ; RUN: opt %loadPolly -basicaa -loop-rotate -indvars -licm -polly-prepare -polly-scops -analyze < %s | FileCheck %s
 ;
-; XFAIL: *
-;
 ;    void test(int n, double B[static const restrict n], int j) {
 ;      for (int i = 0; i < n; i += 1) {
 ;        B[j] += i;
@@ -37,11 +35,14 @@ for.end:                                          ; preds = %for.cond
   ret void
 }
 
-
-; CHECK: Statements {
-; CHECK:     Stmt_for_body
-; CHECK-DAG:     ReadAccess :=       [Reduction Type: NONE] [Scalar: 0]
-; CHECK-NEXT:        [n, j] -> { Stmt_for_body[i0] -> MemRef_B[j] };
-; CHECK-DAG:     MustWriteAccess :=  [Reduction Type: NONE] [Scalar: 0]
-; CHECK-NEXT:        [n, j] -> { Stmt_for_body[i0] -> MemRef_B[j] };
-; CHECK: }
+; CHECK:      Statements {
+; CHECK-NEXT:     Stmt_for_body
+; CHECK-NEXT:         Domain :=
+; CHECK-NEXT:             [n, j] -> { Stmt_for_body[i0] : 0 <= i0 < n };
+; CHECK-NEXT:         Schedule :=
+; CHECK-NEXT:             [n, j] -> { Stmt_for_body[i0] -> [i0] };
+; CHECK-NEXT:         ReadAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; CHECK-NEXT:             [n, j] -> { Stmt_for_body[i0] -> MemRef_B[j] };
+; CHECK-NEXT:         MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; CHECK-NEXT:             [n, j] -> { Stmt_for_body[i0] -> MemRef_B[j] };
+; CHECK-NEXT: }

@@ -34,6 +34,7 @@
 #include "llvm/Analysis/AssumptionCache.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/LoopIterator.h"
+#include "llvm/Analysis/PostDominators.h" //FIXME: We currently do not preserve PostDom, i.e. do not use it
 #include "llvm/Analysis/RegionIterator.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/IR/DiagnosticInfo.h"
@@ -110,6 +111,10 @@ static cl::opt<bool> IgnoreIntegerWrapping(
     cl::desc("Do not build run-time checks to proof absence of integer "
              "wrapping"),
     cl::Hidden, cl::ZeroOrMore, cl::init(false), cl::cat(PollyCategory));
+
+static cl::opt<bool> ScalarCollapse(
+    "polly-scalar-collapse", cl::desc("Try mapping scalars to array elements"),
+    cl::Hidden, cl::ZeroOrMore, cl::init(true), cl::cat(PollyCategory));
 
 //===----------------------------------------------------------------------===//
 
@@ -647,7 +652,8 @@ void MemoryAccess::computeBoundsOnAccessRelation(unsigned ElementSize) {
   if (isa<MemIntrinsic>(MAI))
     return;
 
-  Value *Ptr = MAI.getPointerOperand();
+  Value *Ptr = getEffectiveAddr();
+
   if (!Ptr || !SE->isSCEVable(Ptr->getType()))
     return;
 
@@ -806,13 +812,14 @@ MemoryAccess::MemoryAccess(ScopStmt *Stmt, Instruction *AccessInst,
                            Type *ElementType, bool Affine,
                            ArrayRef<const SCEV *> Subscripts,
                            ArrayRef<const SCEV *> Sizes, Value *AccessValue,
-                           ScopArrayInfo::MemoryKind Kind, StringRef BaseName)
+                           ScopArrayInfo::MemoryKind Kind, StringRef BaseName,
+                           MemAccInst AddrAlias)
     : Kind(Kind), AccType(AccType), RedType(RT_NONE), Statement(Stmt),
       BaseAddr(BaseAddress), BaseName(BaseName), ElementType(ElementType),
       Sizes(Sizes.begin(), Sizes.end()), AccessInstruction(AccessInst),
       AccessValue(AccessValue), IsAffine(Affine),
       Subscripts(Subscripts.begin(), Subscripts.end()), AccessRelation(nullptr),
-      NewAccessRelation(nullptr) {
+      NewAccessRelation(nullptr), MappedAliasAddr(AddrAlias) {
   static const std::string TypeStrings[] = {"", "_Read", "_Write", "_MayWrite"};
   const std::string Access = TypeStrings[AccType] + utostr(Stmt->size()) + "_";
 
@@ -854,7 +861,10 @@ void MemoryAccess::print(raw_ostream &OS) const {
     break;
   }
   OS << "[Reduction Type: " << getReductionType() << "] ";
-  OS << "[Scalar: " << isScalarKind() << "]\n";
+  OS << "[Scalar: " << isScalarKind() << "]";
+  if (isMapped())
+    OS << " [MAPPED]";
+  OS << "\n";
   OS.indent(16) << getOriginalAccessRelationStr() << ";\n";
   if (hasNewAccessRelation())
     OS.indent(11) << "new: " << getNewAccessRelationStr() << ";\n";
@@ -1414,7 +1424,7 @@ void ScopStmt::init(ScopDetection &SD) {
 ///       escape this block or into any other store except @p StoreMA.
 void ScopStmt::collectCandiateReductionLoads(
     MemoryAccess *StoreMA, SmallVectorImpl<MemoryAccess *> &Loads) {
-  auto *Store = dyn_cast<StoreInst>(StoreMA->getAccessInstruction());
+  auto *Store = dyn_cast_or_null<StoreInst>(StoreMA->getAccessInstruction());
   if (!Store)
     return;
 
@@ -2575,7 +2585,7 @@ bool Scop::buildAliasGroups(AliasAnalysis &AA) {
       continue;
 
     for (MemoryAccess *MA : Stmt) {
-      if (MA->isScalarKind())
+      if (MA->isScalarKind() || MA->isMapped())
         continue;
       if (!MA->isRead())
         HasWriteAccess.insert(MA->getBaseAddr());
@@ -3020,6 +3030,9 @@ void Scop::addInvariantLoads(ScopStmt &Stmt, MemoryAccessList &InvMAs) {
 
 bool Scop::isHoistableAccess(MemoryAccess *Access,
                              __isl_keep isl_union_map *Writes) {
+  if (Access->isMapped())
+    return false;
+
   // TODO: Loads that are not loop carried, hence are in a statement with
   //       zero iterators, are by construction invariant, though we
   //       currently "hoist" them anyway. This is necessary because we allow
@@ -3876,7 +3889,8 @@ MemoryAccess *ScopInfo::buildAccessMultiDimFixed(ScopStmt *Stmt, BasicBlock *BB,
         ConstantInt::get(IntegerType::getInt64Ty(BasePtr->getContext()), V)));
 
   return addArrayAccess(Stmt, BB, Inst, Type, BasePointer->getValue(),
-                        ElementType, true, Subscripts, SizesSCEV, Val);
+                        ElementType, true, Subscripts, SizesSCEV, Val,
+                        (Inst == AddrAlias) ? MemAccInst() : AddrAlias);
 }
 
 MemoryAccess *ScopInfo::buildAccessMultiDimParam(ScopStmt *Stmt, BasicBlock *BB,
@@ -3919,11 +3933,12 @@ MemoryAccess *ScopInfo::buildAccessMultiDimParam(ScopStmt *Stmt, BasicBlock *BB,
       cast<SCEVConstant>(Sizes.back())->getAPInt().getSExtValue();
   Sizes.pop_back();
   if (ElementSize != DelinearizedSize)
-    scop->invalidate(DELINEARIZATION, Inst->getDebugLoc());
+    scop->invalidate(DELINEARIZATION, Inst ? Inst->getDebugLoc() : DebugLoc());
 
   return addArrayAccess(Stmt, BB, Inst, Type, BasePointer->getValue(),
                         ElementType, true,
-                        AccItr->second.DelinearizedSubscripts, Sizes, Val);
+                        AccItr->second.DelinearizedSubscripts, Sizes, Val,
+                        (Inst == AddrAlias) ? MemAccInst() : AddrAlias);
 }
 
 bool ScopInfo::buildAccessMemIntrinsic(ScopStmt *Stmt, BasicBlock *BB,
@@ -3955,10 +3970,10 @@ bool ScopInfo::buildAccessMemIntrinsic(ScopStmt *Stmt, BasicBlock *BB,
   auto *DestPtrSCEV = dyn_cast<SCEVUnknown>(SE->getPointerBase(DestAccFunc));
   assert(DestPtrSCEV);
   DestAccFunc = SE->getMinusSCEV(DestAccFunc, DestPtrSCEV);
-  addArrayAccess(Stmt, BB, Inst, MemoryAccess::MUST_WRITE,
-                 DestPtrSCEV->getValue(),
-                 IntegerType::getInt8Ty(DestPtrVal->getContext()), false,
-                 {DestAccFunc, LengthVal}, {}, Inst.getValueOperand());
+  addArrayAccess(
+      Stmt, BB, Inst, MemoryAccess::MUST_WRITE, DestPtrSCEV->getValue(),
+      IntegerType::getInt8Ty(DestPtrVal->getContext()), false,
+      {DestAccFunc, LengthVal}, {}, Inst.getValueOperand(), MemAccInst());
 
   auto *MemTrans = dyn_cast<MemTransferInst>(MemIntr);
   if (!MemTrans)
@@ -3973,7 +3988,8 @@ bool ScopInfo::buildAccessMemIntrinsic(ScopStmt *Stmt, BasicBlock *BB,
   SrcAccFunc = SE->getMinusSCEV(SrcAccFunc, SrcPtrSCEV);
   addArrayAccess(Stmt, BB, Inst, MemoryAccess::READ, SrcPtrSCEV->getValue(),
                  IntegerType::getInt8Ty(SrcPtrVal->getContext()), false,
-                 {SrcAccFunc, LengthVal}, {}, Inst.getValueOperand());
+                 {SrcAccFunc, LengthVal}, {}, Inst.getValueOperand(),
+                 MemAccInst());
 
   return true;
 }
@@ -4015,7 +4031,7 @@ bool ScopInfo::buildAccessCallInst(ScopStmt *Stmt, BasicBlock *BB,
 
       auto *ArgBasePtr = cast<SCEVUnknown>(SE->getPointerBase(ArgSCEV));
       addArrayAccess(Stmt, BB, Inst, AccType, ArgBasePtr->getValue(),
-                     ArgBasePtr->getType(), false, {AF}, {}, CI);
+                     ArgBasePtr->getType(), false, {AF}, {}, CI, MemAccInst());
     }
     return true;
   }
@@ -4066,7 +4082,8 @@ MemoryAccess *ScopInfo::buildAccessSingleDim(ScopStmt *Stmt, BasicBlock *BB,
     Type = MemoryAccess::MAY_WRITE;
 
   return addArrayAccess(Stmt, BB, Inst, Type, BasePointer->getValue(),
-                        ElementType, IsAffine, {AccessFunction}, {}, Val);
+                        ElementType, IsAffine, {AccessFunction}, {}, Val,
+                        (Inst == AddrAlias) ? MemAccInst() : AddrAlias);
 }
 
 void ScopInfo::buildMemoryAccess(ScopStmt *Stmt, BasicBlock *BB,
@@ -4076,6 +4093,12 @@ void ScopInfo::buildMemoryAccess(ScopStmt *Stmt, BasicBlock *BB,
 
   if (buildAccessCallInst(Stmt, BB, Inst))
     return;
+
+  if (isRedundantMemAcc(Inst)) {
+    DEBUG(dbgs() << "Instruction" << *Inst.asInstruction()
+                 << " considered redundant\n");
+    return;
+  }
 
   buildMemoryAccessWithAlias(Stmt, BB, Inst, Inst.getValueOperand(),
                              isa<LoadInst>(Inst), Inst);
@@ -4095,6 +4118,30 @@ MemoryAccess *ScopInfo::buildMemoryAccessWithAlias(ScopStmt *Stmt,
     return MA;
 
   return buildAccessSingleDim(Stmt, BB, Inst, Val, isLoad, AddrAlias);
+}
+
+Value *ScopInfo::extractBasePointer(Value *Alias, Loop *L) {
+  const SCEV *AccessFunction = SE->getSCEVAtScope(Alias, L);
+  auto BP = SE->getPointerBase(AccessFunction);
+  assert((isa<SCEVUnknown>(BP) || isa<SCEVConstant>(BP)) &&
+         "Basepointers must be not computable or NULL");
+  const SCEVUnknown *BasePointer = dyn_cast<SCEVUnknown>(BP);
+  if (!BasePointer)
+    return nullptr;
+  return BasePointer->getValue();
+}
+
+const ScopArrayInfo *ScopInfo::getOrCreateSAI(MemAccInst SI) {
+  assert(scop->getStmtFor(SI));
+  auto Alias = SI.getPointerOperand();
+  auto L = LI->getLoopFor(SI->getParent());
+  auto BasePtr = extractBasePointer(Alias, L);
+  if (!BasePtr)
+    return nullptr;
+
+  return scop->getOrCreateScopArrayInfo(
+      BasePtr, Alias->getType()->getPointerElementType(), {},
+      ScopArrayInfo::MemoryKind::MK_Array);
 }
 
 void ScopInfo::buildAccessFunctions(Region &R, Region &SR) {
@@ -4166,7 +4213,9 @@ MemoryAccess *ScopInfo::addMemoryAccess(
     ScopStmt *Stmt, BasicBlock *BB, Instruction *Inst,
     MemoryAccess::AccessType AccType, Value *BaseAddress, Type *ElementType,
     bool Affine, Value *AccessValue, ArrayRef<const SCEV *> Subscripts,
-    ArrayRef<const SCEV *> Sizes, ScopArrayInfo::MemoryKind Kind) {
+    ArrayRef<const SCEV *> Sizes, ScopArrayInfo::MemoryKind Kind,
+    MemAccInst AddrAlias) {
+
   // Do not create a memory access for anything not in the SCoP. It would be
   // ignored anyway.
   if (!Stmt)
@@ -4201,25 +4250,31 @@ MemoryAccess *ScopInfo::addMemoryAccess(
     AccType = MemoryAccess::MAY_WRITE;
 
   AccList.emplace_back(Stmt, Inst, AccType, BaseAddress, ElementType, Affine,
-                       Subscripts, Sizes, AccessValue, Kind, BaseName);
+                       Subscripts, Sizes, AccessValue, Kind, BaseName,
+                       AddrAlias);
+
   Stmt->addAccess(&AccList.back());
   return &AccList.back();
 }
 
-MemoryAccess *
-ScopInfo::addArrayAccess(ScopStmt *Stmt, BasicBlock *BB, Instruction *AccInst,
-                         MemoryAccess::AccessType AccType, Value *BaseAddress,
-                         Type *ElementType, bool IsAffine,
-                         ArrayRef<const SCEV *> Subscripts,
-                         ArrayRef<const SCEV *> Sizes, Value *AccessValue) {
+MemoryAccess *ScopInfo::addArrayAccess(
+    ScopStmt *Stmt, BasicBlock *BB, Instruction *AccInst,
+    MemoryAccess::AccessType AccType, Value *BaseAddress, Type *ElementType,
+    bool IsAffine, ArrayRef<const SCEV *> Subscripts,
+    ArrayRef<const SCEV *> Sizes, Value *AccessValue, MemAccInst AddrAlias) {
   ArrayBasePointers.insert(BaseAddress);
   return addMemoryAccess(Stmt, BB, AccInst, AccType, BaseAddress, ElementType,
                          IsAffine, AccessValue, Subscripts, Sizes,
-                         ScopArrayInfo::MK_Array);
+                         ScopArrayInfo::MK_Array, AddrAlias);
 }
 
 void ScopInfo::ensureValueWrite(Instruction *Inst) {
-  ScopStmt *Stmt = scop->getStmtFor(Inst);
+  // Mapped scalar writes are handled separately.
+  auto AddrAlias = getValueMappedAddr(Inst);
+  if (AddrAlias)
+    return;
+
+  ScopStmt *Stmt = scop->getStmtFor(Inst->getParent());
 
   // Inst not defined within this SCoP.
   if (!Stmt)
@@ -4231,7 +4286,8 @@ void ScopInfo::ensureValueWrite(Instruction *Inst) {
 
   addMemoryAccess(Stmt, Inst->getParent(), Inst, MemoryAccess::MUST_WRITE, Inst,
                   Inst->getType(), true, Inst, ArrayRef<const SCEV *>(),
-                  ArrayRef<const SCEV *>(), ScopArrayInfo::MK_Value);
+                  ArrayRef<const SCEV *>(), ScopArrayInfo::MK_Value,
+                  MemAccInst());
 }
 
 void ScopInfo::ensureValueRead(Value *V, BasicBlock *UserBB) {
@@ -4279,15 +4335,36 @@ void ScopInfo::ensureValueRead(Value *V, BasicBlock *UserBB) {
   if (UserStmt->lookupValueReadOf(V))
     return;
 
-  addMemoryAccess(UserStmt, UserBB, nullptr, MemoryAccess::READ, V,
-                  V->getType(), true, V, ArrayRef<const SCEV *>(),
-                  ArrayRef<const SCEV *>(), ScopArrayInfo::MK_Value);
+  AddrAliasTy AddrAlias = nullptr;
+  if (ValueInst)
+    // AddrAlias = getValueMappedAddr(ValueInst);
+    AddrAlias = getMappedAlias(ValueInst, UserStmt);
+  if (AddrAlias) {
+    if (isRedundantScalarRead(AddrAlias, ValueInst, UserStmt)) {
+      DEBUG(dbgs() << "Mapped VALUE read of " << ValueInst->getName() << " to"
+                   << *AddrAlias << " before " << UserStmt->getBaseName()
+                   << " considered redundant\n");
+      return;
+    }
+
+    buildMemoryAccessWithAlias(UserStmt, UserBB, nullptr, V, true, AddrAlias);
+  } else
+    addMemoryAccess(UserStmt, UserBB, nullptr, MemoryAccess::READ, V,
+                    V->getType(), true, V, ArrayRef<const SCEV *>(),
+                    ArrayRef<const SCEV *>(), ScopArrayInfo::MK_Value,
+                    MemAccInst());
+
   if (ValueInst)
     ensureValueWrite(ValueInst);
 }
 
 void ScopInfo::ensurePHIWrite(PHINode *PHI, BasicBlock *IncomingBlock,
                               Value *IncomingValue, bool IsExitBlock) {
+  // MAPPED writes are added in a postprocessing.
+  auto AddrAlias = getPHIMappedAddr(PHI);
+  if (AddrAlias)
+    return;
+
   ScopStmt *IncomingStmt = scop->getStmtFor(IncomingBlock);
   if (!IncomingStmt)
     return;
@@ -4310,16 +4387,832 @@ void ScopInfo::ensurePHIWrite(PHINode *PHI, BasicBlock *IncomingBlock,
       IncomingStmt, IncomingBlock, PHI, MemoryAccess::MUST_WRITE, PHI,
       PHI->getType(), true, PHI, ArrayRef<const SCEV *>(),
       ArrayRef<const SCEV *>(),
-      IsExitBlock ? ScopArrayInfo::MK_ExitPHI : ScopArrayInfo::MK_PHI);
+      IsExitBlock ? ScopArrayInfo::MK_ExitPHI : ScopArrayInfo::MK_PHI,
+      MemAccInst());
   assert(Acc);
   Acc->addIncoming(IncomingBlock, IncomingValue);
 }
 
 void ScopInfo::addPHIReadAccess(PHINode *PHI) {
   ScopStmt *Stmt = scop->getStmtFor(PHI);
+
+  auto AddrAlias = getPHIMappedAddr(PHI);
+  if (AddrAlias) {
+    if (isRedundantScalarRead(AddrAlias, PHI, Stmt)) {
+      DEBUG(dbgs() << "Mapped PHI read of '" << *PHI << "' to '" << *AddrAlias
+                   << "' before '" << Stmt->getBaseName()
+                   << "' considered redundant\n");
+      return;
+    }
+
+    buildMemoryAccessWithAlias(Stmt, PHI->getParent(), PHI, PHI, true,
+                               AddrAlias);
+    return;
+  }
+
   addMemoryAccess(Stmt, PHI->getParent(), PHI, MemoryAccess::READ, PHI,
                   PHI->getType(), true, PHI, ArrayRef<const SCEV *>(),
-                  ArrayRef<const SCEV *>(), ScopArrayInfo::MK_PHI);
+                  ArrayRef<const SCEV *>(), ScopArrayInfo::MK_PHI,
+                  MemAccInst());
+}
+
+#ifndef NDEBUG
+template <typename T>
+static void dumpCollapsed(DenseMap<T *, AddrAliasTy> &Map) {
+  for (auto &Pair : Map) {
+    auto Value = Pair.first;
+    auto Alias = Pair.second;
+    if (!Alias)
+      continue;
+    dbgs() << *Value << "  ->" << *Alias << "\n";
+  }
+}
+#endif
+
+void ScopInfo::greedyCollapse() {
+  DEBUG(dbgs() << "### DeLICM BEGIN\n");
+  auto &R = scop->getRegion();
+
+  for (auto BB : R.blocks()) {
+    // Currently ignore something in subregions as their execution is not
+    // guarantted and it is more likely that there are other loads/stores in
+    // the region.
+    auto Stmt = scop->getStmtFor(BB);
+    if (Stmt->isRegionStmt())
+      continue;
+
+    for (auto &I : *BB) {
+      auto SI = dyn_cast<StoreInst>(&I);
+      if (!SI)
+        continue;
+
+      greedyCollapseStore(SI);
+    }
+  }
+
+  DEBUG(dbgs() << "Mapped Values:\n");
+  DEBUG(dumpCollapsed(CollapseValue));
+  DEBUG(dbgs() << "Mapped PHIs:\n");
+  DEBUG(dumpCollapsed(CollapsePHI));
+
+  DEBUG(dbgs() << "### DeLICM END\n");
+}
+
+/// Return whether the two maps conflict, that is, define different (or
+/// undefined) values for some location.
+static bool isConflicting(OutgoingValueMapTy &Superset,
+                          OutgoingValueMapTy &Subset) {
+  for (auto &Edge : Subset) {
+    auto BB = Edge.first;
+    auto Val = Edge.second;
+    auto Iter = Superset.find(BB);
+    if (Iter == Superset.end())
+      return true; // Conflicting because Superset content is undefined.
+    if (!Iter->second)
+      continue;
+    if (Iter->second != Val)
+      return true;
+  }
+  return false;
+}
+
+/// Merge the defined values of @p Subset into @p Superset.
+static void fixOutgoingValues(OutgoingValueMapTy &Superset,
+                              OutgoingValueMapTy &Subset) {
+  assert(!isConflicting(Superset, Subset));
+  for (auto &Edge : Subset) {
+    auto BB = Edge.first;
+    auto Val = Edge.second;
+    Superset[BB] = Val;
+  }
+}
+
+#ifndef NDEBUG
+static void printOutgoing(llvm::raw_ostream &OS, OutgoingValueMapTy &Map) {
+  for (auto &Pair : Map) {
+    auto Stmt = Pair.first;
+    auto Val = Pair.second;
+
+    if (Val)
+      OS << "  [" << Stmt->getBaseName() << "]  =" << *Val << "\n";
+    else
+      OS << "  [" << Stmt->getBaseName() << "]\n";
+  }
+}
+#endif
+
+void ScopInfo::greedyCollapseStore(AddrAliasTy Store) {
+  // Core DeLICM implementation details.
+  // We have a potential location to store scalars into. We now determine
+  // whether and which scalars can be mapped into that location. The algorithm
+  // works in 3 phases.
+  //
+  // 1> computeNoUseZones) Determine the non-lifetime of the value stored in the
+  // location (no use Zone), i.e. the value currently stored there will never be
+  // used. There are also the cases where we know what value is currently stored
+  // and we can reuse that.
+  //
+  // 2> greedyCollapseStore) From the store's value operand tree upwards, try to
+  //   map scalars (llvm::Values and PHI junctions) to the AddrAlias. This is a
+  //   greedy algorithm, the first value that fits is enshrined into the no-use
+  //   zone as known value to avoid that other values get mapped to the same
+  //   location. Try this until all values from the operand tree have been
+  //   checked. Values that are only defined and used within the same statement
+  //   do not need to be mapped. A scalar can be mapped to at most one location.
+  //
+  // 3> buildScop) When creating READ MemoryAccesses, change they storage
+  // location of mapped scalars to the AddrAlias. Scalar WRITE MemoryAccesses
+  // are skipped. The writes are added after creating the reads where necessary.
+  // This avoid writing the same value multiple times (eg. once as MK_PHI and
+  // another time fore its MK_Value)
+  //
+  // Possible implementation improvements:
+  // - The algorithm makes heavy use of DenseMaps. Some values might be instead
+  //   computed on-the-fly. Eg. getPHIEdges is simple to compute.
+  // - Numbering BasicBlocks in the SCoP and using vectors instead saves map
+  //   lookups.
+  // - Currently there is just one unique exit value per statment (called an
+  //   edge because of a previous implementation). Defining a value per leaving
+  //   edge would allow more mapping possibilities. Particularly on branches
+  //   that either enter the loop or skip it. Because when skipping it the
+  //   location could be read afterwards, currently nothing can be mapped to
+  //   that branching statement (undefined value). Such edge mapping would
+  //   require a new kind of MemoryAccesses on edges instead of on statemements.
+  // - Map not only on array elements by stores, but also on existing scalars to
+  //   reduce the total number of MemoryAccesses.
+  // - Prefer mapping scalars that lead to LoadInst's of the same location.
+  // - The current assumption is that the algorithm runs before the create of
+  //   MemoryAccesses. For better interaction with other passes that modify
+  //   MemoryAccesses, change the algorithm to take the access information from
+  //   the ScopStmt and then modify the the MemoryAccesses.
+  // - Allow that only parts of a value's lifetime range is mapped instead
+  //   always the whole range. Would be useful for values that are defined
+  //   before the SCoP.
+  // - Better ensure (unit tests) that multiple stores/loads to the same
+  //   location in a BasicBlock does not miscompile. Eg. a store after a load
+  //   might overwrite out temporary value, although the store's value
+  //   overwritten again. Such code should not happen after general
+  //   optimization, but we can't be sure.
+  auto &R = scop->getRegion();
+  auto Alias = Store->getPointerOperand();
+  auto StoredVal = dyn_cast<Instruction>(Store->getValueOperand());
+  if (!StoredVal)
+    return;
+
+  // Check that we did not already map something to the same location.
+  // TODO: Handle stores (mustConflict) to same location as equivalence set and
+  // compute no-use zone together.
+  for (auto &Pair : OutgoingCollapsedValue) {
+    auto OtherStore = Pair.first;
+    if (mayConflict(Store, OtherStore))
+      return;
+  }
+
+  auto &NoUseZone = OutgoingCollapsedValue[Store] = computeNoUseZones(Store);
+  bool MappedSomething = false;
+  // if (NoUseZone.empty()) return; //TODO: Make this an option
+
+  DEBUG(dbgs() << "NoUseZone for:" << *Store << " {\n");
+  DEBUG(printOutgoing(dbgs(), NoUseZone));
+  DEBUG(dbgs() << "}\n");
+
+  SmallVector<Instruction *, 16> Worklist;
+  Worklist.push_back(StoredVal);
+
+  do {
+    auto Val = Worklist.pop_back_val();
+
+    // Map only the same type.
+    if (Val->getType() != StoredVal->getType())
+      continue;
+
+    // Do not map instruction that span from before the scop (we'd need an
+    // explicit write to the mapped location when entering the scop).
+    auto ValStmt = scop->getStmtFor(Val);
+    if (!ValStmt)
+      continue;
+
+    if (CollapseValue.count(Val))
+      continue; // Already collapsed to this or another addr
+
+    // Don't try to demote synthesizable values
+    // TODO: Might allow collapsing to multiple addresses
+    if (canSynthesize(Val, LI, SE, &R, LI->getLoopFor(Val->getParent())))
+      continue;
+
+    // If the address is not available at Val's location, don't collapse it
+    // TODO: It might be available further downstream if we allow partial
+    // collapse
+    if (!isComputableAtEndingOf(Alias, Val->getParent()))
+      continue;
+
+    auto &Edges = getLiveEdges(Val);
+    if (isConflicting(NoUseZone, Edges))
+      continue;
+
+    if (!Edges.empty() && !Edges.count(nullptr)) {
+      MappedSomething = true;
+      CollapseValue[Val] = Store;
+      fixOutgoingValues(NoUseZone, Edges);
+    }
+    if (auto PHI = dyn_cast<PHINode>(Val)) {
+      if (CollapsePHI.count(PHI))
+        continue; // Already collapsed to this or another addr
+
+      // Check addr availability
+      if (std::any_of(PHI->block_begin(), PHI->block_end(),
+                      [=](BasicBlock *PredBB) {
+                        return !isComputableAtEndingOf(Alias, PredBB);
+                      }))
+        continue;
+
+      auto &PHIEdges = getPHIEdges(PHI);
+      if (isConflicting(NoUseZone, PHIEdges))
+        continue;
+      if (!PHIEdges.empty() && !PHIEdges.count(nullptr)) {
+        MappedSomething = true;
+        CollapsePHI[PHI] = Store;
+        fixOutgoingValues(NoUseZone, PHIEdges);
+      }
+    }
+
+    for (auto &Use : Val->operands()) {
+      auto UseVal = dyn_cast<Instruction>(Use.get());
+      if (UseVal)
+        Worklist.push_back(UseVal);
+    }
+
+  } while (!Worklist.empty());
+
+  // Remove mapping again if nothing has been mapped to it.
+  if (!MappedSomething) {
+    DEBUG(dbgs() << "Nothing mapped to" << *Alias << "\n");
+    OutgoingCollapsedValue.erase(Store);
+    return;
+  }
+
+  DEBUG(dbgs() << "Mappings for:" << *Alias << " {\n");
+  DEBUG(printOutgoing(dbgs(), NoUseZone); dbgs() << "}\n");
+}
+
+/// Is BB one of blocks that has an edge that leaves Stmt?
+static bool isExitingBB(ScopStmt *Stmt, BasicBlock *BB) {
+  if (Stmt->isBlockStmt())
+    return true;
+  auto SubRegion = Stmt->getRegion();
+  for (auto Exiting : predecessors(SubRegion->getExit())) {
+    if (!SubRegion->contains(Exiting))
+      continue;
+    if (Exiting == BB)
+      return true;
+  }
+  return false;
+}
+
+/// Remove PHINodes that have just one incoming block. These will have exectly
+/// the same value as that incoming value and we do not want it to seemingly
+/// conflict with it.
+static Value *followLCSSA(Value *Val) {
+  auto PHI = dyn_cast<PHINode>(Val);
+  if (!PHI)
+    return Val;
+
+  if (PHI->getNumIncomingValues() != 1)
+    return Val;
+
+  return PHI->getIncomingValue(0);
+}
+
+bool ScopInfo::addDefUseEdges(OutgoingValueMapTy &Edges, Use &Use) {
+  auto Val = dyn_cast<Instruction>(Use.get());
+  if (!Val)
+    return true;
+  auto DefBB = Val->getParent();
+
+  auto User = Use.getUser();
+  auto EffectiveUser = dyn_cast<Instruction>(User);
+  if (!EffectiveUser)
+    return true;
+
+  // Currently do not support five ranges extending beyond the scop. This
+  // includes exit phi nodes.
+  auto UserStmt = scop->getStmtFor(EffectiveUser);
+  if (!UserStmt) {
+    Edges[nullptr] = nullptr;
+    return false;
+  }
+
+  BasicBlock *EffectiveUserBB = EffectiveUser->getParent();
+  if (auto PHI = dyn_cast<PHINode>(EffectiveUser)) {
+    auto i = Use.getOperandNo();
+    EffectiveUserBB = PHI->getIncomingBlock(i);
+    EffectiveUser = EffectiveUserBB->getTerminator();
+  }
+
+  // All OK if the use follows the definition within the same basic block.
+  // Continuing would assume that that definition comes after the user, i.e.
+  // looping to itself (should be impossible for reachable BBs).
+  if (EffectiveUserBB == Val->getParent()) {
+    auto Next = Val;
+    while ((Next = Next->getNextNode()))
+      if (Next == EffectiveUser)
+        return true;
+  }
+
+  DenseSet<BasicBlock *> Reachable;
+  SmallVector<BasicBlock *, 8> Worklist;
+  Worklist.push_back(EffectiveUserBB);
+
+  while (!Worklist.empty()) {
+    auto BB = Worklist.pop_back_val();
+
+    for (auto Pred : predecessors(BB)) {
+      if (Reachable.count(Pred)) // Already visited
+        continue;
+      if (DefBB != Pred && !DT->dominates(DefBB, Pred))
+        continue;
+
+      Reachable.insert(Pred);
+      auto Node = scop->getStmtFor(Pred);
+      if (!Node) {
+        // Mark as not feasible (lifetime extends scop)
+        // TODO: How to handle this case
+        Edges[nullptr] = nullptr;
+        return false;
+      }
+      if (DefBB != Pred)
+        Worklist.push_back(Pred); // Do not flow back through the DefBB, only
+                                  // the last executed definition is relevant.
+
+      // Definitions that are inside subregions are infeasible for mapping. Must
+      // be a PHI mapping. TODO: Values dominated by all exiting nodes can be
+      // used outside, not only the entry ndoe.
+      if (Val->getParent() != Node->getEntryBlock()) {
+        Edges[nullptr] = nullptr;
+        return false;
+      }
+
+      Edges[Node] = followLCSSA(Val);
+    }
+  }
+  return true;
+}
+
+OutgoingValueMapTy &ScopInfo::getLiveEdges(Instruction *Val) {
+  auto It = AliveValuesCache.find(Val);
+  if (It != AliveValuesCache.end())
+    return It->second;
+
+  auto &Edges = AliveValuesCache[Val];
+
+  // Do not try to map away invariant loads, those are optimized away later.
+  if (auto LI = dyn_cast<LoadInst>(Val)) {
+    auto ScopRIL = SD->getRequiredInvariantLoads(&scop->getRegion());
+    if (ScopRIL->count(LI)) {
+      Edges[nullptr] = nullptr;
+      return Edges;
+    }
+  }
+
+  for (auto &Use : Val->uses())
+    addDefUseEdges(Edges, Use);
+
+  return Edges;
+}
+
+OutgoingValueMapTy &ScopInfo::getPHIEdges(PHINode *PHI) {
+  auto It = PHIEdgesCache.find(PHI);
+  if (It != PHIEdgesCache.end())
+    return It->second;
+
+  auto &ScopRegion = scop->getRegion();
+
+  OutgoingValueMapTy &Result = PHIEdgesCache[PHI];
+  int NumIncoming = PHI->getNumIncomingValues();
+  for (int i = 0; i < NumIncoming; i += 1) {
+    auto IncomingValue = PHI->getIncomingValue(i);
+    auto IncomingBlock = PHI->getIncomingBlock(i);
+    if (!ScopRegion.contains(IncomingBlock))
+      continue;
+
+    auto Node = scop->getStmtFor(IncomingBlock);
+    if (!Node)
+      continue;
+    if (Node->isBlockStmt())
+      Result[Node] = followLCSSA(IncomingValue);
+    else if (isExitingBB(Node, IncomingBlock)) {
+      // A subregion can have multiple outgoing edges, so we use the PHI itself
+      // to represent since we can map at most one outgoing value. The
+      // 'incoming' values themselves may not even be accessible outside the
+      // subregion.
+      assert(!Result.count(Node) || Result[Node] == followLCSSA(PHI));
+      Result[Node] = followLCSSA(PHI);
+    }
+  }
+  return Result;
+}
+
+bool ScopInfo::mustConflict(MemAccInst Acc1, MemAccInst Acc2) {
+  if (Acc1 == Acc2)
+    return true;
+
+  auto Acc1Loop = LI->getLoopFor(Acc1->getParent());
+  auto Acc1BasePtr = SE->getSCEVAtScope(Acc1.getPointerOperand(), Acc1Loop);
+
+  auto Acc2Loop = LI->getLoopFor(Acc2->getParent());
+  auto Acc2BasePtr = SE->getSCEVAtScope(Acc2.getPointerOperand(), Acc2Loop);
+
+  // Acc1 and Acc2 access the same value if their index expression is the same
+  // (Assuming they are executed in the same loop iteration)
+  if (Acc1BasePtr == Acc2BasePtr)
+    return true;
+
+  return false;
+}
+
+bool ScopInfo::mayConflict(MemAccInst Acc1, MemAccInst Acc2) {
+  auto Acc1Loop = LI->getLoopFor(Acc1->getParent());
+  auto Acc1BasePtr = extractBasePointer(Acc1.getPointerOperand(), Acc1Loop);
+
+  auto Acc2Loop = LI->getLoopFor(Acc2->getParent());
+  auto Acc2BasePtr = extractBasePointer(Acc2.getPointerOperand(), Acc2Loop);
+
+  // Due to Polly's non-aliasing assumption, two accesses cannot alias if they
+  // access different arrays.
+  if (Acc1BasePtr != Acc2BasePtr)
+    return false;
+
+  // TODO: Check index expression whether it can never alias.
+  return true;
+}
+
+bool ScopInfo::mayOverwrite(MemAccInst Loc, BasicBlock *BB,
+                            BasicBlock::iterator Start,
+                            BasicBlock::iterator End) {
+  for (auto It = Start; It != End; ++It) {
+    auto SI = dyn_cast<StoreInst>(&*It);
+    if (!SI)
+      continue;
+
+    if (mayConflict(Loc, SI))
+      return true;
+  }
+  return false;
+}
+
+// TODO: It's possible that on one outgoing edge the data needs to be preserve,
+// but is free to use when going the other branch; to support the, we require
+// per-edge NoUseZone and edge-dependent PHI WRITE MemoryAccesses
+OutgoingValueMapTy ScopInfo::computeNoUseZones(AddrAliasTy SI) {
+  auto StoreBB = SI->getParent();
+  auto &PD = getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree();
+
+  OutgoingValueMapTy Result;
+  // Get all the locations where a value written to the same address as SI will
+  // be overwritten by SI.
+  SmallVector<BasicBlock *, 8> Postdominated;
+  PD.getDescendants(StoreBB,
+                    Postdominated); // (Postdominated will also contain StoreBB)
+
+  SmallVector<BasicBlock *, 8> Worklist;
+  DenseSet<BasicBlock *> ReachableRead;
+
+  // Search for loads in BBs that are postdominated by the store
+  for (auto Node : Postdominated) {
+    for (auto &Inst : *Node) {
+      if (Node == StoreBB && &Inst == SI)
+        break;
+
+      if (!isa<LoadInst>(Inst))
+        continue;
+      auto &LI = cast<LoadInst>(Inst);
+      if (mayConflict(SI, LI)) {
+        Worklist.push_back(Node);
+        break;
+      }
+    }
+  }
+
+  // Determine the BasicBlocks with a control flow to a read to that value. That
+  // is, the blocks where the value is not dead.
+  // TODO: Add function return to Worklist; unless the array is local the caller
+  // is free to read the memory. We'd not need the postominator.
+  while (!Worklist.empty()) {
+    auto BB = Worklist.pop_back_val();
+    for (auto Pred : predecessors(BB)) {
+      if (ReachableRead.count(Pred))
+        continue;
+      if (!PD.dominates(StoreBB, Pred))
+        continue;
+      ReachableRead.insert(Pred);
+
+      // The exit of the store's BB might be reachable, but everything in front
+      // of it will be overwritten.
+      if (StoreBB == Pred)
+        continue;
+
+      Worklist.push_back(Pred);
+    }
+  }
+
+  // Determine the statmtements where:
+  // - the location will be overwritten
+  // - no path leads to a read that does not cross the write
+  for (auto Node : Postdominated) {
+    if (Node == StoreBB)
+      continue;
+
+    if (ReachableRead.count(Node))
+      continue;
+
+    auto Stmt = scop->getStmtFor(Node);
+    if (Stmt)
+      Result[Stmt] = nullptr;
+  }
+
+  // Also fix when we know what value the element has
+  SmallVector<BasicBlock *, 8> PostWriteWorklist;
+
+  // Value at SI's location at when leaving a BasicBlock
+  // unmapped means don't know
+  // nullptr means no unique value
+  DenseMap<BasicBlock *, Value *> KnownContent;
+
+  auto HomeBB = SI->getParent();
+  if (mayOverwrite(SI, HomeBB, SI->getNextNode()->getIterator()))
+    return Result;
+
+  KnownContent[HomeBB] = SI->getValueOperand();
+  for (auto Succ : successors(HomeBB))
+    PostWriteWorklist.push_back(Succ);
+
+  while (!PostWriteWorklist.empty()) {
+    auto BB = PostWriteWorklist.pop_back_val();
+    auto BeenVisited = KnownContent.count(BB);
+
+    if (!DT->properlyDominates(HomeBB, BB))
+      continue;
+
+    if (mayOverwrite(SI, BB)) {
+      KnownContent[BB] = nullptr;
+      continue;
+    }
+
+    if (BeenVisited && KnownContent.lookup(BB) != SI->getValueOperand()) {
+      KnownContent[BB] = nullptr;
+      continue;
+    }
+
+    KnownContent[BB] = SI->getValueOperand();
+    if (BeenVisited)
+      continue;
+
+    for (auto Succ : successors(BB))
+      PostWriteWorklist.push_back(Succ);
+  }
+  // Translate the per-BB relationship to KnownContent a per-Stmt relationship
+  // in Result
+  for (auto &Stmt : *scop) {
+    if (Result.count(&Stmt))
+      continue;
+
+    if (Stmt.isBlockStmt()) {
+      auto BB = Stmt.getBasicBlock();
+      if (KnownContent.lookup(BB))
+        Result[&Stmt] = KnownContent.lookup(BB);
+      continue;
+    }
+
+    auto R = Stmt.getRegion();
+    bool Contradicting = false;
+    for (auto Exiting : predecessors(R->getExit())) {
+      if (!R->contains(Exiting))
+        continue;
+
+      if (KnownContent.lookup(Exiting) != SI->getValueOperand()) {
+        Contradicting = true;
+        break;
+      }
+    }
+
+    if (!Contradicting)
+      Result[&Stmt] = SI->getValueOperand();
+  }
+
+  return Result;
+}
+
+StoreInst *ScopInfo::getMappedAlias(Instruction *Inst, ScopStmt *Stmt) {
+  // If Inst is a PHI we can directly use it (.phiops) in the same statement.
+  // For use in other statments, it must be temporary stored as a value (.s2a)
+  if (auto PHIVal = dyn_cast<PHINode>(Inst)) {
+    auto PHIStmt = scop->getStmtFor(PHIVal);
+    if (PHIStmt == Stmt)
+      return getPHIMappedAddr(PHIVal);
+  }
+
+  return getValueMappedAddr(Inst);
+}
+
+bool ScopInfo::isRedundantScalarRead(AddrAliasTy AddrAlias, Instruction *Val,
+                                     ScopStmt *Stmt, bool isExplicit) {
+  // Check if there is already a LoadInst for this Scalar. If so, we prioritize
+  // this LoadInst over creating a different one.
+
+  if (!isExplicit) {
+    if (auto LI = dyn_cast<LoadInst>(Val)) {
+      auto LoadStmt = scop->getStmtFor(LI);
+      auto LoadAlias = LI;
+      if (Stmt == LoadStmt && mustConflict(LoadAlias, AddrAlias))
+        return true;
+    }
+  }
+
+  for (auto &Use : Val->uses()) {
+    if (auto User = dyn_cast<PHINode>(Use.getUser())) {
+      auto IncomingBB = User->getIncomingBlock(Use);
+      auto UserStmt = scop->getStmtFor(IncomingBB);
+      if (UserStmt != Stmt)
+        continue;
+
+      auto UserAlias = getPHIMappedAddr(User);
+      if (!UserAlias)
+        return false;
+
+      if (UserAlias != AddrAlias)
+        return false;
+    } else if (auto User = dyn_cast<StoreInst>(Use.getUser())) {
+      auto UserStmt = scop->getStmtFor(User);
+      if (UserStmt != Stmt)
+        continue;
+
+      if (User != AddrAlias)
+        return false;
+    } else if (auto User = dyn_cast<Instruction>(Use.getUser())) {
+      auto UserStmt = scop->getStmtFor(User);
+      if (UserStmt != Stmt) // This includes out-of-scop users
+        continue;
+
+      return false;
+    } else
+      return false;
+  }
+
+  return true;
+}
+
+// Find a reason why the value is already stored in Addr.
+bool ScopInfo::isRedundantScalarWrite(AddrAliasTy Addr, Value *Val,
+                                      ScopStmt *Stmt, bool isExplicit) {
+  if (!Addr)
+    return false;
+
+  auto ValInst = dyn_cast<Instruction>(Val);
+  if (!ValInst)
+    return false;
+
+  // Writing invariant loads is unnecessary; those will be directly forwarded to
+  // they use.
+  if (auto LI = dyn_cast<LoadInst>(Val)) {
+    auto ScopRIL = SD->getRequiredInvariantLoads(&scop->getRegion());
+    if (ScopRIL->count(LI))
+      return true;
+  }
+
+  auto DefStmt = scop->getStmtFor(ValInst);
+
+  // With subregions that have multiple incoming values for the successor
+  // statement, the defining PHI is in the the successor, not Stmt. We correct
+  // that by treating the PHI as if a PHI with the affected incoming values were
+  // split into a separate BB and merges into the subregion as exiting block.
+  if (Stmt->isRegionStmt() && isa<PHINode>(ValInst) &&
+      ValInst->getParent() == Stmt->getRegion()->getExit())
+    DefStmt = Stmt;
+
+  // If defined in another statement, that statement must have already written
+  // that value.
+  // TODO: When supporting partial mapping, must compare what value is currently
+  // in (when entering Stmt) to what value it should have when leaving the stmt.
+  if (DefStmt != Stmt)
+    return true;
+
+  if (!isExplicit)
+    // Search for a store in the same block st. that an implicit store is
+    // unnecessary.
+    for (auto &U : Val->uses()) {
+      auto SI = dyn_cast<StoreInst>(U.getUser());
+      if (!SI)
+        continue;
+      if (scop->getStmtFor(SI) != Stmt)
+        continue;
+
+      if (mustConflict(Addr, SI))
+        return true;
+    }
+
+  // If the value has jsut been loaded from that location, we don't need to
+  // re-save it.
+  if (auto LI = dyn_cast<LoadInst>(ValInst)) {
+    if (mustConflict(Addr, LI))
+      return true;
+  }
+
+  MemAccInst ValAlias = getMappedAlias(ValInst, Stmt);
+  if (!ValAlias) {
+    // If Val is not mapped itself, maybe it is loaded from a location.
+    // if (auto LI = dyn_cast<LoadInst>(ValInst))
+    //  ValAlias = LI;
+  }
+
+  if (!ValAlias)
+    return false;
+
+  if (!mustConflict(ValAlias, Addr))
+    return false;
+
+  // Value from outside the scop
+  // TODO: must write it when entering the scop or disallow mapping it.
+  if (!DefStmt) {
+    llvm_unreachable(
+        "Mapped definitions from before the SCoP currently not supported.");
+    return false;
+  }
+
+  auto ValPHI = dyn_cast<PHINode>(ValInst);
+  if (ValPHI && (DefStmt == Stmt))
+    return true;
+
+  return false;
+}
+
+bool ScopInfo::isRedundantScalarWriteOfAlias(AddrAliasTy Addr,
+                                             Instruction *ValInst,
+                                             ScopStmt *Stmt, bool isExplicit,
+                                             MemAccInst ValAlias) {
+  if (!mustConflict(ValAlias, Addr))
+    return false;
+
+  auto DefStmt = scop->getStmtFor(ValInst);
+
+  // Value from outside the scop
+  // TODO: must write it when entering the scop or disallow mapping it.
+  if (!DefStmt) {
+    llvm_unreachable(
+        "Mapped definitions from before the SCoP currently not supported.");
+    return false;
+  }
+
+  auto ValPHI = dyn_cast<PHINode>(ValInst);
+  if (ValPHI && (DefStmt == Stmt))
+    return true;
+
+  // If defined in another statement, that statment must have already written
+  // that value.
+  // TODO: When supporting partial mapping, must compare what value is currenty
+  // in (when entring Stmt) to what value it should have when leaving the stmt.
+  if (DefStmt != Stmt)
+    return true;
+
+  // All other cases.
+  return false;
+}
+
+bool ScopInfo::isRedundantMemAcc(MemAccInst AccInst) {
+  if (isa<LoadInst>(AccInst))
+    return isRedundantLoad(cast<LoadInst>(AccInst));
+  if (isa<StoreInst>(AccInst))
+    return isRedundantStore(cast<StoreInst>(AccInst));
+  return false;
+}
+
+bool ScopInfo::isRedundantLoad(LoadInst *LI) {
+  // Invariant load hoisting requires the MemoryAccess to be created.
+  const InvariantLoadsSetTy *ScopRIL =
+      SD->getRequiredInvariantLoads(&scop->getRegion());
+  if (ScopRIL->count(LI))
+    return false;
+
+  auto Alias = getValueMappedAddr(LI);
+  if (!Alias)
+    return false;
+  if (!mustConflict(LI, Alias))
+    return false;
+  auto Stmt = scop->getStmtFor(LI);
+  return isRedundantScalarRead(Alias, LI, Stmt, true);
+}
+
+bool ScopInfo::isRedundantStore(StoreInst *SI) {
+  auto Val = dyn_cast<Instruction>(SI->getValueOperand());
+  if (!Val)
+    return false;
+
+  auto Stmt = scop->getStmtFor(SI);
+  auto Addr = getMappedAlias(Val, Stmt);
+  if (!Addr)
+    return false;
+  if (Addr != SI)
+    return false;
+  return isRedundantScalarWrite(Addr, Val, Stmt, true);
 }
 
 void ScopInfo::buildScop(Region &R, AssumptionCache &AC) {
@@ -4327,6 +5220,32 @@ void ScopInfo::buildScop(Region &R, AssumptionCache &AC) {
   scop.reset(new Scop(R, *SE, *LI, MaxLoopDepth));
 
   buildStmts(R, R);
+
+  for (auto BB : R.blocks()) {
+    for (auto &I : *BB) {
+      auto AccInst = MemAccInst::dyn_cast(I);
+      if (!AccInst)
+        continue;
+
+      if (!isa<LoadInst>(AccInst) && !isa<StoreInst>(AccInst))
+        continue;
+
+// WORKAROUND AHEAD:
+// getOrCreateScopArrayInfo requires that the base SAI of indirect
+// accesses are already created. This relies on requesting those first.
+// This workaround may still fail because there is no guarantee that basic
+// blocks are iterated through in an topological order of the dominance
+// tree (i.e. the base access in a BB before the indirect one, but
+// iterated through in reverse order)
+#if 1
+      getOrCreateSAI(AccInst);
+#endif
+    }
+  }
+
+  if (ScalarCollapse)
+    greedyCollapse();
+
   buildAccessFunctions(R, R);
 
   // In case the region does not have an exiting block we will later (during
@@ -4346,7 +5265,45 @@ void ScopInfo::buildScop(Region &R, AssumptionCache &AC) {
     for (auto *BP : ArrayBasePointers)
       addArrayAccess(scop->getStmtFor(GlobalRead), GlobalRead->getParent(),
                      MemAccInst(GlobalRead), MemoryAccess::READ, BP,
-                     BP->getType(), false, {AF}, {}, GlobalRead);
+                     BP->getType(), false, {AF}, {}, GlobalRead, MemAccInst());
+
+  for (auto &AddrIter : OutgoingCollapsedValue) {
+    auto Alias = AddrIter.first;
+    auto &Map = AddrIter.second;
+
+    for (auto &BBIter : Map) {
+      auto Node = BBIter.first;
+      auto OutVal = BBIter.second;
+
+      // Happens if in no-use zone, but no value/PHI has been mapped to it.
+      if (!OutVal)
+        continue;
+
+      if (isRedundantScalarWrite(Alias, OutVal, Node))
+        continue;
+
+      DEBUG(dbgs() << "Mapped write of '" << *OutVal << "' to '" << *Alias
+                   << "' after '" << Node->getBaseName() << "'\n");
+      // Special treatment for subregions that have multiple outgoing values;
+      // The code generator must know about them.
+      if (auto PHI = dyn_cast<PHINode>(OutVal))
+        if (Node->isRegionStmt() &&
+            Node->getRegion()->getExit() == PHI->getParent()) {
+          auto MA = buildMemoryAccessWithAlias(Node, Node->getEntryBlock(), PHI,
+                                               OutVal, false, Alias);
+          for (auto &Incoming : PHI->operands()) {
+            auto IncomingBlock = PHI->getIncomingBlock(Incoming);
+            if (!Node->getRegion()->contains(IncomingBlock))
+              continue;
+            MA->addIncoming(IncomingBlock, Incoming.get());
+          }
+          continue;
+        }
+
+      buildMemoryAccessWithAlias(Node, Node->getEntryBlock(), nullptr, OutVal,
+                                 false, Alias);
+    }
+  }
 
   scop->init(*AA, AC, *SD, *DT, *LI);
 }
@@ -4360,7 +5317,14 @@ void ScopInfo::print(raw_ostream &OS, const Module *) const {
   scop->print(OS);
 }
 
-void ScopInfo::clear() { scop.reset(); }
+void ScopInfo::clear() {
+  scop.reset();
+  CollapseValue.clear();
+  CollapsePHI.clear();
+  OutgoingCollapsedValue.clear();
+  AliveValuesCache.clear();
+  PHIEdgesCache.clear();
+}
 
 //===----------------------------------------------------------------------===//
 ScopInfo::ScopInfo() : RegionPass(ID) {}
@@ -4371,6 +5335,7 @@ void ScopInfo::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addRequired<LoopInfoWrapperPass>();
   AU.addRequired<RegionInfoPass>();
   AU.addRequired<DominatorTreeWrapperPass>();
+  AU.addRequired<PostDominatorTreeWrapperPass>();
   AU.addRequiredTransitive<ScalarEvolutionWrapperPass>();
   AU.addRequiredTransitive<ScopDetection>();
   AU.addRequired<AAResultsWrapperPass>();
@@ -4414,6 +5379,86 @@ bool ScopInfo::runOnRegion(Region *R, RGPassManager &RGM) {
   emitOptimizationRemarkAnalysis(F->getContext(), DEBUG_TYPE, *F, End, Msg);
 
   return false;
+}
+
+namespace {
+struct SCEVExpandibilityChecker {
+private:
+  BasicBlock *LocationBlock;
+  bool IncludeBlock;
+  DominatorTree *DT;
+  bool FoundUnexapandable;
+
+  SCEVExpandibilityChecker(BasicBlock *LocationBlock, bool IncludeBlock,
+                           DominatorTree *DT)
+      : LocationBlock(LocationBlock), IncludeBlock(IncludeBlock), DT(DT),
+        FoundUnexapandable(false) {}
+
+  bool unexpandable() {
+    FoundUnexapandable = true;
+    return false;
+  }
+
+public:
+  bool follow(const SCEV *S) {
+    if (auto AddRec = dyn_cast<SCEVAddRecExpr>(S)) {
+      auto L = AddRec->getLoop();
+      if (!L->contains(LocationBlock))
+        return unexpandable();
+    } else if (auto Unk = dyn_cast<SCEVUnknown>(S)) {
+      auto Val = Unk->getValue();
+      if (isa<Constant>(Val))
+        return true;
+
+      Instruction *Inst = dyn_cast<Instruction>(Val);
+
+      // Strange case
+      if (!Inst)
+        return unexpandable();
+
+      auto InstBB = Inst->getParent();
+      if (InstBB == LocationBlock) {
+        if (!IncludeBlock)
+          return unexpandable();
+        return true;
+      }
+
+      if (!DT->dominates(InstBB, LocationBlock))
+        return unexpandable();
+    }
+
+    return true;
+  }
+
+  bool isDone() { return FoundUnexapandable; }
+
+  static bool isExpandableBefore(const SCEV *S, BasicBlock *LocationBlock,
+                                 bool IncludeBlock, DominatorTree *DT) {
+    SCEVExpandibilityChecker Checker(LocationBlock, IncludeBlock, DT);
+    SCEVTraversal<SCEVExpandibilityChecker> ST(Checker);
+    ST.visitAll(S);
+    return !Checker.isDone();
+  }
+};
+}
+
+bool ScopInfo::isComputableAtEndingOf(Value *Val, BasicBlock *BB) {
+  if (SE->isSCEVable(Val->getType())) {
+    if (const SCEV *Scev = SE->getSCEV(Val))
+      if (!isa<SCEVCouldNotCompute>(Scev)) {
+        if (SCEVExpandibilityChecker::isExpandableBefore(Scev, BB, true, DT))
+          return true;
+      }
+  }
+
+  auto Inst = dyn_cast<Instruction>(Val);
+  if (!Inst)
+    return false;
+  auto InstBB = Inst->getParent();
+
+  if (InstBB == BB)
+    return true;
+  return DT->dominates(InstBB, BB);
 }
 
 char ScopInfo::ID = 0;

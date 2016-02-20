@@ -142,6 +142,10 @@ public:
   ///          GlobalMap.
   Value *getOrCreateAlloca(const MemoryAccess &Access);
 
+  Value *getImplicitAddress(MemoryAccess &Access, Loop *L, LoopToScevMapT &LTS,
+                            ValueMapT &BBMap,
+                            __isl_keep isl_id_to_ast_expr *NewAccesses);
+
   /// @brief Return the alloca for @p Array
   ///
   /// If no alloca was mapped for @p Array a new one is created.
@@ -367,7 +371,9 @@ protected:
   ///
   /// @param Stmt  The statement we generate code for.
   /// @param BBMap A mapping from old values to their new values in this block.
-  void generateScalarLoads(ScopStmt &Stmt, ValueMapT &BBMap);
+  void generateScalarLoads(ScopStmt &Stmt, LoopToScevMapT &LTS,
+                           ValueMapT &BBMap,
+                           __isl_keep isl_id_to_ast_expr *NewAccesses);
 
   /// @brief Generate the scalar stores for the given statement.
   ///
@@ -382,7 +388,8 @@ protected:
   ///               within this basic block)
   /// @param BBMap A mapping from old values to their new values in this block.
   virtual void generateScalarStores(ScopStmt &Stmt, LoopToScevMapT &LTS,
-                                    ValueMapT &BBMap);
+                                    ValueMapT &BBMap,
+                                    __isl_keep isl_id_to_ast_expr *NewAccesses);
 
   /// @brief Handle users of @p Inst outside the SCoP.
   ///
@@ -494,6 +501,11 @@ protected:
   Value *generateLocationAccessed(ScopStmt &Stmt, MemAccInst Inst,
                                   ValueMapT &BBMap, LoopToScevMapT &LTS,
                                   isl_id_to_ast_expr *NewAccesses);
+
+  Value *generateLocationAccessed(ScopStmt &Stmt, Loop *L, Value *Pointer,
+                                  ValueMapT &BBMap, LoopToScevMapT &LTS,
+                                  isl_id_to_ast_expr *NewAccesses,
+                                  __isl_take isl_id *Id, Type *ExpectedType);
 
   /// @param NewAccesses A map from memory access ids to new ast expressions,
   ///                    which may contain new access expressions for certain
@@ -818,8 +830,9 @@ private:
   ///              their new values (for values recalculated in the new ScoP,
   ///              but not within this basic block)
   /// @param BBMap A mapping from old values to their new values in this block.
-  virtual void generateScalarStores(ScopStmt &Stmt, LoopToScevMapT &LTS,
-                                    ValueMapT &BBMAp) override;
+  virtual void
+  generateScalarStores(ScopStmt &Stmt, LoopToScevMapT &LTS, ValueMapT &BBMAp,
+                       __isl_keep isl_id_to_ast_expr *NewAccesses) override;
 
   /// @brief Copy a single PHI instruction.
   ///

@@ -66,6 +66,48 @@ class Scop;
 class ScopStmt;
 class ScopInfo;
 
+/// @brief Values of this type identify an array element.
+///
+/// To identify an array element at runtime, we need a SCEV that can be expanded
+/// to the desired location an Loop context in which that expanded value is the
+/// same. Eg. in the next loop iteration its value be different.
+///
+/// A MemAccInst gives us both: the SCEV by asking ScalarEvolution on its
+/// PointerArgument, and a Loop using LoopInfo::getLoopFor().
+/// ScopInfo::buildMemoryAccess() can create the MemoryAccess for that specific
+/// element when passing that MemAccInst.
+///
+/// Alternative implementations could use tuples of llvm::Value/Instruction,
+/// SCEV/Loop, or the MemoryAccess members that buildMemoryAccess() computes.
+/// All of these would require more changes.
+///
+/// The DeLICM algorithm always begins at a StoreInst to look for viable
+/// locations, hence an AddrAlias will always be a StoreInst. MemAccInst as
+/// alias types appear when explicit LoadInsts are checked whether they load the
+/// same value.
+///
+/// As an extension we could also allow exiting scalars as mapping targts. This
+/// would reduce the number of scalar MemoryAccesses, but not improve
+/// schedulability because the scalar access would remain scalar.
+typedef StoreInst *AddrAliasTy;
+
+/// @brief Lists of expected values when leaving a statements.
+///
+/// For each ScopStmt*, defines an value that an array element (defined by an
+/// AddrAliasTy) should have when execution of that statements has terminated.
+///
+/// There are 3 possible contents:
+///
+/// Undefined (.count() returns false): We don't know what is stored and it
+/// might used later. Don't try to overwrite or read it.
+///
+/// Free (stmt maps to nullptr): whatever is currently stored, will be
+/// overwritted before it is read. We can store other temporary values at this
+/// location until that write.
+///
+/// Defined (stmt maps to an llvm::Value): Either the value is known (eg.
+/// because it has been written to that element) or the DeLICM algorithm decided
+/// to store that value there temporally there until it is overwritten.
 typedef DenseMap<ScopStmt *, Value *> OutgoingValueMapTy;
 
 //===---------------------------------------------------------------------===//
@@ -588,6 +630,12 @@ private:
   isl_map *NewAccessRelation;
   // @}
 
+  // For Mapped locations
+  // @{
+  // Take the memory access information from here
+  MemAccInst MappedAliasAddr;
+  // @}
+
   bool isAffine() const { return IsAffine; }
 
   __isl_give isl_basic_map *createBasicAccessMap(ScopStmt *Statement);
@@ -667,7 +715,7 @@ public:
                Value *BaseAddress, Type *ElemType, bool Affine,
                ArrayRef<const SCEV *> Subscripts, ArrayRef<const SCEV *> Sizes,
                Value *AccessValue, ScopArrayInfo::MemoryKind Kind,
-               StringRef BaseName);
+               StringRef BaseName, MemAccInst MappedAliasAddr);
   ~MemoryAccess();
 
   /// @brief Add a new incoming block/value pairs for this PHI/ExitPHI access.
@@ -677,7 +725,7 @@ public:
   ///                      IncomingBlock.
   void addIncoming(BasicBlock *IncomingBlock, Value *IncomingValue) {
     assert(!isRead());
-    assert(isAnyPHIKind());
+    assert(isAnyPHIKind() || isMapped());
     Incoming.emplace_back(std::make_pair(IncomingBlock, IncomingValue));
   }
 
@@ -688,7 +736,6 @@ public:
   /// anymore. For this reason we remember these explicitely for all PHI-kind
   /// accesses.
   ArrayRef<std::pair<BasicBlock *, Value *>> getIncoming() const {
-    assert(isAnyPHIKind());
     return Incoming;
   }
 
@@ -803,6 +850,19 @@ public:
   /// dimension is the dimension of the innermost loop containing the
   /// statement.
   bool isStrideZero(__isl_take const isl_map *Schedule) const;
+
+  bool isMapped() const { return MappedAliasAddr; }
+
+  MemAccInst getMappedAliasAddr() const {
+    assert(isMapped());
+    return MappedAliasAddr;
+  }
+
+  Value *getEffectiveAddr() const {
+    return (isMapped() ? getMappedAliasAddr()
+                       : MemAccInst::cast(getAccessInstruction()))
+        .getPointerOperand();
+  }
 
   /// @brief Whether this is an access of an explicit load or store in the IR.
   bool isArrayKind() const { return Kind == ScopArrayInfo::MK_Array; }
@@ -2146,7 +2206,8 @@ class ScopInfo : public RegionPass {
                                      Instruction *Inst, Value *Val, bool isLoad,
                                      MemAccInst Addr);
 
-  /// @brief Build an instance of MemoryAccess from the Load/Store instruction.
+  /// @brief Build an instance of MemoryAccess that accesses an array (either
+  /// explicitly using a LoadInst/StoreInst or from a mapped scalar)
   ///
   /// @param Stmt       The statment to add the MemoryAccess into.
   /// @param BB         The block where the access takes place.
@@ -2167,6 +2228,10 @@ class ScopInfo : public RegionPass {
   MemoryAccess *buildMemoryAccessWithAlias(ScopStmt *Stmt, BasicBlock *BB,
                                            Instruction *Inst, Value *Val,
                                            bool isLoad, MemAccInst Addr);
+
+  Value *extractBasePointer(Value *Addr, Loop *L);
+
+  const ScopArrayInfo *getOrCreateSAI(MemAccInst SI);
 
   /// @brief Analyze and extract the cross-BB scalar dependences (or,
   ///        dataflow dependencies) of an instruction.
@@ -2239,7 +2304,8 @@ class ScopInfo : public RegionPass {
                   MemoryAccess::AccessType Type, Value *BaseAddress,
                   llvm::Type *ElemType, bool Affine, Value *AccessValue,
                   ArrayRef<const SCEV *> Subscripts,
-                  ArrayRef<const SCEV *> Sizes, ScopArrayInfo::MemoryKind Kind);
+                  ArrayRef<const SCEV *> Sizes, ScopArrayInfo::MemoryKind Kind,
+                  MemAccInst AddrAlias);
 
   /// @brief Create a MemoryAccess that represents either a LoadInst or
   /// StoreInst.
@@ -2254,6 +2320,7 @@ class ScopInfo : public RegionPass {
   /// @param Subscripts  Access subscripts per dimension.
   /// @param Sizes       The array dimension's sizes.
   /// @param AccessValue Value read or written.
+  /// @param AddrAlias   Map target for scalars.
   ///
   /// @return The created MemoryAccess.
   ///
@@ -2263,8 +2330,8 @@ class ScopInfo : public RegionPass {
                                MemoryAccess::AccessType AccType,
                                Value *BaseAddress, Type *ElemType,
                                bool IsAffine, ArrayRef<const SCEV *> Subscripts,
-                               ArrayRef<const SCEV *> Sizes,
-                               Value *AccessValue);
+                               ArrayRef<const SCEV *> Sizes, Value *AccessValue,
+                               MemAccInst AddrAlias);
 
   /// @brief Create a MemoryAccess for writing an llvm::Instruction.
   ///
@@ -2314,6 +2381,104 @@ class ScopInfo : public RegionPass {
   /// @see ensurePHIWrite()
   /// @see ScopArrayInfo::MemoryKind
   void addPHIReadAccess(PHINode *PHI);
+
+  // isRedundantXYZ determine whether we do not need to execute
+  // a load because its value is not used in the current statement -or-
+  // a store because the value is already stored at the location.
+
+  bool isRedundantScalarRead(AddrAliasTy Addr, Instruction *Val, ScopStmt *Stmt,
+                             bool isExplicit = false);
+  bool isRedundantScalarWrite(AddrAliasTy Addr, Value *Val, ScopStmt *Stmt,
+                              bool isExplicit = false);
+  bool isRedundantScalarWriteOfAlias(AddrAliasTy Addr, Instruction *ValInst,
+                                     ScopStmt *Stmt, bool isExplicit,
+                                     MemAccInst Alias);
+
+  bool isRedundantMemAcc(MemAccInst AccInst);
+  bool isRedundantLoad(LoadInst *LI);
+  bool isRedundantStore(StoreInst *SI);
+
+  DenseMap<Instruction *, AddrAliasTy> CollapseValue;
+  DenseMap<PHINode *, AddrAliasTy> CollapsePHI;
+  DenseMap<AddrAliasTy, OutgoingValueMapTy> OutgoingCollapsedValue;
+
+  /// @brief Return the temporary storage location of an Instruction.
+  ///
+  /// Returning nullptr means it will be stored in its dedicated .s2a or .phiops
+  /// alloca.
+  ///
+  /// The Stmt is required to get the context. Inside the stmt a value can be
+  /// directly accesses without alloca or temporary storage. In case of PHIInst
+  /// this means to read from there the PHI is mapped to. After that statment,
+  /// we find the value where the Value is mapped to to cross statements (One
+  /// cannot always reuse the same location, it could conflict).
+  StoreInst *getMappedAlias(Instruction *Inst, ScopStmt *Stmt);
+
+  /// @brief Mapping target for llvm::Value (.s2a) demotions.
+  StoreInst *getValueMappedAddr(Instruction *Inst) {
+    auto Iter = CollapseValue.find(Inst);
+    if (Iter == CollapseValue.end())
+      return nullptr;
+    return Iter->getSecond();
+  }
+
+  /// @bried Mapping target for PHI (.phiops) demotions.
+  StoreInst *getPHIMappedAddr(PHINode *PHI) {
+    auto Iter = CollapsePHI.find(PHI);
+    if (Iter == CollapsePHI.end())
+      return nullptr;
+    return Iter->getSecond();
+  }
+
+  /// The pointer to an array element may not be computable everywhere in the
+  /// scop. For instance, it cannot be computed before the loop that defines the
+  /// induction variable used to compute the index.
+  bool isComputableAtEndingOf(Value *Val, BasicBlock *BB);
+
+  /// @brief DeLICM main algorithm.
+  ///
+  /// Tries to map scalars to array elements when those are known to be
+  /// overwritten.
+  void greedyCollapse();
+
+  /// Determine the locations before the store that won't be used before
+  /// overwritten and map scalars onto these free locations.
+  void greedyCollapseStore(AddrAliasTy Store);
+
+  /// Tag all the paths from the definition to the use in Edges with the
+  /// definition.
+  bool addDefUseEdges(OutgoingValueMapTy &Edges, Use &Use);
+
+  /// Return the set of locations that @p Val would occupy if it is mapped.
+  OutgoingValueMapTy &getLiveEdges(Instruction *Val);
+  DenseMap<Instruction *, OutgoingValueMapTy> AliveValuesCache;
+
+  /// Return the set of locations the @p PHI would occupy if it is mapped. These
+  /// are only the edges from all incoming blocks to the block containing the
+  /// PHINode.
+  DenseMap<PHINode *, OutgoingValueMapTy> PHIEdgesCache;
+  OutgoingValueMapTy &getPHIEdges(PHINode *PHI);
+
+  /// Do @p SI and @p LI describe the same location?
+  bool mustConflict(MemAccInst SI, MemAccInst LI);
+
+  /// Is it possible that the locations described by @p SI and @p LI alias?
+  bool mayConflict(MemAccInst SI, MemAccInst LI);
+
+  bool mayOverwrite(MemAccInst SI, BasicBlock *BB) {
+    return mayOverwrite(SI, BB, BB->begin(), BB->end());
+  }
+  bool mayOverwrite(MemAccInst SI, BasicBlock *BB, BasicBlock::iterator Start) {
+    return mayOverwrite(SI, BB, Start, BB->end());
+  }
+  bool mayOverwrite(MemAccInst SI, BasicBlock *BB, BasicBlock::iterator Start,
+                    BasicBlock::iterator End);
+
+  /// Determine the edges where writing a value to the array doesn't matter,
+  /// because it will be overwritten anyway.
+  /// Also add the edges where we know what value is stored in the location
+  /// described by @p SI.
+  OutgoingValueMapTy computeNoUseZones(AddrAliasTy SI);
 
 public:
   static char ID;

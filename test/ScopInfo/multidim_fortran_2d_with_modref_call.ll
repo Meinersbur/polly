@@ -4,118 +4,136 @@
 ;  TODO: We should delinearize the accesses despite the use in a call to a
 ;        readonly function. For now we verify we do not delinearize them though.
 
-; CHECK:         Function: ham
-; CHECK-NEXT:    Region: %bb12---%bb28
-; CHECK-NEXT:    Max Loop Depth:  1
-; CHECK-NEXT:    Invariant Accesses: {
-; CHECK-NEXT:            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
-; CHECK-NEXT:                [tmp14, p_1] -> { Stmt_bb12[] -> MemRef_arg1[0] };
-; CHECK-NEXT:            Execution Context: [tmp14, p_1] -> {  :  }
-; CHECK-NEXT:    }
-; CHECK-NEXT:    Context:
-; CHECK-NEXT:    [tmp14, p_1] -> {  : -9223372036854775808 <= tmp14 <= 9223372036854775807 and -9223372036854775808 <= p_1 <= 9223372036854775807 }
-; CHECK-NEXT:    Assumed Context:
-; CHECK-NEXT:    [tmp14, p_1] -> {  :  }
+; CHECK:      Printing analysis 'Polly - Create polyhedral description of Scops' for region: 'bb17 => bb27' in function 'ham':
+; CHECK-NEXT: Invalid Scop!
+; CHECK-NEXT: Printing analysis 'Polly - Create polyhedral description of Scops' for region: 'bb12 => bb28' in function 'ham':
+; CHECK-NEXT:     Function: ham
+; CHECK-NEXT:     Region: %bb12---%bb28
+; CHECK-NEXT:     Max Loop Depth:  1
+; CHECK-NEXT:     Invariant Accesses: {
+; CHECK-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; CHECK-NEXT:                 [tmp14, p_1] -> { Stmt_bb12[] -> MemRef_arg1[0] };
+; CHECK-NEXT:             Execution Context: [tmp14, p_1] -> {  :  }
+; CHECK-NEXT:     }
+; CHECK-NEXT:     Context:
+; CHECK-NEXT:     [tmp14, p_1] -> {  : -9223372036854775808 <= tmp14 <= 9223372036854775807 and -9223372036854775808 <= p_1 <= 9223372036854775807 }
+; CHECK-NEXT:     Assumed Context:
+; CHECK-NEXT:     [tmp14, p_1] -> {  :  }
 ; CHECK-NEXT:    Invalid Context:
 ; CHECK-NEXT:    [tmp14, p_1] -> {  : tmp14 > 0 and (tmp14 >= 1152921504606846977 or p_1 <= -1152921504606846977 or p_1 >= 1152921504606846977 - tmp14) }
-; CHECK-NEXT:    p0: %tmp14
-; CHECK-NEXT:    p1: {0,+,(0 smax %tmp)}<%bb12>
-; CHECK-NEXT:    Arrays {
-; CHECK-NEXT:        i64 MemRef_tmp13; // Element size 8
-; CHECK-NEXT:        i64 MemRef_arg1[*]; // Element size 8
-; CHECK-NEXT:        double MemRef_arg4[*]; // Element size 8
-; CHECK-NEXT:    }
-; CHECK-NEXT:    Arrays (Bounds as pw_affs) {
-; CHECK-NEXT:        i64 MemRef_tmp13; // Element size 8
-; CHECK-NEXT:        i64 MemRef_arg1[*]; // Element size 8
-; CHECK-NEXT:        double MemRef_arg4[*]; // Element size 8
-; CHECK-NEXT:    }
-; CHECK-NEXT:    Alias Groups (0):
-; CHECK-NEXT:        n/a
-; CHECK-NEXT:    Statements {
-; CHECK-NEXT:    	Stmt_bb12
-; CHECK-NEXT:            Domain :=
-; CHECK-NEXT:                [tmp14, p_1] -> { Stmt_bb12[] };
-; CHECK-NEXT:            Schedule :=
-; CHECK-NEXT:                [tmp14, p_1] -> { Stmt_bb12[] -> [0, 0] };
-; CHECK-NEXT:            MustWriteAccess :=	[Reduction Type: NONE] [Scalar: 1]
-; CHECK-NEXT:                [tmp14, p_1] -> { Stmt_bb12[] -> MemRef_tmp13[] };
-; CHECK-NEXT:    	Stmt_bb17
-; CHECK-NEXT:            Domain :=
-; CHECK-NEXT:                [tmp14, p_1] -> { Stmt_bb17[i0] : 0 <= i0 < tmp14 };
-; CHECK-NEXT:            Schedule :=
-; CHECK-NEXT:                [tmp14, p_1] -> { Stmt_bb17[i0] -> [1, i0] };
-; CHECK-NEXT:            MustWriteAccess :=	[Reduction Type: NONE] [Scalar: 0]
-; CHECK-NEXT:                [tmp14, p_1] -> { Stmt_bb17[i0] -> MemRef_arg4[p_1 + i0] };
-; CHECK-NEXT:            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
-; CHECK-NEXT:                [tmp14, p_1] -> { Stmt_bb17[i0] -> MemRef_arg1[o0] };
-; CHECK-NEXT:            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
-; CHECK-NEXT:                [tmp14, p_1] -> { Stmt_bb17[i0] -> MemRef_arg4[o0] };
-; CHECK-NEXT:    }
+; CHECK-NEXT:     p0: %tmp14
+; CHECK-NEXT:     p1: {0,+,(0 smax %tmp)}<%bb12>
+; CHECK-NEXT:     Arrays {
+; CHECK-NEXT:         i64 MemRef_arg1[*]; // Element size 8
+; CHECK-NEXT:         double MemRef_arg4[*]; // Element size 8
+; CHECK-NEXT:         i64 MemRef_tmp13; // Element size 8
+; CHECK-NEXT:     }
+; CHECK-NEXT:     Arrays (Bounds as pw_affs) {
+; CHECK-NEXT:         i64 MemRef_arg1[*]; // Element size 8
+; CHECK-NEXT:         double MemRef_arg4[*]; // Element size 8
+; CHECK-NEXT:         i64 MemRef_tmp13; // Element size 8
+; CHECK-NEXT:     }
+; CHECK-NEXT:     Alias Groups (0):
+; CHECK-NEXT:         n/a
+; CHECK-NEXT:     Statements {
+; CHECK-NEXT:         Stmt_bb12
+; CHECK-NEXT:             Domain :=
+; CHECK-NEXT:                 [tmp14, p_1] -> { Stmt_bb12[] };
+; CHECK-NEXT:             Schedule :=
+; CHECK-NEXT:                 [tmp14, p_1] -> { Stmt_bb12[] -> [0, 0] };
+; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:                 [tmp14, p_1] -> { Stmt_bb12[] -> MemRef_tmp13[] };
+; CHECK-NEXT:         Stmt_bb17
+; CHECK-NEXT:             Domain :=
+; CHECK-NEXT:                 [tmp14, p_1] -> { Stmt_bb17[i0] : 0 <= i0 < tmp14 };
+; CHECK-NEXT:             Schedule :=
+; CHECK-NEXT:                 [tmp14, p_1] -> { Stmt_bb17[i0] -> [1, i0] };
+; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; CHECK-NEXT:                 [tmp14, p_1] -> { Stmt_bb17[i0] -> MemRef_arg4[p_1 + i0] };
+; CHECK-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; CHECK-NEXT:                 [tmp14, p_1] -> { Stmt_bb17[i0] -> MemRef_arg1[o0] };
+; CHECK-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; CHECK-NEXT:                 [tmp14, p_1] -> { Stmt_bb17[i0] -> MemRef_arg4[o0] };
+; CHECK-NEXT:     }
+; CHECK-NEXT: Printing analysis 'Polly - Create polyhedral description of Scops' for region: 'bb12 => bb31' in function 'ham':
+; CHECK-NEXT: Invalid Scop!
+; CHECK-NEXT: Printing analysis 'Polly - Create polyhedral description of Scops' for region: 'bb5 => bb32' in function 'ham':
+; CHECK-NEXT: Invalid Scop!
+; CHECK-NEXT: Printing analysis 'Polly - Create polyhedral description of Scops' for region: 'bb => <Function Return>' in function 'ham':
+; CHECK-NEXT: Invalid Scop!
 
-; NONAFFINE:         Function: ham
-; NONAFFINE-NEXT:    Region: %bb5---%bb32
-; NONAFFINE-NEXT:    Max Loop Depth:  2
-; NONAFFINE-NEXT:    Invariant Accesses: {
-; NONAFFINE-NEXT:            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
-; NONAFFINE-NEXT:                [tmp9, tmp14] -> { Stmt_bb5[] -> MemRef_arg[0] };
-; NONAFFINE-NEXT:            Execution Context: [tmp9, tmp14] -> {  :  }
-; NONAFFINE-NEXT:            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
-; NONAFFINE-NEXT:                [tmp9, tmp14] -> { Stmt_bb12[i0] -> MemRef_arg1[0] };
-; NONAFFINE-NEXT:            Execution Context: [tmp9, tmp14] -> {  :  }
-; NONAFFINE-NEXT:    }
-; NONAFFINE-NEXT:    Context:
-; NONAFFINE-NEXT:    [tmp9, tmp14] -> {  : -9223372036854775808 <= tmp9 <= 9223372036854775807 and -9223372036854775808 <= tmp14 <= 9223372036854775807 }
-; NONAFFINE-NEXT:    Assumed Context:
-; NONAFFINE-NEXT:    [tmp9, tmp14] -> {  :  }
+; NONAFFINE:      Printing analysis 'Polly - Create polyhedral description of Scops' for region: 'bb17 => bb27' in function 'ham':
+; NONAFFINE-NEXT: Invalid Scop!
+; NONAFFINE-NEXT: Printing analysis 'Polly - Create polyhedral description of Scops' for region: 'bb12 => bb28' in function 'ham':
+; NONAFFINE-NEXT: Invalid Scop!
+; NONAFFINE-NEXT: Printing analysis 'Polly - Create polyhedral description of Scops' for region: 'bb12 => bb31' in function 'ham':
+; NONAFFINE-NEXT: Invalid Scop!
+; NONAFFINE-NEXT: Printing analysis 'Polly - Create polyhedral description of Scops' for region: 'bb5 => bb32' in function 'ham':
+; NONAFFINE-NEXT:     Function: ham
+; NONAFFINE-NEXT:     Region: %bb5---%bb32
+; NONAFFINE-NEXT:     Max Loop Depth:  2
+; NONAFFINE-NEXT:     Invariant Accesses: {
+; NONAFFINE-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; NONAFFINE-NEXT:                 [tmp9, tmp14] -> { Stmt_bb5[] -> MemRef_arg[0] };
+; NONAFFINE-NEXT:             Execution Context: [tmp9, tmp14] -> {  :  }
+; NONAFFINE-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; NONAFFINE-NEXT:                 [tmp9, tmp14] -> { Stmt_bb12[i0] -> MemRef_arg1[0] };
+; NONAFFINE-NEXT:             Execution Context: [tmp9, tmp14] -> {  :  }
+; NONAFFINE-NEXT:     }
+; NONAFFINE-NEXT:     Context:
+; NONAFFINE-NEXT:     [tmp9, tmp14] -> {  : -9223372036854775808 <= tmp9 <= 9223372036854775807 and -9223372036854775808 <= tmp14 <= 9223372036854775807 }
+; NONAFFINE-NEXT:     Assumed Context:
+; NONAFFINE-NEXT:     [tmp9, tmp14] -> {  :  }
 ; NONAFFINE-NEXT:    Invalid Context:
 ; NONAFFINE-NEXT:    [tmp9, tmp14] -> {  : 1 = 0 }
-; NONAFFINE-NEXT:    p0: %tmp9
-; NONAFFINE-NEXT:    p1: %tmp14
-; NONAFFINE-NEXT:    Arrays {
-; NONAFFINE-NEXT:        i64 MemRef_arg1[*]; // Element size 8
-; NONAFFINE-NEXT:        i64 MemRef_arg[*]; // Element size 8
-; NONAFFINE-NEXT:        i64 MemRef_tmp7; // Element size 8
-; NONAFFINE-NEXT:        i64 MemRef_tmp8; // Element size 8
-; NONAFFINE-NEXT:        double MemRef_arg4[*]; // Element size 8
-; NONAFFINE-NEXT:    }
-; NONAFFINE-NEXT:    Arrays (Bounds as pw_affs) {
-; NONAFFINE-NEXT:        i64 MemRef_arg1[*]; // Element size 8
-; NONAFFINE-NEXT:        i64 MemRef_arg[*]; // Element size 8
-; NONAFFINE-NEXT:        i64 MemRef_tmp7; // Element size 8
-; NONAFFINE-NEXT:        i64 MemRef_tmp8; // Element size 8
-; NONAFFINE-NEXT:        double MemRef_arg4[*]; // Element size 8
-; NONAFFINE-NEXT:    }
-; NONAFFINE-NEXT:    Alias Groups (0):
-; NONAFFINE-NEXT:        n/a
-; NONAFFINE-NEXT:    Statements {
-; NONAFFINE-NEXT:    	Stmt_bb5
-; NONAFFINE-NEXT:            Domain :=
-; NONAFFINE-NEXT:                [tmp9, tmp14] -> { Stmt_bb5[] };
-; NONAFFINE-NEXT:            Schedule :=
-; NONAFFINE-NEXT:                [tmp9, tmp14] -> { Stmt_bb5[] -> [0, 0, 0] };
-; NONAFFINE-NEXT:            MustWriteAccess :=	[Reduction Type: NONE] [Scalar: 1]
-; NONAFFINE-NEXT:                [tmp9, tmp14] -> { Stmt_bb5[] -> MemRef_tmp7[] };
-; NONAFFINE-NEXT:            MustWriteAccess :=	[Reduction Type: NONE] [Scalar: 1]
-; NONAFFINE-NEXT:                [tmp9, tmp14] -> { Stmt_bb5[] -> MemRef_tmp8[] };
-; NONAFFINE-NEXT:    	Stmt_bb17
-; NONAFFINE-NEXT:            Domain :=
-; NONAFFINE-NEXT:                [tmp9, tmp14] -> { Stmt_bb17[i0, i1] : 0 <= i0 < tmp9 and 0 <= i1 < tmp14 };
-; NONAFFINE-NEXT:            Schedule :=
-; NONAFFINE-NEXT:                [tmp9, tmp14] -> { Stmt_bb17[i0, i1] -> [1, i0, i1] };
-; NONAFFINE-NEXT:            ReadAccess :=	[Reduction Type: NONE] [Scalar: 1]
-; NONAFFINE-NEXT:                [tmp9, tmp14] -> { Stmt_bb17[i0, i1] -> MemRef_tmp7[] };
-; NONAFFINE-NEXT:            ReadAccess :=	[Reduction Type: NONE] [Scalar: 1]
-; NONAFFINE-NEXT:                [tmp9, tmp14] -> { Stmt_bb17[i0, i1] -> MemRef_tmp8[] };
-; NONAFFINE-NEXT:            MayWriteAccess :=	[Reduction Type: NONE] [Scalar: 0]
-; NONAFFINE-NEXT:                [tmp9, tmp14] -> { Stmt_bb17[i0, i1] -> MemRef_arg4[o0] : -1152921504606846976 <= o0 <= 1152921504606846975 };
-; NONAFFINE-NEXT:            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
-; NONAFFINE-NEXT:                [tmp9, tmp14] -> { Stmt_bb17[i0, i1] -> MemRef_arg1[o0] };
-; NONAFFINE-NEXT:            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
-; NONAFFINE-NEXT:                [tmp9, tmp14] -> { Stmt_bb17[i0, i1] -> MemRef_arg[o0] };
-; NONAFFINE-NEXT:            ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
-; NONAFFINE-NEXT:                [tmp9, tmp14] -> { Stmt_bb17[i0, i1] -> MemRef_arg4[o0] };
-; NONAFFINE-NEXT:    }
+; NONAFFINE-NEXT:     p0: %tmp9
+; NONAFFINE-NEXT:     p1: %tmp14
+; NONAFFINE-NEXT:     Arrays {
+; NONAFFINE-NEXT:         i64 MemRef_arg1[*]; // Element size 8
+; NONAFFINE-NEXT:         i64 MemRef_arg[*]; // Element size 8
+; NONAFFINE-NEXT:         double MemRef_arg4[*]; // Element size 8
+; NONAFFINE-NEXT:         i64 MemRef_tmp7; // Element size 8
+; NONAFFINE-NEXT:         i64 MemRef_tmp8; // Element size 8
+; NONAFFINE-NEXT:     }
+; NONAFFINE-NEXT:     Arrays (Bounds as pw_affs) {
+; NONAFFINE-NEXT:         i64 MemRef_arg1[*]; // Element size 8
+; NONAFFINE-NEXT:         i64 MemRef_arg[*]; // Element size 8
+; NONAFFINE-NEXT:         double MemRef_arg4[*]; // Element size 8
+; NONAFFINE-NEXT:         i64 MemRef_tmp7; // Element size 8
+; NONAFFINE-NEXT:         i64 MemRef_tmp8; // Element size 8
+; NONAFFINE-NEXT:     }
+; NONAFFINE-NEXT:     Alias Groups (0):
+; NONAFFINE-NEXT:         n/a
+; NONAFFINE-NEXT:     Statements {
+; NONAFFINE-NEXT:         Stmt_bb5
+; NONAFFINE-NEXT:             Domain :=
+; NONAFFINE-NEXT:                 [tmp9, tmp14] -> { Stmt_bb5[] };
+; NONAFFINE-NEXT:             Schedule :=
+; NONAFFINE-NEXT:                 [tmp9, tmp14] -> { Stmt_bb5[] -> [0, 0, 0] };
+; NONAFFINE-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 1]
+; NONAFFINE-NEXT:                 [tmp9, tmp14] -> { Stmt_bb5[] -> MemRef_tmp7[] };
+; NONAFFINE-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 1]
+; NONAFFINE-NEXT:                 [tmp9, tmp14] -> { Stmt_bb5[] -> MemRef_tmp8[] };
+; NONAFFINE-NEXT:         Stmt_bb17
+; NONAFFINE-NEXT:             Domain :=
+; NONAFFINE-NEXT:                 [tmp9, tmp14] -> { Stmt_bb17[i0, i1] : 0 <= i0 < tmp9 and 0 <= i1 < tmp14 };
+; NONAFFINE-NEXT:             Schedule :=
+; NONAFFINE-NEXT:                 [tmp9, tmp14] -> { Stmt_bb17[i0, i1] -> [1, i0, i1] };
+; NONAFFINE-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 1]
+; NONAFFINE-NEXT:                 [tmp9, tmp14] -> { Stmt_bb17[i0, i1] -> MemRef_tmp7[] };
+; NONAFFINE-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 1]
+; NONAFFINE-NEXT:                 [tmp9, tmp14] -> { Stmt_bb17[i0, i1] -> MemRef_tmp8[] };
+; NONAFFINE-NEXT:             MayWriteAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; NONAFFINE-NEXT:                 [tmp9, tmp14] -> { Stmt_bb17[i0, i1] -> MemRef_arg4[o0] : -1152921504606846976 <= o0 <= 1152921504606846975 };
+; NONAFFINE-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; NONAFFINE-NEXT:                 [tmp9, tmp14] -> { Stmt_bb17[i0, i1] -> MemRef_arg1[o0] };
+; NONAFFINE-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; NONAFFINE-NEXT:                 [tmp9, tmp14] -> { Stmt_bb17[i0, i1] -> MemRef_arg[o0] };
+; NONAFFINE-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; NONAFFINE-NEXT:                 [tmp9, tmp14] -> { Stmt_bb17[i0, i1] -> MemRef_arg4[o0] };
+; NONAFFINE-NEXT:     }
+; NONAFFINE-NEXT: Printing analysis 'Polly - Create polyhedral description of Scops' for region: 'bb => <Function Return>' in function 'ham':
+; NONAFFINE-NEXT: Invalid Scop!
 
 
 target datalayout = "e-p:64:64:64-S128-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f16:16:16-f32:32:32-f64:64:64-f128:128:128-v64:64:64-v128:128:128-a0:0:64-s0:64:64-f80:128:128-n8:16:32:64"
