@@ -1294,9 +1294,7 @@ PHINode *RegionGenerator::buildExitPHI(MemoryAccess *MA, LoopToScevMapT &LTS,
 Value *RegionGenerator::getExitScalar(MemoryAccess *MA, LoopToScevMapT &LTS,
                                       ValueMapT &BBMap) {
   ScopStmt *Stmt = MA->getStatement();
-
-  // TODO: Add some test cases that ensure this is really the right choice.
-  Loop *L = LI.getLoopFor(Stmt->getRegion()->getExit());
+  Loop *L = LI.getLoopFor(Stmt->getEntryBlock());
 
   if (MA->isAnyPHIKind()) {
     auto Incoming = MA->getIncoming();
