@@ -2092,10 +2092,11 @@ class ScopInfo : public RegionPass {
   /// @param Val     Value being read/written.
   /// @param isLoad  Whether the value is being loaded or stored.
   /// @param Addr    To determine the array element accessed.
-  /// @returns True if the access could be built, False otherwise.
-  bool buildAccessMultiDimFixed(ScopStmt *Stmt, BasicBlock *BB,
-                                Instruction *Inst, Value *Val, bool isLoad,
-                                MemAccInst Addr);
+  ///
+  /// @return The created MemoryAccess if it could be built, nullptr otherwise.
+  MemoryAccess *buildAccessMultiDimFixed(ScopStmt *Stmt, BasicBlock *BB,
+                                         Instruction *Inst, Value *Val,
+                                         bool isLoad, MemAccInst Addr);
 
   /// @brief Try to build a multi-dimensional parameteric sized MemoryAccess
   ///        from the Load/Store instruction.
@@ -2106,11 +2107,11 @@ class ScopInfo : public RegionPass {
   /// @param Val     Value being read/written.
   /// @param isLoad  Whether the value is being loaded or stored.
   /// @param Addr    To determine the array element accessed.
-  /// @returns True if the access could be built, False otherwise.
-  /// @returns True if the access could be built, False otherwise.
-  bool buildAccessMultiDimParam(ScopStmt *Stmt, BasicBlock *BB,
-                                Instruction *Inst, Value *ValueOperand,
-                                bool isLoad, MemAccInst Addr);
+  ///
+  /// @return The created MemoryAccess if it could be built, nullptr otherwise.
+  MemoryAccess *buildAccessMultiDimParam(ScopStmt *Stmt, BasicBlock *BB,
+                                         Instruction *Inst, Value *ValueOperand,
+                                         bool isLoad, MemAccInst Addr);
 
   /// @brief Try to build a MemoryAccess for a memory intrinsic.
   ///
@@ -2139,8 +2140,11 @@ class ScopInfo : public RegionPass {
   /// @param Val     Value being read/written.
   /// @param isLoad  Whether the value is being loaded or stored.
   /// @param Addr    To determine the array element accessed.
-  void buildAccessSingleDim(ScopStmt *Stmt, BasicBlock *BB, Instruction *Inst,
-                            Value *Val, bool isLoad, MemAccInst Addr);
+  ///
+  /// @return The created MemoryAccess.
+  MemoryAccess *buildAccessSingleDim(ScopStmt *Stmt, BasicBlock *BB,
+                                     Instruction *Inst, Value *Val, bool isLoad,
+                                     MemAccInst Addr);
 
   /// @brief Build an instance of MemoryAccess from the Load/Store instruction.
   ///
@@ -2158,9 +2162,11 @@ class ScopInfo : public RegionPass {
   /// @param Val     Value being read/written.
   /// @param isLoad  Whether the value is being loaded or stored.
   /// @param Addr    To determine the array element accessed.
-  void buildMemoryAccessWithAlias(ScopStmt *Stmt, BasicBlock *BB,
-                                  Instruction *Inst, Value *Val, bool isLoad,
-                                  MemAccInst Addr);
+  ///
+  /// @return The created MemoryAccess.
+  MemoryAccess *buildMemoryAccessWithAlias(ScopStmt *Stmt, BasicBlock *BB,
+                                           Instruction *Inst, Value *Val,
+                                           bool isLoad, MemAccInst Addr);
 
   /// @brief Analyze and extract the cross-BB scalar dependences (or,
   ///        dataflow dependencies) of an instruction.
@@ -2249,12 +2255,16 @@ class ScopInfo : public RegionPass {
   /// @param Sizes       The array dimension's sizes.
   /// @param AccessValue Value read or written.
   ///
+  /// @return The created MemoryAccess.
+  ///
   /// @see ScopArrayInfo::MemoryKind
-  void addArrayAccess(ScopStmt *Stmt, BasicBlock *BB, Instruction *AccInst,
-                      MemoryAccess::AccessType AccType, Value *BaseAddress,
-                      Type *ElemType, bool IsAffine,
-                      ArrayRef<const SCEV *> Subscripts,
-                      ArrayRef<const SCEV *> Sizes, Value *AccessValue);
+  MemoryAccess *addArrayAccess(ScopStmt *Stmt, BasicBlock *BB,
+                               Instruction *AccInst,
+                               MemoryAccess::AccessType AccType,
+                               Value *BaseAddress, Type *ElemType,
+                               bool IsAffine, ArrayRef<const SCEV *> Subscripts,
+                               ArrayRef<const SCEV *> Sizes,
+                               Value *AccessValue);
 
   /// @brief Create a MemoryAccess for writing an llvm::Instruction.
   ///

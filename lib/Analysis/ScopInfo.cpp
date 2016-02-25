@@ -609,8 +609,8 @@ void MemoryAccess::assumeNoOutOfBound() {
   // bail out more often than strictly necessary.
   Outside = isl_set_remove_divs(Outside);
   Outside = isl_set_complement(Outside);
-  auto &Loc = getAccessInstruction() ? getAccessInstruction()->getDebugLoc()
-                                     : DebugLoc();
+  auto Loc = getAccessInstruction() ? getAccessInstruction()->getDebugLoc()
+                                    : DebugLoc();
   Statement->getParent()->addAssumption(INBOUNDS, Outside, Loc, AS_ASSUMPTION);
   isl_space_free(Space);
 }
@@ -3824,9 +3824,10 @@ void ScopInfo::buildEscapingDependences(Instruction *Inst) {
   }
 }
 
-bool ScopInfo::buildAccessMultiDimFixed(ScopStmt *Stmt, BasicBlock *BB,
-                                        Instruction *Inst, Value *Val,
-                                        bool isLoad, MemAccInst AddrAlias) {
+MemoryAccess *ScopInfo::buildAccessMultiDimFixed(ScopStmt *Stmt, BasicBlock *BB,
+                                                 Instruction *Inst, Value *Val,
+                                                 bool isLoad,
+                                                 MemAccInst AddrAlias) {
   Type *ElementType = Val->getType();
   Value *Address = AddrAlias.getPointerOperand();
   Loop *L = LI->getLoopFor(AddrAlias->getParent());
@@ -3846,7 +3847,7 @@ bool ScopInfo::buildAccessMultiDimFixed(ScopStmt *Stmt, BasicBlock *BB,
 
   auto *GEP = dyn_cast<GetElementPtrInst>(Address);
   if (!GEP)
-    return false;
+    return nullptr;
 
   std::vector<const SCEV *> Subscripts;
   std::vector<int> Sizes;
@@ -3860,30 +3861,30 @@ bool ScopInfo::buildAccessMultiDimFixed(ScopStmt *Stmt, BasicBlock *BB,
   for (auto *Subscript : Subscripts) {
     InvariantLoadsSetTy AccessILS;
     if (!isAffineExpr(R, L, Subscript, *SE, nullptr, &AccessILS))
-      return false;
+      return nullptr;
 
     for (LoadInst *LInst : AccessILS)
       if (!ScopRIL.count(LInst))
-        return false;
+        return nullptr;
   }
 
   if (Sizes.empty())
-    return false;
+    return nullptr;
 
   for (auto V : Sizes)
     SizesSCEV.push_back(SE->getSCEV(
         ConstantInt::get(IntegerType::getInt64Ty(BasePtr->getContext()), V)));
 
-  addArrayAccess(Stmt, BB, Inst, Type, BasePointer->getValue(), ElementType,
-                 true, Subscripts, SizesSCEV, Val);
-  return true;
+  return addArrayAccess(Stmt, BB, Inst, Type, BasePointer->getValue(),
+                        ElementType, true, Subscripts, SizesSCEV, Val);
 }
 
-bool ScopInfo::buildAccessMultiDimParam(ScopStmt *Stmt, BasicBlock *BB,
-                                        Instruction *Inst, Value *Val,
-                                        bool isLoad, MemAccInst AddrAlias) {
+MemoryAccess *ScopInfo::buildAccessMultiDimParam(ScopStmt *Stmt, BasicBlock *BB,
+                                                 Instruction *Inst, Value *Val,
+                                                 bool isLoad,
+                                                 MemAccInst AddrAlias) {
   if (!PollyDelinearize)
-    return false;
+    return nullptr;
 
   Value *Address = AddrAlias.getPointerOperand();
   Type *ElementType = Val->getType();
@@ -3903,7 +3904,7 @@ bool ScopInfo::buildAccessMultiDimParam(ScopStmt *Stmt, BasicBlock *BB,
   auto &InsnToMemAcc = *SD->getInsnToMemAccMap(&R);
   auto AccItr = InsnToMemAcc.find(Inst);
   if (AccItr == InsnToMemAcc.end())
-    return false;
+    return nullptr;
 
   std::vector<const SCEV *> Sizes(
       AccItr->second.Shape->DelinearizedSizes.begin(),
@@ -3920,9 +3921,9 @@ bool ScopInfo::buildAccessMultiDimParam(ScopStmt *Stmt, BasicBlock *BB,
   if (ElementSize != DelinearizedSize)
     scop->invalidate(DELINEARIZATION, Inst->getDebugLoc());
 
-  addArrayAccess(Stmt, BB, Inst, Type, BasePointer->getValue(), ElementType,
-                 true, AccItr->second.DelinearizedSubscripts, Sizes, Val);
-  return true;
+  return addArrayAccess(Stmt, BB, Inst, Type, BasePointer->getValue(),
+                        ElementType, true,
+                        AccItr->second.DelinearizedSubscripts, Sizes, Val);
 }
 
 bool ScopInfo::buildAccessMemIntrinsic(ScopStmt *Stmt, BasicBlock *BB,
@@ -4022,9 +4023,10 @@ bool ScopInfo::buildAccessCallInst(ScopStmt *Stmt, BasicBlock *BB,
   return true;
 }
 
-void ScopInfo::buildAccessSingleDim(ScopStmt *Stmt, BasicBlock *BB,
-                                    Instruction *Inst, Value *Val, bool isLoad,
-                                    MemAccInst AddrAlias) {
+MemoryAccess *ScopInfo::buildAccessSingleDim(ScopStmt *Stmt, BasicBlock *BB,
+                                             Instruction *Inst, Value *Val,
+                                             bool isLoad,
+                                             MemAccInst AddrAlias) {
   Value *Address = AddrAlias.getPointerOperand();
   Type *ElementType = Val->getType();
   enum MemoryAccess::AccessType Type =
@@ -4063,8 +4065,8 @@ void ScopInfo::buildAccessSingleDim(ScopStmt *Stmt, BasicBlock *BB,
   if (!IsAffine && Type == MemoryAccess::MUST_WRITE)
     Type = MemoryAccess::MAY_WRITE;
 
-  addArrayAccess(Stmt, BB, Inst, Type, BasePointer->getValue(), ElementType,
-                 IsAffine, {AccessFunction}, {}, Val);
+  return addArrayAccess(Stmt, BB, Inst, Type, BasePointer->getValue(),
+                        ElementType, IsAffine, {AccessFunction}, {}, Val);
 }
 
 void ScopInfo::buildMemoryAccess(ScopStmt *Stmt, BasicBlock *BB,
@@ -4079,16 +4081,20 @@ void ScopInfo::buildMemoryAccess(ScopStmt *Stmt, BasicBlock *BB,
                              isa<LoadInst>(Inst), Inst);
 }
 
-void ScopInfo::buildMemoryAccessWithAlias(ScopStmt *Stmt, BasicBlock *BB,
-                                          Instruction *Inst, Value *Val,
-                                          bool isLoad, MemAccInst AddrAlias) {
-  if (buildAccessMultiDimFixed(Stmt, BB, Inst, Val, isLoad, AddrAlias))
-    return;
+MemoryAccess *ScopInfo::buildMemoryAccessWithAlias(ScopStmt *Stmt,
+                                                   BasicBlock *BB,
+                                                   Instruction *Inst,
+                                                   Value *Val, bool isLoad,
+                                                   MemAccInst AddrAlias) {
+  if (auto *MA =
+          buildAccessMultiDimFixed(Stmt, BB, Inst, Val, isLoad, AddrAlias))
+    return MA;
 
-  if (buildAccessMultiDimParam(Stmt, BB, Inst, Val, isLoad, AddrAlias))
-    return;
+  if (auto *MA =
+          buildAccessMultiDimParam(Stmt, BB, Inst, Val, isLoad, AddrAlias))
+    return MA;
 
-  buildAccessSingleDim(Stmt, BB, Inst, Val, isLoad, AddrAlias);
+  return buildAccessSingleDim(Stmt, BB, Inst, Val, isLoad, AddrAlias);
 }
 
 void ScopInfo::buildAccessFunctions(Region &R, Region &SR) {
@@ -4200,17 +4206,16 @@ MemoryAccess *ScopInfo::addMemoryAccess(
   return &AccList.back();
 }
 
-void ScopInfo::addArrayAccess(ScopStmt *Stmt, BasicBlock *BB,
-                              Instruction *AccInst,
-                              MemoryAccess::AccessType AccType,
-                              Value *BaseAddress, Type *ElementType,
-                              bool IsAffine, ArrayRef<const SCEV *> Subscripts,
-                              ArrayRef<const SCEV *> Sizes,
-                              Value *AccessValue) {
+MemoryAccess *
+ScopInfo::addArrayAccess(ScopStmt *Stmt, BasicBlock *BB, Instruction *AccInst,
+                         MemoryAccess::AccessType AccType, Value *BaseAddress,
+                         Type *ElementType, bool IsAffine,
+                         ArrayRef<const SCEV *> Subscripts,
+                         ArrayRef<const SCEV *> Sizes, Value *AccessValue) {
   ArrayBasePointers.insert(BaseAddress);
-  addMemoryAccess(Stmt, BB, AccInst, AccType, BaseAddress, ElementType,
-                  IsAffine, AccessValue, Subscripts, Sizes,
-                  ScopArrayInfo::MK_Array);
+  return addMemoryAccess(Stmt, BB, AccInst, AccType, BaseAddress, ElementType,
+                         IsAffine, AccessValue, Subscripts, Sizes,
+                         ScopArrayInfo::MK_Array);
 }
 
 void ScopInfo::ensureValueWrite(Instruction *Inst) {
