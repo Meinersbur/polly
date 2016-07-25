@@ -27,6 +27,8 @@ if (MSVC_IDE OR XCODE)
 endif ()
 
 add_polly_library(Polly
+  Support/DumpModulePass.cpp
+  Support/DumpDebugPass.cpp
   Analysis/DependenceInfo.cpp
   Analysis/PolyhedralInfo.cpp
   Analysis/ScopDetection.cpp

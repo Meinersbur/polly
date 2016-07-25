@@ -409,6 +409,10 @@ bool polly::isErrorBlock(BasicBlock &BB, const Region &R, LoopInfo &LI,
 
   for (Instruction &Inst : BB)
     if (CallInst *CI = dyn_cast<CallInst>(&Inst)) {
+      auto CF = CI->getCalledFunction();
+      if (CF && CF->getName().startswith("dbg"))
+        continue;
+
       if (isIgnoredIntrinsic(CI))
         return false;
 

@@ -25,6 +25,8 @@
 #include "polly/CodeGen/CodegenCleanup.h"
 #include "polly/DeLICM.h"
 #include "polly/DependenceInfo.h"
+#include "polly/DumpDebugPass.h"
+#include "polly/DumpModulePass.h"
 #include "polly/FlattenSchedule.h"
 #include "polly/LinkAllPasses.h"
 #include "polly/Options.h"
@@ -43,6 +45,20 @@ using namespace polly;
 
 cl::OptionCategory PollyCategory("Polly Options",
                                  "Configure the polly loop optimizer");
+
+static cl::opt<bool>
+    DumpBefore("polly-dump-before",
+               cl::desc("Dump module before Polly transformations"),
+               cl::init(true), cl::cat(PollyCategory));
+
+static cl::opt<bool>
+    DumpAfter("polly-dump-after",
+              cl::desc("Dump module after Polly transformations"),
+              cl::init(true), cl::cat(PollyCategory));
+
+static cl::opt<bool> DumpDebug("polly-dump-debug",
+                               cl::desc("Dump debug to file instead to stderr"),
+                               cl::init(false), cl::cat(PollyCategory));
 
 static cl::opt<bool>
     PollyEnabled("polly", cl::desc("Enable the polly optimizer (only at -O3)"),
@@ -217,6 +233,9 @@ void initializePollyPasses(PassRegistry &Registry) {
 ///
 /// Polly supports the isl internal code generator.
 void registerPollyPasses(llvm::legacy::PassManagerBase &PM) {
+  if (DumpBefore)
+    PM.add(polly::createDumpModulePass("-before"));
+
   PM.add(polly::createScopDetectionPass());
 
   if (PollyDetectOnly)
@@ -282,6 +301,9 @@ void registerPollyPasses(llvm::legacy::PassManagerBase &PM) {
   // force all analysis results to be recomputed.
   PM.add(createBarrierNoopPass());
 
+  if (DumpAfter)
+    PM.add(polly::createDumpModulePass("-after"));
+
   if (CFGPrinter)
     PM.add(llvm::createCFGPrinterLegacyPassPass());
 
@@ -305,6 +327,9 @@ static bool shouldEnablePolly() {
 static void
 registerPollyEarlyAsPossiblePasses(const llvm::PassManagerBuilder &Builder,
                                    llvm::legacy::PassManagerBase &PM) {
+  if (DumpDebug)
+    PM.add(polly::createDumpDebugPass());
+
   if (!polly::shouldEnablePolly())
     return;
 
