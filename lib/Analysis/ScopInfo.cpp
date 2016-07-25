@@ -3230,11 +3230,37 @@ void Scop::updateAccessDimensionality() {
       Access->updateDimensionality();
 }
 
+static bool hasDbgCall(BasicBlock *BB) {
+  for (Instruction &Inst : *BB)
+    if (CallInst *CI = dyn_cast<CallInst>(&Inst)) {
+      auto CF = CI->getCalledFunction();
+      if (CF && CF->getName().startswith("dbg"))
+        return true;
+    }
+  return false;
+}
+
+static bool hasDbgCall(Region *R) {
+  for (BasicBlock *RBB : R->blocks())
+    if (hasDbgCall(RBB))
+      return true;
+  return false;
+}
+
+static bool hasDbgCall(ScopStmt *Stmt) {
+  if (!Stmt)
+    return false;
+
+  if (Stmt->isBlockStmt())
+    return hasDbgCall(Stmt->getBasicBlock());
+  return hasDbgCall(Stmt->getRegion());
+}
+
 void Scop::simplifySCoP(bool AfterHoisting) {
   for (auto StmtIt = Stmts.begin(), StmtEnd = Stmts.end(); StmtIt != StmtEnd;) {
     ScopStmt &Stmt = *StmtIt;
 
-    bool RemoveStmt = Stmt.isEmpty();
+    bool RemoveStmt = Stmt.isEmpty() && !hasDbgCall(&Stmt);
     if (!RemoveStmt)
       RemoveStmt = !DomainMap[Stmt.getEntryBlock()];
 

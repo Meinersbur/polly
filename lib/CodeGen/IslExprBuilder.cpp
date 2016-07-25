@@ -297,6 +297,21 @@ Value *IslExprBuilder::createAccessAddress(isl_ast_expr *Expr) {
     IndexOp = createMul(IndexOp, DimSize, "polly.access.mul." + BaseName);
   }
 
+#if 1
+  auto &DL =
+      Builder.GetInsertBlock()->getParent()->getParent()->getDataLayout();
+  unsigned int StorageSize = DL.getTypeAllocSize(SAI->getElementType());
+  unsigned int ElementSize = SAI->getElemSizeInBytes();
+  if (!SAI->getElementType()->isPointerTy() && ElementSize != StorageSize) {
+    Value *ElementValue = Builder.getInt8(ElementSize);
+    Value *StorageValue = Builder.getInt8(StorageSize);
+    ElementValue = Builder.CreateSExt(ElementValue, IndexOp->getType());
+    StorageValue = Builder.CreateSExt(StorageValue, IndexOp->getType());
+    IndexOp = Builder.CreateMul(IndexOp, ElementValue);
+    IndexOp = Builder.CreateSDiv(IndexOp, StorageValue);
+  }
+#endif
+
   Access = Builder.CreateGEP(Base, IndexOp, "polly.access." + BaseName);
 
   isl_ast_expr_free(Expr);

@@ -456,6 +456,12 @@ bool ScopDetection::isValidCallInst(CallInst &CI,
   if (CalledFunction == nullptr)
     return false;
 
+  if (CalledFunction->getName().startswith("dbg_")) {
+    DEBUG(llvm::dbgs() << "Allow debug function: " << CalledFunction->getName()
+                       << "\n");
+    return true;
+  }
+
   if (AllowModrefCall) {
     switch (AA->getModRefBehavior(CalledFunction)) {
     case llvm::FMRB_UnknownModRefBehavior:
