@@ -14,6 +14,7 @@
 #include <isl_ast_build_expr.h>
 #include <isl_ast_build_private.h>
 #include <isl_ast_graft_private.h>
+#include <isl/options.h>
 
 static __isl_give isl_ast_graft *isl_ast_graft_copy(
 	__isl_keep isl_ast_graft *graft);
@@ -92,6 +93,12 @@ static __isl_give isl_ast_graft *isl_ast_graft_copy(
 {
 	if (!graft)
 		return NULL;
+
+#if 0
+		isl_ctx *ctx = isl_ast_graft_get_ctx(graft);
+	if (!isl_options_get_refcounting(ctx))
+		return isl_ast_graft_dup(graft);
+#endif 
 
 	graft->ref++;
 	return graft;

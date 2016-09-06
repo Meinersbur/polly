@@ -9,6 +9,7 @@
 
 #include <string.h>
 
+#include <isl/options.h>
 #include <isl_ast_private.h>
 
 #undef BASE
@@ -82,6 +83,10 @@ __isl_give isl_ast_print_options *isl_ast_print_options_copy(
 	if (!options)
 		return NULL;
 
+		isl_ctx *ctx = isl_ast_print_options_get_ctx(options);
+	if (!isl_options_get_refcounting(ctx))
+		return isl_ast_print_options_dup(options);
+
 	options->ref++;
 	return options;
 }
@@ -148,6 +153,10 @@ __isl_give isl_ast_expr *isl_ast_expr_copy(__isl_keep isl_ast_expr *expr)
 {
 	if (!expr)
 		return NULL;
+
+	isl_ctx *ctx = isl_ast_expr_get_ctx(expr);
+	if (!isl_options_get_refcounting(ctx))
+		return isl_ast_expr_dup(expr);
 
 	expr->ref++;
 	return expr;
@@ -955,6 +964,13 @@ __isl_give isl_ast_node *isl_ast_node_copy(__isl_keep isl_ast_node *node)
 {
 	if (!node)
 		return NULL;
+
+#if 0
+	// dup doesn't copy the annotation
+	isl_ctx *ctx = isl_ast_node_get_ctx(node);
+	if (!isl_options_get_refcounting(ctx))
+		return isl_ast_node_dup(node);
+#endif 
 
 	node->ref++;
 	return node;

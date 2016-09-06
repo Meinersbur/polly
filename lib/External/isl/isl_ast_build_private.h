@@ -210,6 +210,7 @@ __isl_give isl_space *isl_ast_build_get_space(
 	__isl_keep isl_ast_build *build, int internal);
 __isl_give isl_ast_build *isl_ast_build_align_params(
 	__isl_take isl_ast_build *build, __isl_take isl_space *model);
+__isl_give isl_ast_build *isl_ast_build_dup(__isl_keep isl_ast_build *build);
 __isl_give isl_ast_build *isl_ast_build_cow(
 	__isl_take isl_ast_build *build);
 __isl_give isl_ast_build *isl_ast_build_insert_dim(

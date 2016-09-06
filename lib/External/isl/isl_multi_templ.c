@@ -107,6 +107,10 @@ __isl_give MULTI(BASE) *FN(MULTI(BASE),copy)(__isl_keep MULTI(BASE) *multi)
 	if (!multi)
 		return NULL;
 
+		isl_ctx *ctx = FN(MULTI(BASE),get_ctx)(multi);
+	if (!isl_options_get_refcounting(ctx))
+		return FN(MULTI(BASE),dup)(multi);
+
 	multi->ref++;
 	return multi;
 }

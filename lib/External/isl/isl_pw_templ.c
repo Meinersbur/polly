@@ -164,6 +164,10 @@ __isl_give PW *FN(PW,copy)(__isl_keep PW *pw)
 	if (!pw)
 		return NULL;
 
+	isl_ctx *ctx = FN(PW,get_ctx)(pw);
+	if (!isl_options_get_refcounting(ctx))
+		return FN(PW,dup)(pw);
+
 	pw->ref++;
 	return pw;
 }

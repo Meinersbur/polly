@@ -18,6 +18,7 @@
 #include <isl_space_private.h>
 #include <isl_val_private.h>
 #include <isl/deprecated/mat_int.h>
+#include <isl/options.h>
 
 isl_ctx *isl_mat_get_ctx(__isl_keep isl_mat *mat)
 {
@@ -198,6 +199,10 @@ struct isl_mat *isl_mat_copy(struct isl_mat *mat)
 {
 	if (!mat)
 		return NULL;
+
+		isl_ctx *ctx = isl_mat_get_ctx(mat);
+	if (!isl_options_get_refcounting(ctx))
+		return isl_mat_dup(mat);
 
 	mat->ref++;
 	return mat;

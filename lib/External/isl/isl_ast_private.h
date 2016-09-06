@@ -118,4 +118,7 @@ __isl_give isl_printer *isl_ast_node_list_print(
 	__isl_keep isl_ast_node_list *list, __isl_take isl_printer *p,
 	__isl_keep isl_ast_print_options *options);
 
+__isl_give isl_ast_expr *isl_ast_expr_dup(__isl_keep isl_ast_expr *expr);
+__isl_give isl_ast_node *isl_ast_node_dup(__isl_keep isl_ast_node *node);
+
 #endif

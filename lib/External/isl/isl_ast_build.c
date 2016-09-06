@@ -16,6 +16,7 @@
 #include <isl/map.h>
 #include <isl/union_set.h>
 #include <isl/union_map.h>
+#include <isl/options.h>
 #include <isl_ast_build_private.h>
 #include <isl_ast_private.h>
 #include <isl_config.h>
@@ -169,6 +170,10 @@ __isl_give isl_ast_build *isl_ast_build_copy(__isl_keep isl_ast_build *build)
 {
 	if (!build)
 		return NULL;
+
+	isl_ctx *ctx = isl_ast_build_get_ctx(build);
+	if (!isl_options_get_refcounting(ctx))
+		return isl_ast_build_dup(build);
 
 	build->ref++;
 	return build;

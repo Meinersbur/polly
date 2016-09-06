@@ -29,6 +29,7 @@
 #include <isl_val_private.h>
 #include <isl/deprecated/aff_int.h>
 #include <isl_config.h>
+#include <isl/options.h>
 
 #undef BASE
 #define BASE aff
@@ -229,6 +230,10 @@ __isl_give isl_aff *isl_aff_copy(__isl_keep isl_aff *aff)
 {
 	if (!aff)
 		return NULL;
+
+	isl_ctx *ctx = isl_aff_get_ctx(aff);
+	if (!isl_options_get_refcounting(ctx))
+		return isl_aff_dup(aff);
 
 	aff->ref++;
 	return aff;

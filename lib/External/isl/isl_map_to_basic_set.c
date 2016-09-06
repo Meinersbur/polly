@@ -1,6 +1,7 @@
 #include <isl/map_to_basic_set.h>
 #include <isl/map.h>
 #include <isl/set.h>
+#include <isl/options.h>
 
 #define ISL_KEY		isl_map
 #define ISL_VAL		isl_basic_set

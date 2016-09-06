@@ -94,6 +94,12 @@ __isl_give isl_schedule *isl_schedule_copy(__isl_keep isl_schedule *sched)
 	if (!sched)
 		return NULL;
 
+#if 0
+		isl_ctx *ctx = isl_schedule_get_ctx(sched);
+	if (sched->root && !isl_options_get_refcounting(ctx))
+		return isl_schedule_node_dup(sched);
+#endif
+
 	sched->ref++;
 	return sched;
 }

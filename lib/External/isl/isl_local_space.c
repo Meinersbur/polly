@@ -19,6 +19,7 @@
 #include <isl_vec_private.h>
 #include <isl_seq.h>
 #include <isl_local.h>
+#include <isl/options.h>
 
 isl_ctx *isl_local_space_get_ctx(__isl_keep isl_local_space *ls)
 {
@@ -96,6 +97,10 @@ __isl_give isl_local_space *isl_local_space_copy(__isl_keep isl_local_space *ls)
 	if (!ls)
 		return NULL;
 
+	isl_ctx *ctx = isl_local_space_get_ctx(ls);
+	if (!isl_options_get_refcounting(ctx))
+		return isl_local_space_dup(ls);
+	
 	ls->ref++;
 	return ls;
 }

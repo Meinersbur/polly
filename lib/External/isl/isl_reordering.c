@@ -11,6 +11,7 @@
 #include <isl_ctx_private.h>
 #include <isl_space_private.h>
 #include <isl_reordering.h>
+#include <isl/options.h>
 
 __isl_give isl_reordering *isl_reordering_alloc(isl_ctx *ctx, int len)
 {
@@ -28,10 +29,16 @@ __isl_give isl_reordering *isl_reordering_alloc(isl_ctx *ctx, int len)
 	return exp;
 }
 
+__isl_give isl_reordering *isl_reordering_dup(__isl_keep isl_reordering *r);
+
 __isl_give isl_reordering *isl_reordering_copy(__isl_keep isl_reordering *exp)
 {
 	if (!exp)
 		return NULL;
+
+	isl_ctx *ctx = isl_space_get_ctx(exp->dim);
+	if (!isl_options_get_refcounting(ctx))
+		return isl_reordering_dup(exp);
 
 	exp->ref++;
 	return exp;

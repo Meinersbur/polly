@@ -10,6 +10,7 @@
  * and Ecole Normale Superieure, 45 rue d'Ulm, 75230 Paris, France
  */
 
+__isl_give UNION *FN(UNION,dup)(__isl_keep UNION *u);
 __isl_give UNION *FN(UNION,cow)(__isl_take UNION *u);
 
 isl_ctx *FN(UNION,get_ctx)(__isl_keep UNION *u)
@@ -98,6 +99,10 @@ __isl_give UNION *FN(UNION,copy)(__isl_keep UNION *u)
 {
 	if (!u)
 		return NULL;
+
+		isl_ctx *ctx = FN(UNION,get_ctx)(u);
+	if (!isl_options_get_refcounting(ctx))
+		return FN(UNION,dup)(u);
 
 	u->ref++;
 	return u;
@@ -348,7 +353,10 @@ static __isl_give PART *FN(UNION,copy_part)(__isl_take PART *part, void *user)
 
 __isl_give UNION *FN(UNION,dup)(__isl_keep UNION *u)
 {
-	u = FN(UNION,copy)(u);
+	if (!u)
+		return NULL;
+
+	u->ref++;
 	return FN(UNION,transform)(u, &FN(UNION,copy_part), NULL);
 }
 

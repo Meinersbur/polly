@@ -10,6 +10,7 @@
 #include <isl_vec_private.h>
 #include <isl_output_private.h>
 #include <isl/deprecated/point_int.h>
+#include <isl/options.h>
 
 isl_ctx *isl_point_get_ctx(__isl_keep isl_point *pnt)
 {
@@ -96,6 +97,10 @@ __isl_give isl_point *isl_point_copy(__isl_keep isl_point *pnt)
 {
 	if (!pnt)
 		return NULL;
+
+	isl_ctx *ctx = isl_point_get_ctx(pnt);
+	if (!isl_options_get_refcounting(ctx))
+		return isl_point_dup(pnt);
 
 	pnt->ref++;
 	return pnt;

@@ -57,6 +57,10 @@ __isl_give LIST(EL) *FN(LIST(EL),copy)(__isl_keep LIST(EL) *list)
 	if (!list)
 		return NULL;
 
+	isl_ctx *ctx = FN(LIST(EL),get_ctx)(list);
+	if (!isl_options_get_refcounting(ctx))
+		return FN(LIST(EL),dup)(list);
+
 	list->ref++;
 	return list;
 }

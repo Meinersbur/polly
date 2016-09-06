@@ -12,6 +12,7 @@
 
 #include <isl_band_private.h>
 #include <isl_schedule_private.h>
+#include <isl/options.h>
 
 #undef BASE
 #define BASE band
@@ -86,6 +87,12 @@ __isl_give isl_band *isl_band_copy(__isl_keep isl_band *band)
 {
 	if (!band)
 		return NULL;
+
+#if 0
+	isl_ctx *ctx = isl_band_get_ctx(band);
+	if (!isl_options_get_refcounting(ctx))
+		return isl_band_dup(band);
+#endif
 
 	band->ref++;
 	band->schedule->ref++;

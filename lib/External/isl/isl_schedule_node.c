@@ -15,6 +15,7 @@
 #include <isl_schedule_band.h>
 #include <isl_schedule_private.h>
 #include <isl_schedule_node_private.h>
+#include <isl/options.h>
 
 /* Create a new schedule node in the given schedule, point at the given
  * tree with given ancestors and child positions.
@@ -210,6 +211,10 @@ __isl_give isl_schedule_node *isl_schedule_node_copy(
 {
 	if (!node)
 		return NULL;
+
+	isl_ctx *ctx = isl_schedule_node_get_ctx(node);
+	if (!isl_options_get_refcounting(ctx))
+		return isl_schedule_node_dup(node);
 
 	node->ref++;
 	return node;

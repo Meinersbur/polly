@@ -53,4 +53,7 @@
 /* Use small integer optimization */
 #cmakedefine USE_SMALL_INT_OPT
 
+/* Enable reference counting. */
+#define ENABLE_REFCOUNTING @ENABLE_REFCOUNTING@
+
 #include <isl_config_post.h>

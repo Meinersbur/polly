@@ -31,6 +31,12 @@ __isl_give isl_vertices *isl_vertices_copy(__isl_keep isl_vertices *vertices)
 	if (!vertices)
 		return NULL;
 
+#if 0
+	isl_ctx *ctx = isl_vertices_get_ctx(vertices);
+	if (!isl_options_get_refcounting(ctx))
+		return isl_vertices_dup(vertices);
+#endif
+
 	vertices->ref++;
 	return vertices;
 }

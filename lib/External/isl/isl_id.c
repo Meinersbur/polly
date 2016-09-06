@@ -10,6 +10,7 @@
 #include <string.h>
 #include <isl_ctx_private.h>
 #include <isl_id_private.h>
+#include <isl/options.h>
 
 #undef BASE
 #define BASE id

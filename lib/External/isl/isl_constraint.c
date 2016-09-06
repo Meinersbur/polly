@@ -19,6 +19,7 @@
 #include <isl_val_private.h>
 #include <isl_vec_private.h>
 #include <isl/deprecated/constraint_int.h>
+#include <isl/options.h>
 
 #undef BASE
 #define BASE constraint
@@ -171,6 +172,10 @@ struct isl_constraint *isl_constraint_copy(struct isl_constraint *constraint)
 {
 	if (!constraint)
 		return NULL;
+
+	isl_ctx *ctx = isl_local_space_get_ctx(constraint->ls);
+	if (!isl_options_get_refcounting(ctx))
+		return isl_constraint_dup(constraint);
 
 	constraint->ref++;
 	return constraint;

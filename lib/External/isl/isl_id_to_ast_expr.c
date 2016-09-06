@@ -1,5 +1,6 @@
 #include <isl/id_to_ast_expr.h>
 #include <isl/ast.h>
+#include <isl/options.h>
 
 #define isl_id_is_equal(id1,id2)	id1 == id2
 

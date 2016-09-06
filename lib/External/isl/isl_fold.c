@@ -21,6 +21,7 @@
 #include <isl_vec_private.h>
 #include <isl_config.h>
 #include <isl/deprecated/polynomial_int.h>
+#include <isl/options.h>
 
 enum isl_fold isl_fold_type_negate(enum isl_fold type)
 {
@@ -720,6 +721,10 @@ __isl_give isl_qpolynomial_fold *isl_qpolynomial_fold_copy(
 {
 	if (!fold)
 		return NULL;
+
+	isl_ctx *ctx = isl_qpolynomial_fold_get_ctx(fold);
+	if (!isl_options_get_refcounting(ctx))
+		return isl_qpolynomial_fold_dup(fold);
 
 	fold->ref++;
 	return fold;

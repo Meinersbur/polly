@@ -20,6 +20,7 @@ struct isl_options {
 
 	int			bound;
 	unsigned		on_error;
+	int refcounting;
 
 	#define			ISL_BERNSTEIN_FACTORS	1
 	#define			ISL_BERNSTEIN_INTERVALS	2

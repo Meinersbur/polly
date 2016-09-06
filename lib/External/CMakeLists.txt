@@ -19,6 +19,14 @@ endif ()
 
 message(STATUS "ISL version: ${ISL_GIT_HEAD_ID}")
 
+option(ISL_ENABLE_REFCOUNTING "Enable Refcounting (switch off for leak-detection tools)" ON)
+
+if (ISL_ENABLE_REFCOUNTING)
+  set(ENABLE_REFCOUNTING 1)
+else ()
+  set(ENABLE_REFCOUNTING 0)
+endif ()
+
 # Enable small integer optimization and imath
 set(USE_GMP_FOR_MP OFF)
 set(USE_IMATH_FOR_MP ON)
@@ -260,6 +268,17 @@ set (ISL_FILES
 add_polly_library(PollyISL
   ${ISL_FILES}
 )
+
+if (MSVC)
+  # Disable common warnings; ideally, they should be fixed upstream
+  target_compile_options(PollyISL PRIVATE 
+    -wd4018 # 'expression' : signed/unsigned mismatch
+    -wd4090 # 'operation' : different 'modifier' qualifiers
+    -wd4200 # nonstandard extension used: zero-sized array in struct/union
+    -wd4201 # nonstandard extension used: nameless struct/union
+    -wd4334 # 'operator': result of 32-bit shift implicitly converted to 64 bits (was 64-bit shift intended?)
+  )
+endif ()
 
 add_executable(polly-isl-test
   isl/isl_test.c

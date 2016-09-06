@@ -29,6 +29,7 @@
 #include <isl_val_private.h>
 #include <isl_config.h>
 #include <isl/deprecated/polynomial_int.h>
+#include <isl/options.h>
 
 static unsigned pos(__isl_keep isl_space *dim, enum isl_dim_type type)
 {
@@ -512,6 +513,10 @@ __isl_give struct isl_upoly *isl_upoly_copy(__isl_keep struct isl_upoly *up)
 {
 	if (!up)
 		return NULL;
+
+	isl_ctx *ctx = up->ctx;
+	if (!isl_options_get_refcounting(ctx))
+		return isl_upoly_dup(up);
 
 	up->ref++;
 	return up;
@@ -1126,6 +1131,10 @@ __isl_give isl_qpolynomial *isl_qpolynomial_copy(__isl_keep isl_qpolynomial *qp)
 {
 	if (!qp)
 		return NULL;
+
+	isl_ctx *ctx = isl_qpolynomial_get_ctx(qp);
+	if (!isl_options_get_refcounting(ctx))
+		return isl_qpolynomial_dup(qp);
 
 	qp->ref++;
 	return qp;
@@ -3681,6 +3690,10 @@ __isl_give isl_term *isl_term_copy(__isl_keep isl_term *term)
 {
 	if (!term)
 		return NULL;
+
+	isl_ctx *ctx = isl_term_get_ctx(term);
+	if (!isl_options_get_refcounting(ctx))
+		return isl_term_dup(term);
 
 	term->ref++;
 	return term;

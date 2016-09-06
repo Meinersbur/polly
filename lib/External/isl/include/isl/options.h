@@ -32,6 +32,9 @@ int isl_options_get_bound(isl_ctx *ctx);
 isl_stat isl_options_set_on_error(isl_ctx *ctx, int val);
 int isl_options_get_on_error(isl_ctx *ctx);
 
+isl_stat isl_options_set_refcounting(isl_ctx *ctx, int val);
+int isl_options_get_refcounting(isl_ctx *ctx);
+
 isl_stat isl_options_set_gbr_only_first(isl_ctx *ctx, int val);
 int isl_options_get_gbr_only_first(isl_ctx *ctx);
 

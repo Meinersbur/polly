@@ -24,6 +24,7 @@
 #include <isl_space_private.h>
 #include <isl/union_set.h>
 #include <isl/deprecated/union_map_int.h>
+#include <isl/options.h>
 
 /* Return the number of parameters of "umap", where "type"
  * is required to be set to isl_dim_param.
@@ -293,6 +294,10 @@ __isl_give isl_union_map *isl_union_map_copy(__isl_keep isl_union_map *umap)
 {
 	if (!umap)
 		return NULL;
+
+		isl_ctx *ctx = isl_union_map_get_ctx(umap);
+	if (!isl_options_get_refcounting(ctx))
+		return isl_union_map_dup(umap);
 
 	umap->ref++;
 	return umap;

@@ -17,6 +17,7 @@
 #include <isl_space_private.h>
 #include <isl_id_private.h>
 #include <isl_reordering.h>
+#include <isl/options.h>
 
 isl_ctx *isl_space_get_ctx(__isl_keep isl_space *dim)
 {
@@ -333,6 +334,10 @@ __isl_give isl_space *isl_space_copy(__isl_keep isl_space *dim)
 {
 	if (!dim)
 		return NULL;
+
+	isl_ctx *ctx = isl_space_get_ctx(dim);
+	if (!isl_options_get_refcounting(ctx))
+		return isl_space_dup(dim);
 
 	dim->ref++;
 	return dim;

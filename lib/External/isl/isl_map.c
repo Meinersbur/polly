@@ -1131,7 +1131,8 @@ struct isl_basic_set *isl_basic_set_copy(struct isl_basic_set *bset)
 	if (!bset)
 		return NULL;
 
-	if (ISL_F_ISSET(bset, ISL_BASIC_SET_FINAL)) {
+	isl_ctx *ctx = isl_basic_set_get_ctx(bset);
+	if (isl_options_get_refcounting(ctx) && ISL_F_ISSET(bset, ISL_BASIC_SET_FINAL)) {
 		bset->ref++;
 		return bset;
 	}
@@ -1143,6 +1144,10 @@ struct isl_set *isl_set_copy(struct isl_set *set)
 	if (!set)
 		return NULL;
 
+	isl_ctx *ctx = isl_set_get_ctx(set);
+	if (!isl_options_get_refcounting(ctx))
+		return isl_set_dup(set);
+
 	set->ref++;
 	return set;
 }
@@ -1153,6 +1158,10 @@ struct isl_basic_map *isl_basic_map_copy(struct isl_basic_map *bmap)
 		return NULL;
 
 	if (ISL_F_ISSET(bmap, ISL_BASIC_SET_FINAL)) {
+		isl_ctx *ctx = isl_basic_map_get_ctx(bmap);
+		if (!isl_options_get_refcounting(ctx))
+			return isl_basic_map_dup(bmap);
+
 		bmap->ref++;
 		return bmap;
 	}
@@ -1166,6 +1175,10 @@ struct isl_map *isl_map_copy(struct isl_map *map)
 {
 	if (!map)
 		return NULL;
+
+		isl_ctx *ctx = isl_map_get_ctx(map);
+	if (!isl_options_get_refcounting(ctx))
+		return isl_map_dup(map);
 
 	map->ref++;
 	return map;

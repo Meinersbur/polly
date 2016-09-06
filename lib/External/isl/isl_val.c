@@ -10,6 +10,7 @@
 #include <isl_int.h>
 #include <isl_ctx_private.h>
 #include <isl_val_private.h>
+#include <isl/options.h>
 
 #undef BASE
 #define BASE val
@@ -219,6 +220,10 @@ __isl_give isl_val *isl_val_copy(__isl_keep isl_val *v)
 {
 	if (!v)
 		return NULL;
+
+	isl_ctx *ctx = isl_val_get_ctx(v);
+	if (!isl_options_get_refcounting(ctx))
+		return isl_val_dup(v);
 
 	v->ref++;
 	return v;

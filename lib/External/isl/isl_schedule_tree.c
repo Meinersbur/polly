@@ -13,6 +13,7 @@
 #include <isl/map.h>
 #include <isl_schedule_band.h>
 #include <isl_schedule_private.h>
+#include <isl/options.h>
 
 #undef EL
 #define EL isl_schedule_tree

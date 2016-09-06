@@ -96,6 +96,7 @@ struct isl_pw_qpolynomial_fold {
 	struct isl_pw_qpolynomial_fold_piece p[1];
 };
 
+__isl_give isl_term *isl_term_dup(__isl_keep isl_term *term);
 void isl_term_get_num(__isl_keep isl_term *term, isl_int *n);
 
 __isl_give struct isl_upoly *isl_upoly_zero(struct isl_ctx *ctx);

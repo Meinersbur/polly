@@ -124,6 +124,10 @@ __isl_give ISL_HMAP *ISL_FN(ISL_HMAP,copy)(__isl_keep ISL_HMAP *hmap)
 	if (!hmap)
 		return NULL;
 
+	isl_ctx *ctx = ISL_FN(ISL_HMAP,get_ctx)(hmap);
+	if (!isl_options_get_refcounting(ctx))
+		return ISL_FN(ISL_HMAP,dup)(hmap);
+
 	hmap->ref++;
 	return hmap;
 }

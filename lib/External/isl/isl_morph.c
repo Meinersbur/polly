@@ -17,6 +17,7 @@
 #include <isl_mat_private.h>
 #include <isl_space_private.h>
 #include <isl_equalities.h>
+#include <isl/options.h>
 
 isl_ctx *isl_morph_get_ctx(__isl_keep isl_morph *morph)
 {
@@ -57,6 +58,10 @@ __isl_give isl_morph *isl_morph_copy(__isl_keep isl_morph *morph)
 {
 	if (!morph)
 		return NULL;
+
+	isl_ctx *ctx = isl_morph_get_ctx(morph);
+	if (!isl_options_get_refcounting(ctx))
+		return isl_morph_dup(morph);
 
 	morph->ref++;
 	return morph;

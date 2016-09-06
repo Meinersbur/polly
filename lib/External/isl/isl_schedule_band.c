@@ -15,6 +15,7 @@
 #include <isl/schedule_node.h>
 #include <isl_schedule_band.h>
 #include <isl_schedule_private.h>
+#include <isl/options.h>
 
 isl_ctx *isl_schedule_band_get_ctx(__isl_keep isl_schedule_band *band)
 {
@@ -147,6 +148,10 @@ __isl_give isl_schedule_band *isl_schedule_band_copy(
 {
 	if (!band)
 		return NULL;
+
+	isl_ctx *ctx = isl_schedule_band_get_ctx(band);
+	if (!isl_options_get_refcounting(ctx))
+		return isl_schedule_band_dup(band);
 
 	band->ref++;
 	return band;

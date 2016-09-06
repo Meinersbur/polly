@@ -14,6 +14,7 @@
 #include <isl_val_private.h>
 #include <isl_vec_private.h>
 #include <isl/deprecated/vec_int.h>
+#include <isl/options.h>
 
 isl_ctx *isl_vec_get_ctx(__isl_keep isl_vec *vec)
 {
@@ -186,6 +187,10 @@ struct isl_vec *isl_vec_copy(struct isl_vec *vec)
 {
 	if (!vec)
 		return NULL;
+
+	isl_ctx *ctx = isl_vec_get_ctx(vec);
+	if (!isl_options_get_refcounting(ctx))
+		return isl_vec_dup(vec);
 
 	vec->ref++;
 	return vec;

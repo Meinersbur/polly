@@ -16,6 +16,7 @@
 #include <isl/ast_build.h>
 #include <isl/schedule.h>
 #include <isl/version.h>
+#include <isl_config.h>
 
 struct isl_arg_choice isl_pip_context_choice[] = {
 	{"gbr",		ISL_CONTEXT_GBR},
@@ -123,6 +124,8 @@ ISL_ARG_CHOICE(struct isl_options, bound, 0, "bound", bound,
 	ISL_BOUND_BERNSTEIN, "algorithm to use for computing bounds")
 ISL_ARG_CHOICE(struct isl_options, on_error, 0, "on-error", on_error,
 	ISL_ON_ERROR_WARN, "how to react if an error is detected")
+ISL_ARG_BOOL(struct isl_options, refcounting, 0, "refcounting",
+	ENABLE_REFCOUNTING, "Use reference counting")
 ISL_ARG_FLAGS(struct isl_options, bernstein_recurse, 0,
 	"bernstein-recurse", bernstein_recurse, ISL_BERNSTEIN_FACTORS, NULL)
 ISL_ARG_BOOL(struct isl_options, bernstein_triangulate, 0,
@@ -228,6 +231,11 @@ ISL_CTX_SET_CHOICE_DEF(isl_options, struct isl_options, isl_options_args,
 	on_error)
 ISL_CTX_GET_CHOICE_DEF(isl_options, struct isl_options, isl_options_args,
 	on_error)
+
+ISL_CTX_SET_BOOL_DEF(isl_options, struct isl_options, isl_options_args,
+	refcounting)
+ISL_CTX_GET_BOOL_DEF(isl_options, struct isl_options, isl_options_args,
+	refcounting)
 
 ISL_CTX_SET_BOOL_DEF(isl_options, struct isl_options, isl_options_args,
 	pip_symmetry)
