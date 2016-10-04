@@ -141,18 +141,18 @@ else (NOT DEFINED LLVM_MAIN_SRC_DIR)
     set_target_properties(check-polly-unittests PROPERTIES FOLDER "Polly")
   endif ()
 
-  # Run polly-check-format as part of polly-check only if we are compiling with
-  # clang, so clang-format is available.
-  # if (TARGET clang-format) would be preferable, but this target is only added
-  # after Polly, i.e. there is no such target yet at this point. The CMake cache
-  # entry LLVM_TOOL_CLANG_BUILD will only be defined after clang has been
-  # configured at least once, i.e. format will be checked only after a rerun of
-  # CMake's configure.
-  if (LLVM_TOOL_CLANG_BUILD)
-    add_dependencies(check-polly polly-check-format)
-  endif ()
-
 endif (NOT DEFINED LLVM_MAIN_SRC_DIR)
+
+# Run polly-check-format as part of polly-check only if we are compiling with
+  # clang, so clang-format is available.
+# if (TARGET clang-format) would be preferable, but this target is only added
+# after Polly, i.e. there is no such target yet at this point. The CMake cache
+# entry LLVM_TOOL_CLANG_BUILD will only be defined after clang has been
+# configured at least once, i.e. format will be checked only after a rerun of
+# CMake's configure.
+if (LLVM_TOOL_CLANG_BUILD)
+  add_dependencies(check-polly polly-check-format)
+endif ()
 
 configure_file(
   ${CMAKE_CURRENT_SOURCE_DIR}/update_check.py
@@ -166,3 +166,38 @@ file(COPY ${CMAKE_CURRENT_BINARY_DIR}/update_check.py
 add_custom_target(polly-test)
 set_target_properties(polly-test PROPERTIES FOLDER "Polly")
 add_dependencies(polly-test check-polly)
+
+
+set(updateable_tests_depends)
+macro(updateable_test infile)
+  get_filename_component(filepath "${infile}" ABSOLUTE)
+  file(RELATIVE_PATH relpath "${CMAKE_CURRENT_SOURCE_DIR}" "${filepath}")
+  set(targetfile "${CMAKE_CURRENT_BINARY_DIR}/${relpath}")
+  get_filename_component(targetdir "${targetfile}" DIRECTORY)
+  file(MAKE_DIRECTORY "${targetdir}")
+  add_custom_command(
+    OUTPUT  "${targetfile}.updated"
+    DEPENDS "${filepath}" "${LLVM_TOOLS_DIR}/update_check.py" opt
+    COMMAND "${PYTHON_EXECUTABLE}" "${LLVM_TOOLS_DIR}/update_check.py" --autorule "${filepath}" --output "${targetfile}.updated"
+    COMMENT "Updating test ${filepath} step 1"
+    VERBATIM
+    )
+  add_custom_command(
+    OUTPUT  "${targetfile}.timestamp"
+    DEPENDS "${targetfile}.updated"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${targetfile}.updated" "${filepath}"
+    COMMAND ${CMAKE_COMMAND} -E copy              "${targetfile}.updated" "${targetfile}.timestamp"
+    COMMENT "Updating test ${filepath} step 2"
+    VERBATIM
+    )
+  list(APPEND updateable_tests_depends "${targetfile}.timestamp")
+endmacro()
+
+file( GLOB_RECURSE testfiles *.ll)
+foreach (testfile IN LISTS testfiles)
+  updateable_test("${testfile}")
+endforeach ()
+
+
+add_custom_target(polly-update-tests DEPENDS ${updateable_tests_depends})
+set_target_properties(polly-update-tests PROPERTIES FOLDER "Polly")

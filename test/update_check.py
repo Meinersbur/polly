@@ -9,6 +9,7 @@ import os
 import subprocess
 import shlex
 import re
+import shutil
 
 
 polly_src_dir = '''@POLLY_SOURCE_DIR@'''
@@ -21,6 +22,7 @@ runre = re.compile(r'\s*\;\s*RUN\s*\:(?P<tool>.*)')
 filecheckre = re.compile(r'\s*(?P<tool>.*)\|\s*(?P<filecheck>FileCheck\s[^|]*)')
 emptyline = re.compile(r'\s*(\;\s*)?')
 commentline = re.compile(r'\s*(\;.*)?')
+xfailre = re.compile(r'^\s*\;\s*XFAIL\:\s*\*\s*$')
 
 
 def ltrim_emptylines(lines,meta=None):
@@ -182,6 +184,44 @@ def classyfier1(lines):
                 if line == '}':
                     break
                 line = i.__next__()
+        elif line.startswith( 'Known zone:'):
+            yield {'KnownZone'}
+        elif line == 'Mapped knowns {':
+            while True:
+                yield  {'MappedKnowns'}
+                if line == '}':
+                    break
+                line = i.__next__()
+        elif line.startswith( 'Original zone:'):
+            yield {'OriginalZone'}
+            line = i.__next__()
+            yield {'OriginalZone','OriginalZoneLifetime','Lifetime'}
+            line = i.__next__()
+            yield {'OriginalZone','OriginalZoneWritten','Written'}
+        elif line.startswith( 'After zone:'):
+            yield {'AfterZone'}
+            line = i.__next__()
+            yield {'AfterZone','AfterZoneLifetime','Lifetime'}
+            line = i.__next__()
+            yield {'AfterZone','AfterZoneWritten','Written'}
+        elif line == 'Mapped scalars {':
+            while True:
+                yield  {'MappedScalars'}
+                if line == '}':
+                    break
+                line = i.__next__()
+        elif line == 'Cleanups {':
+            while True:
+                yield  {'Cleanups'}
+                if line == '}':
+                    break
+                line = i.__next__()
+        elif line == 'After Statements {':
+            while True:
+                yield  {'AfterStatements'}
+                if line == '}':
+                    break
+                line = i.__next__()
         else:
             yield set()
         line = i.__next__()
@@ -224,6 +264,7 @@ def main():
     parser.add_argument('--testdir',help="Root dir for unit tests")
     parser.add_argument('--inplace','-i',action='store_true',help="Replace input file")
     parser.add_argument('--output','-o',help="Write changed input to this file")
+    parser.add_argument('--autorule',action='store_true',help="Select rules derived from file path")
     known = parser.parse_args()
 
     if not known.inplace and known.output is None:
@@ -235,8 +276,6 @@ def main():
 
     outfile = known.output
 
-    filecheckparser = argparse.ArgumentParser(add_help=False)
-    filecheckparser.add_argument('-check-prefix','--check-prefix',default='CHECK')
 
     filename = known.testfile
     for dir in ['.', known.testdir, os.path.join(polly_src_dir,'test'), polly_src_dir]:
@@ -249,6 +288,45 @@ def main():
 
     if known.inplace:
         outfile = filename
+
+    if known.autorule:
+        update_autorule(filename,outfile=outfile,known=known)
+    else:
+        update_check(filename,outfile=outfile,known=known,CheckInclude=set(known.check_include),CheckLabelInclude=set(known.check_label_include))
+
+
+def update_autorule(filename,outfile,known):
+    rempath,filepart = os.path.split(filename)
+    cat = (filepart,)
+    while True:
+        rempath,tail = os.path.split(rempath)
+        if tail == 'test' or len(tail)==0:
+            break
+        cat = (tail,) + cat
+
+    success=True
+    if len(tail)==0:
+        success=False
+    elif cat[:-1] == ('DeLICM',):
+        update_check_rule(filename, outfile=outfile, known=known, CheckInclude={'ScheduleAfterFlattening','OriginalZone','MappedScalars','Cleanups','AfterZone','AfterStatements'})
+    elif cat[:-1] == ('Known',):
+        update_check_rule(filename, outfile=outfile, known=known, CheckInclude={'ScheduleAfterFlattening','KnownZone','MappedKnowns','AfterStatements'})
+    else:
+        success=False
+
+    if not success:
+        # No rule for this file, don't change it
+        if outfile!=filename:
+            shutil.copy(filename,outfile)
+
+
+def update_check_rule(filename,outfile,known,CheckInclude=set(),CheckLabelInclude=set()):
+    update_check(filename,outfile,known,CheckInclude=set(known.check_include)|CheckInclude,CheckLabelInclude=set(known.check_label_include)|CheckLabelInclude)
+
+
+def update_check(filename,outfile,known,CheckInclude,CheckLabelInclude):
+    filecheckparser = argparse.ArgumentParser(add_help=False)
+    filecheckparser.add_argument('-check-prefix','--check-prefix',default='CHECK')
 
     allchecklines = []
     checkprefixes = []
@@ -323,7 +401,7 @@ def main():
             retlines = subprocess.check_output(tool,universal_newlines=True,stderr=optstderr)
         retlines = [line.replace('\t', '    ') for line in retlines.splitlines()]
         check_include = []
-        for checkme in known.check_include + known.check_label_include:
+        for checkme in CheckInclude|CheckLabelInclude:
             parts = checkme.split('=')
             if len(parts) == 2:
                 if parts[0] == check_prefix:
@@ -358,15 +436,15 @@ def main():
         previous_was_empty = True
         for line,kind in zip(retlines,classified_retlines):
             if line:
-                if known.check_style == 'CHECK' and known.check_label_include:
-                    if not kind.isdisjoint(known.check_label_include):
+                if known.check_style == 'CHECK' and CheckLabelInclude:
+                    if not kind.isdisjoint(CheckLabelInclude):
                         checklines.append('; ' + check_prefix + '-LABEL: ' + line)
                     else:
                         checklines.append('; ' + check_prefix + ':       ' + line)
                 elif known.check_style == 'CHECK':
                     checklines.append('; ' + check_prefix + ': ' + line)
-                elif known.check_label_include and known.check_label_include:
-                    if not kind.isdisjoint(known.check_label_include):
+                elif CheckLabelInclude:
+                    if not kind.isdisjoint(CheckLabelInclude):
                         checklines.append('; ' + check_prefix + '-LABEL: ' + line)
                     elif previous_was_empty:
                         checklines.append('; ' + check_prefix + ':       ' + line)
@@ -396,6 +474,8 @@ def main():
     emptylines = []
     lastwascheck = False
     for line in oldlines:
+        if xfailre.match(line):
+            return False
         if checkre.match(line):
             if firstcheckline is None:
                 firstcheckline = len(newlines) + len(emptylines)

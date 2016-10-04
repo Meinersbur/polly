@@ -1037,6 +1037,8 @@ public:
 llvm::raw_ostream &operator<<(llvm::raw_ostream &OS,
                               MemoryAccess::ReductionType RT);
 
+llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, const MemoryAccess &MA);
+
 /// Ordered list type to hold accesses.
 using MemoryAccessList = std::forward_list<MemoryAccess *>;
 
@@ -1362,6 +1364,11 @@ public:
   /// Note that scalar accesses that are caused by MA will
   /// be eliminated too.
   void removeMemoryAccess(MemoryAccess *MA);
+
+  /// Remove @p MA from this statement.
+  ///
+  /// In contrast to removeMemoryAccess(), no other access will be eliminated.
+  void removeSingleMemoryAccess(MemoryAccess *MA);
 
   typedef MemoryAccessVec::iterator iterator;
   typedef MemoryAccessVec::const_iterator const_iterator;

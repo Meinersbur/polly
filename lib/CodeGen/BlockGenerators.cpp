@@ -235,6 +235,12 @@ Value *BlockGenerator::generateArrayLoad(ScopStmt &Stmt, LoadInst *Load,
   if (Value *PreloadLoad = GlobalMap.lookup(Load))
     return PreloadLoad;
 
+  // If there is no MemoryAccess for this load, the load has been identified
+  // as redundant by DeLICM or SCoP-invariant load hoisting. If the latter, the
+  // value should have been found in the GlobalMap.
+  if (!Stmt.getArrayAccessOrNULLFor(Load))
+    return UndefValue::get(Load->getType());
+
   Value *NewPointer =
       generateLocationAccessed(Stmt, Load, BBMap, LTS, NewAccesses);
   Value *ScalarLoad = Builder.CreateAlignedLoad(
@@ -289,6 +295,11 @@ void BlockGenerator::copyInstruction(ScopStmt &Stmt, Instruction *Inst,
   }
 
   if (auto *Store = dyn_cast<StoreInst>(Inst)) {
+    // If there is no MemoryAccess for this store, it has been identified as
+    // redundant.
+    if (!Stmt.getArrayAccessOrNULLFor(Store))
+      return;
+
     generateArrayStore(Stmt, Store, BBMap, LTS, NewAccesses);
     return;
   }
@@ -467,7 +478,7 @@ void BlockGenerator::generateScalarLoads(
             DT.dominates(cast<Instruction>(Address)->getParent(),
                          Builder.GetInsertBlock())) &&
            "Domination violation");
-    BBMap[MA->getBaseAddr()] =
+    BBMap[MA->getAccessValue()] =
         Builder.CreateLoad(Address, Address->getName() + ".reload");
   }
 }
@@ -1018,6 +1029,10 @@ void VectorBlockGenerator::copyInstruction(
 
   if (hasVectorOperands(Inst, VectorMap)) {
     if (auto *Store = dyn_cast<StoreInst>(Inst)) {
+      // Identified as redundant by DeLICM.
+      if (!Stmt.getArrayAccessOrNULLFor(Store))
+        return;
+
       copyStore(Stmt, Store, VectorMap, ScalarMaps, NewAccesses);
       return;
     }
@@ -1042,7 +1057,7 @@ void VectorBlockGenerator::copyInstruction(
 void VectorBlockGenerator::generateScalarVectorLoads(
     ScopStmt &Stmt, ValueMapT &VectorBlockMap) {
   for (MemoryAccess *MA : Stmt) {
-    if (MA->isArrayKind() || MA->isWrite())
+    if (MA->isOriginalArrayKind() || MA->isWrite())
       continue;
 
     auto *Address = getOrCreateAlloca(*MA);
@@ -1362,11 +1377,8 @@ Value *RegionGenerator::getExitScalar(MemoryAccess *MA, LoopToScevMapT &LTS,
   // TODO: Add some test cases that ensure this is really the right choice.
   Loop *L = LI.getLoopFor(Stmt->getRegion()->getExit());
 
-  if (MA->isAnyPHIKind()) {
+  if (MA->isOriginalAnyPHIKind()) {
     auto Incoming = MA->getIncoming();
-    assert(!Incoming.empty() &&
-           "PHI WRITEs must have originate from at least one incoming block");
-
     // If there is only one incoming value, we do not need to create a PHI.
     if (Incoming.size() == 1) {
       Value *OldVal = Incoming[0].second;

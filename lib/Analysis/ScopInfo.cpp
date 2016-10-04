@@ -104,6 +104,11 @@ static cl::opt<bool>
                     cl::desc("Abort if an isl error is encountered"),
                     cl::init(true), cl::cat(PollyCategory));
 
+static cl::opt<bool> UnprofitableScalarAccs(
+    "polly-unprofitable-scalar-accs",
+    cl::desc("Count statements with scalar accesses as not optimizable"),
+    cl::init(true), cl::cat(PollyCategory));
+
 //===----------------------------------------------------------------------===//
 
 // Create a sequence of two schedules. Either argument may be null and is
@@ -912,6 +917,62 @@ raw_ostream &polly::operator<<(raw_ostream &OS,
   return OS;
 }
 
+llvm::raw_ostream &polly::operator<<(llvm::raw_ostream &OS,
+                                     const MemoryAccess &MA) {
+  OS << MA.getStatement()->getBaseName();
+
+  auto OrigKind = MA.getOriginalKind();
+  switch (OrigKind) {
+  case ScopArrayInfo::MK_Value:
+    OS << " MK_Value";
+    if (MA.isWrite()) {
+      OS << " Define " << MA.getScopArrayInfo()->getName() << " as ";
+      MA.getAccessValue()->printAsOperand(OS, false);
+    } else {
+      OS << " Use " << MA.getScopArrayInfo()->getName();
+    }
+    break;
+  case ScopArrayInfo::MK_PHI:
+  case ScopArrayInfo::MK_ExitPHI:
+    OS << (OrigKind == ScopArrayInfo::MK_ExitPHI ? " MK_ExitPHI" : " MK_PHI");
+    if (MA.isWrite()) {
+      OS << " Incoming " << MA.getScopArrayInfo()->getName() << " value ";
+      bool First = true;
+      for (auto Incoming : MA.getIncoming()) {
+        if (!First)
+          OS << " or ";
+        Incoming.second->printAsOperand(OS, false);
+        First = false;
+      }
+    } else {
+      OS << " Merge " << MA.getScopArrayInfo()->getName() << " as ";
+      MA.getAccessInstruction()->printAsOperand(OS, false);
+    }
+    break;
+  case ScopArrayInfo::MK_Array:
+    OS << " MK_Array";
+    if (MA.isWrite()) {
+      OS << " Store ";
+      MA.getAccessValue()->printAsOperand(OS, false);
+      OS << " to " << give(MA.getAccessRelation());
+    } else {
+      OS << " Load ";
+      MA.getAccessInstruction()->printAsOperand(OS, false);
+      OS << " from " << give(MA.getAccessRelation());
+    }
+    break;
+  }
+
+  if (MA.hasNewAccessRelation()) {
+    assert(MA.isLatestArrayKind());
+    if (MA.isWrite())
+      OS << " [new: " << give(MA.getAccessRelation()) << "]";
+    else
+      OS << " [new: " << give(MA.getAccessRelation()) << "]";
+  }
+  return OS;
+}
+
 void MemoryAccess::print(raw_ostream &OS) const {
   switch (AccType) {
   case READ:
@@ -1023,15 +1084,14 @@ bool MemoryAccess::isStrideOne(__isl_take const isl_map *Schedule) const {
 
 void MemoryAccess::setNewAccessRelation(__isl_take isl_map *NewAccess) {
   assert(NewAccess);
+  auto *OriginalDomainSpace = getStatement()->getDomainSpace();
 
 #ifndef NDEBUG
   // Check domain space compatibility.
   auto *NewSpace = isl_map_get_space(NewAccess);
   auto *NewDomainSpace = isl_space_domain(isl_space_copy(NewSpace));
-  auto *OriginalDomainSpace = getStatement()->getDomainSpace();
   assert(isl_space_has_equal_tuples(OriginalDomainSpace, NewDomainSpace));
   isl_space_free(NewDomainSpace);
-  isl_space_free(OriginalDomainSpace);
 
   // Check whether there is an access for every statement instance.
   auto *StmtDomain = getStatement()->getDomain();
@@ -1061,7 +1121,7 @@ void MemoryAccess::setNewAccessRelation(__isl_take isl_map *NewAccess) {
 #endif
 
   isl_map_free(NewAccessRelation);
-  NewAccessRelation = NewAccess;
+  NewAccessRelation = isl_map_align_params(NewAccess, OriginalDomainSpace);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1711,6 +1771,19 @@ void ScopStmt::removeMemoryAccess(MemoryAccess *MA) {
   MemAccs.erase(std::remove_if(MemAccs.begin(), MemAccs.end(), Predicate),
                 MemAccs.end());
   InstructionToAccess.erase(MA->getAccessInstruction());
+}
+
+void ScopStmt::removeSingleMemoryAccess(MemoryAccess *MA) {
+  auto MAIt = std::find(MemAccs.begin(), MemAccs.end(), MA);
+  assert(MAIt != MemAccs.end());
+  MemAccs.erase(MAIt);
+
+  auto It = InstructionToAccess.find(MA->getAccessInstruction());
+  if (It != InstructionToAccess.end()) {
+    It->second.remove(MA);
+    if (It->second.empty())
+      InstructionToAccess.erase(MA->getAccessInstruction());
+  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -3650,8 +3723,13 @@ bool Scop::isProfitable() const {
       ContainsScalarAccs |= MA->isScalarKind();
     }
 
-    if (ContainsArrayAccs && !ContainsScalarAccs)
-      OptimizableStmtsOrLoops += Stmt.getNumIterators();
+    if (!ContainsArrayAccs)
+      continue;
+
+    if (UnprofitableScalarAccs && ContainsScalarAccs)
+      continue;
+
+    OptimizableStmtsOrLoops += Stmt.getNumIterators();
   }
 
   return OptimizableStmtsOrLoops > 1;
