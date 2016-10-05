@@ -107,7 +107,7 @@ static cl::opt<bool>
 static cl::opt<bool> UnprofitableScalarAccs(
     "polly-unprofitable-scalar-accs",
     cl::desc("Count statements with scalar accesses as not optimizable"),
-    cl::init(true), cl::cat(PollyCategory));
+    cl::Hidden, cl::init(true), cl::cat(PollyCategory));
 
 //===----------------------------------------------------------------------===//
 
@@ -184,7 +184,7 @@ ScopArrayInfo::ScopArrayInfo(Value *BasePtr, Type *ElementType, isl_ctx *Ctx,
 
   updateSizes(Sizes);
 
-  if (!BasePtr) {
+  if (!BasePtr || Kind != MK_Array) {
     BasePtrOriginSAI = nullptr;
     return;
   }
@@ -3723,13 +3723,8 @@ bool Scop::isProfitable() const {
       ContainsScalarAccs |= MA->isScalarKind();
     }
 
-    if (!ContainsArrayAccs)
-      continue;
-
-    if (UnprofitableScalarAccs && ContainsScalarAccs)
-      continue;
-
-    OptimizableStmtsOrLoops += Stmt.getNumIterators();
+    if (!UnprofitableScalarAccs || (ContainsArrayAccs && !ContainsScalarAccs))
+      OptimizableStmtsOrLoops += Stmt.getNumIterators();
   }
 
   return OptimizableStmtsOrLoops > 1;
