@@ -707,7 +707,15 @@ IslPtr<isl_union_map> expandMapping(IslPtr<isl_union_map> Relevant,
       isl_union_map_intersect_domain(Simplified.take(), Universe.take()));
 }
 
-bool isl_map_is_scalar_access(IslPtr<isl_map> Map) {
+/// Determine whether an access touches at most one element.
+///
+/// The accessed element could be a scalar or accessing an array with constant subscript, st. all instances access only that element.
+///
+/// @param Map { Domain[] -> Element[] }
+///            The access's access relation.
+///
+/// @return True, if zero or one elements are accessed; False if at least two different elements are accessed.
+bool isScalarAccess(IslPtr<isl_map> Map) {
   auto Set = give(isl_map_range(Map.take()));
   return isl_set_is_singleton(Set.keep());
 }
@@ -1347,7 +1355,6 @@ private:
     return nullptr;
   }
 
-protected:
 public:
   Scop *getScop() const { return S; }
 
@@ -1378,6 +1385,7 @@ private:
     return DefStmt == UserStmt;
   }
 
+#if 0
 protected:
   bool isLatestAccessingSameScalar(MemoryAccess *Acc1, MemoryAccess *Acc2) {
     assert(Acc1->isLatestScalarKind() || Acc2->isLatestScalarKind());
@@ -1388,6 +1396,7 @@ protected:
 
     return Acc1->getLatestScopArrayInfo() == Acc2->getLatestScopArrayInfo();
   }
+#endif
 
 private:
   // Check whether accesses within the same statement overlap.
@@ -1753,65 +1762,6 @@ protected:
     return true;
   }
 
-protected:
-  bool isMappable(MemoryAccess *MA) {
-    // Can happen if normalizing a read-only MK_Value (which do not have a
-    // write)
-    if (!MA) {
-      DEBUG(dbgs() << "    Reject because it is read-only\n");
-      return false;
-    }
-
-    // Not supported
-    if (MA->isExitPHIKind()) {
-      DEBUG(dbgs() << "    Reject because it is an ExitPHI\n");
-      return false;
-    }
-
-    if (MA->isPHIKind()) {
-      assert(MA->isRead() && "Please normalize MA for this function\n");
-
-      // Mapping if PHI has incoming block from before the block is not
-      // supported.
-      auto PHI = cast<PHINode>(MA->getAccessInstruction());
-      for (auto Incoming : PHI->blocks()) {
-        if (!S->contains(Incoming)) {
-          DEBUG(dbgs() << "    Reject because at least one incoming block is "
-                          "not in the scop region\n");
-
-          return false;
-        }
-      }
-
-      return true;
-    }
-
-    if (MA->isValueKind()) {
-      assert(MA->isWrite() && "Please normalize MA for this function\n");
-
-      // Mapping if value is used after scop is not supported.s
-      auto Inst = MA->getAccessInstruction();
-      for (auto User : Inst->users()) {
-        if (!isa<Instruction>(User))
-          return false; // Play safe with strange user
-        auto UserInst = cast<Instruction>(User);
-
-        if (!S->contains(UserInst)) {
-          DEBUG(dbgs() << "    Reject because value is escaping\n");
-          return false;
-        }
-      }
-
-      // TODO: read-only values also not supported
-
-      return true;
-    }
-
-    assert(MA->isArrayKind());
-    assert(MA->isLatestArrayKind());
-    return false;
-  }
-
 public:
   // Remove load-store pairs that access the same element in the block.
   void cleanup() {
@@ -1991,8 +1941,7 @@ private:
   MappingDecision OriginalZone;
   MappingDecision Zone;
 
-  DenseMap<Value *, MemoryAccess *> ValueDefs;
-  DenseMap<Value *, MemoryAccess *> PHIReads;
+
 
   SmallVector<MapReport, 8> MapReports;
 
@@ -2001,6 +1950,72 @@ private:
     return MappingDecision::isConflicting(Zone, Proposed, PrintDebug, Indent);
   }
 
+  
+  MemoryAccess *getDefAccsFor(const ScopArrayInfo  *SAI ) { 
+	  assert(SAI);
+  auto *MA = ValueDefAccs.lookup(SAI);
+  assert(MA);
+  assert(MA->isOriginalValueKind());
+  assert(MA->isWrite());
+  return MA;
+  }
+
+    MemoryAccess *getPHIAccsFor(const ScopArrayInfo  *SAI ) { 
+			  assert(SAI);
+  auto *MA = PHIReadAccs.lookup(SAI);
+  assert(MA);
+  assert(MA->isOriginalAnyPHIKind());
+  assert(MA->isRead());
+  return MA;
+	}
+
+  bool isMappable(const ScopArrayInfo  *SAI) {
+	  assert(SAI);
+
+	  if (SAI->isValueKind()) {
+		  auto *MA = ValueDefAccs.lookup(SAI);
+		  if (!MA) {
+			      DEBUG(dbgs() << "    Reject because value is read-only within the scop\n");
+			  return false;
+		  }
+
+      // Mapping if value is used after scop is not supported.s
+      auto Inst = MA->getAccessInstruction();
+      for (auto User : Inst->users()) {
+        if (!isa<Instruction>(User))
+          return false; // Play safe with strange user
+        auto UserInst = cast<Instruction>(User);
+
+        if (!S->contains(UserInst)) {
+          DEBUG(dbgs() << "    Reject because value is escaping\n");
+          return false;
+        }
+
+	  }
+		return true;
+	  }
+	  
+	  if (SAI->isPHIKind()) {
+		   	  auto *MA =  getPHIAccsFor(SAI);
+
+      // Mapping if PHI has incoming block from before the block is not
+      // supported.
+      auto PHI = cast<PHINode>(MA->getAccessInstruction());
+      for (auto Incoming : PHI->blocks()) {
+        if (!S->contains(Incoming)) {
+          DEBUG(dbgs() << "    Reject because at least one incoming block is not in the scop region\n");
+          return false;
+        }
+      }
+
+      return true;
+	  }
+
+	  DEBUG(dbgs() << "    Reject ExitPHI or other non-Value\n");
+	  return false;
+  }
+
+ 
   // { DomainValueDef[] -> Zone[] }
   // Get the zone from a scalar's definition to its last use.
   // TODO: Cache results?
@@ -2009,31 +2024,22 @@ private:
   /// Compute the lifetime of an MK_Value (from the definition to the last use)
   /// Pass the WRITE MemoryAccess that defines the llvm::Value
   /// { DomainDef[] -> Zone[] }
-  IslPtr<isl_map> computeValueLifetime(MemoryAccess *WA) {
-    assert(WA->isValueKind());
-    assert(WA->isWrite());
+  IslPtr<isl_map> computeValueLifetime(const ScopArrayInfo *WA) {
+	  assert(WA->isValueKind());
 
     // { DomainRead[] }
     auto Reads = give(isl_union_set_empty(ParamSpace.copy()));
 
     // Find all uses
     // TODO: Create a map of defs and uses
-    for (auto &Stmt : *S) {
-      for (auto *MA : Stmt) {
-        if (WA == MA)
-          continue;
-        if (!isLatestAccessingSameScalar(WA, MA))
-          continue;
-        assert(MA->isRead());
-        assert(MA->isValueKind());
 
+	for (auto *MA : ValueUseAccs.lookup(WA)) 
         Reads =
             give(isl_union_set_add_set(Reads.take(), getDomainFor(MA).take()));
-      }
-    }
+    
 
     // { DomainDef[] }
-    auto Writes = getDomainFor(WA);
+    auto Writes = getDomainFor(ValueDefAccs.lookup(WA));
 
     // { DomainDef[] -> Zone[] }
     auto Lifetime = computeScalarLifetime(Schedule, Writes, Reads, false, false,
@@ -2045,33 +2051,24 @@ private:
   }
 
   // { DomainPHIRead[] -> DomainPHIWrite[] }
-  IslPtr<isl_union_map> computePerPHI(MemoryAccess *PHIRead) {
-    assert(PHIRead->isPHIKind());
-    assert(PHIRead->isRead());
+  IslPtr<isl_union_map> computePerPHI(const ScopArrayInfo *SAI) {
+    assert(SAI->isPHIKind());
 
     // { DomainPHIWrite[] -> Scatter[] }
     auto PHIWriteScatter = give(isl_union_map_empty(ParamSpace.copy()));
 
-    for (auto &Stmt : *S) {
-      for (auto *MA : Stmt) {
-        if (MA == PHIRead)
-          continue;
-        if (!isLatestAccessingSameScalar(MA, PHIRead))
-          continue;
-        assert(MA->isMustWrite());
-        assert(MA->isPHIKind());
-
+      for (auto *MA : PHIIncomingAccs.lookup(SAI) ) {
         auto Scatter = getScatterFor(MA);
         PHIWriteScatter =
             give(isl_union_map_add_map(PHIWriteScatter.take(), Scatter.take()));
       }
-    }
+    
 
     // For each PHIRead instance, find the PHI instance which writes it.
     // We assume that there must be exactly one!
 
     // { DomainPHIRead[] -> Scatter[] }
-    auto PHIReadScatter = getScatterFor(PHIRead);
+    auto PHIReadScatter = getScatterFor(PHIReadAccs.lookup( SAI));
 
     // { DomainPHIRead[] -> Scatter[] }
     auto BeforeRead = beforeScatter(PHIReadScatter, true);
@@ -2097,13 +2094,15 @@ private:
   /// @param RefMA The MemoryAccess that is sought to be mapped to @p TargetElt
   /// @param DefMA The definition MemoryAccess MUST_WRITE for the same value
   /// (unique).
-  bool tryMapValue(MemoryAccess *RefMA, MemoryAccess *DefMA,
+  bool tryMapValue(const ScopArrayInfo *SAI, MemoryAccess *RefMA, 
                    // { Zone[] -> Element[] }
                    IslPtr<isl_map> TargetElt) {
+	  assert(SAI->isValueKind());
+	  auto *DefMA = ValueDefAccs.lookup(SAI);
     assert(DefMA->isValueKind());
     assert(DefMA->isMustWrite());
     assert(RefMA->isValueKind());
-    assert(isLatestAccessingSameScalar(DefMA, RefMA));
+//    assert(isLatestAccessingSameScalar(DefMA, RefMA));
     // TODO: Check same(or at least more) byte size
     // Means it already has been mapped
     if (!DefMA->getLatestScopArrayInfo()->isValueKind())
@@ -2131,7 +2130,7 @@ private:
     }
 
     // { DomainDef[] -> Zone[] }
-    auto Lifetime = computeValueLifetime(DefMA);
+    auto Lifetime = computeValueLifetime(SAI);
     if (!Lifetime)
       return false;
 
@@ -2163,7 +2162,7 @@ private:
       return false;
 
     // OK to map
-    mapValue(DefMA, DomDefTargetElt, Lifetime, std::move(Proposed));
+    mapValue(SAI, DomDefTargetElt, Lifetime, std::move(Proposed));
     return true;
   }
 
@@ -2171,12 +2170,12 @@ private:
     Zone.merge_inplace(std::move(Proposed));
   }
 
-  void mapValue(MemoryAccess *WA,
+  void mapValue(const ScopArrayInfo *SAI,
                 // { DomainDef[] -> Element[] }
                 IslPtr<isl_map> Mapping,
                 // { DomainDef[] -> Zone[] }
                 IslPtr<isl_map> Lifetime, MappingDecision Proposed) {
-
+	    auto *WA = ValueDefAccs.lookup(SAI); 
     // TODO: This must already have been computed before: reuse
     // { Scatter[] -> DomainDef[] }
     auto ReachDef =
@@ -2189,16 +2188,7 @@ private:
     simplify(TargetZone);
     int NumMappedAccessed = 1;
 
-    for (auto &Stmt : *S) {
-      for (auto *MA : Stmt) {
-        if (MA == WA)
-          continue;
-        if (!isLatestAccessingSameScalar(MA, WA))
-          continue;
-        assert(MA->isRead());
-        assert(MA->isValueKind());
-        assert(MA->getLatestScopArrayInfo()->isValueKind());
-
+	for (auto *MA :  ValueUseAccs.lookup(SAI) ) {
         // { Domain[] -> Scatter[] }
         auto Sched = getScatterFor(MA);
 
@@ -2209,7 +2199,6 @@ private:
         simplify(NewAccRel);
         MA->setNewAccessRelation(NewAccRel.take());
         NumMappedAccessed += 1;
-      }
     }
 
     WA->setNewAccessRelation(Mapping.copy());
@@ -2220,6 +2209,7 @@ private:
     MapReports.emplace_back(WA, NumMappedAccessed, Mapping, Lifetime,
                             std::move(Proposed));
   }
+
   IslPtr<isl_union_set>
   wholeStmtDomain(NonowningIslPtr<isl_union_set> RelevantDomain) {
     auto Universe = give(isl_union_set_empty(ParamSpace.copy()));
@@ -2231,6 +2221,7 @@ private:
     return give(isl_union_set_intersect(Universe.take(),
                                         isl_union_map_domain(Schedule.copy())));
   }
+
   IslPtr<isl_union_map> expandMapping(IslPtr<isl_union_map> Relevant) {
     auto RelevantDomain = give(isl_union_map_domain(Relevant.copy()));
     auto Universe = wholeStmtDomain(RelevantDomain);
@@ -2238,26 +2229,20 @@ private:
   }
 
   // { PHIWriteDomain[] -> ValInst[] }
-  IslPtr<isl_union_map> determinePHIWrittenValues(MemoryAccess *PHIRead) {
+  IslPtr<isl_union_map> determinePHIWrittenValues(const ScopArrayInfo *SAI) {
+	  auto *PHIRead = this-> PHIReadAccs .lookup(SAI);
     auto Result = give(isl_union_map_empty(ParamSpace.copy()));
     // auto PHIInst = cast<PHINode>( PHIRead->getAccessValue());
+	auto *ReadStmt = PHIRead->getStatement();
 
-    for (auto &Stmt : *S) {
-      for (auto *MA : Stmt) {
-        if (MA == PHIRead)
-          continue;
-        if (!isLatestAccessingSameScalar(MA, PHIRead))
-          continue;
-        assert(MA->isMustWrite());
-        assert(MA->isAnyPHIKind());
-
+	for (auto *MA: PHIIncomingAccs.lookup(SAI)) {
         // { PHIWriteDomain[] -> ValInst[] }
         IslPtr<isl_map> ValInst;
 
         auto Incoming = MA->getIncoming();
         assert(!Incoming.empty());
         if (Incoming.size() == 1) {
-          ValInst = makeValInst(Incoming[0].second, &Stmt, true);
+          ValInst = makeValInst(Incoming[0].second, ReadStmt, true);
         } else {
           // If the PHI is in a subregion's exit node it can have multiple
           // incoming values (+ maybe another incoming edge from an unrelated
@@ -2266,20 +2251,21 @@ private:
           // the PHI itself.
           // We currently model it as unknown value, but modeling as the PHIInst
           // itself could be OK, too.
-          ValInst = give(isl_map_from_domain(getDomainFor(&Stmt).take()));
+          ValInst = give(isl_map_from_domain(getDomainFor(ReadStmt).take()));
         }
 
         Result = give(isl_union_map_add_map(Result.take(), ValInst.take()));
-      }
+      
     }
 
     assert(isl_union_map_is_single_valued(Result.keep()));
     return Result;
   }
 
-  bool tryMapPHI(MemoryAccess *PHIRead,
+  bool tryMapPHI(const ScopArrayInfo *SAI,
                  // { Zone[] -> Element[] }
                  IslPtr<isl_map> Target) {
+	  auto PHIRead = this->PHIReadAccs.lookup(SAI);
     assert(PHIRead->isPHIKind());
     assert(PHIRead->isRead());
     // TODO: Check same(or at least more) byte size
@@ -2307,7 +2293,7 @@ private:
     }
 
     // { DomainPHIRead[] -> DomainPHIWrite[] }
-    auto PerPHIWrites = computePerPHI(PHIRead);
+    auto PerPHIWrites = computePerPHI(SAI);
     assert(isl_union_map_is_single_valued(PerPHIWrites.keep()));
     assert(isl_union_map_is_injective(PerPHIWrites.keep()));
 
@@ -2324,14 +2310,10 @@ private:
         give(isl_union_map_domain(ExpandedTargetWrites.copy()));
     auto UniverseWritesDom = give(isl_union_set_empty(ParamSpace.copy()));
     //        wholeStmtDomain(isl_union_set_copy(ExpandedWritesDom));
-    for (auto &Stmt : *S) {
-      for (auto *MA : Stmt) {
-        if (!isLatestAccessingSameScalar(MA, PHIRead))
-          continue;
 
+	for (auto *MA : PHIIncomingAccs.lookup(SAI)) {
         UniverseWritesDom = give(isl_union_set_add_set(
             UniverseWritesDom.take(), getDomainFor(MA).take()));
-      }
     }
 
     if (!isl_union_set_is_subset(UniverseWritesDom.keep(),
@@ -2361,7 +2343,7 @@ private:
         isl_union_map_from_map(Lifetime.copy()), PerPHIWrites.copy()));
 
     // { DomainPHIWrite[] -> ValInst[] }
-    auto WrittenValue = determinePHIWrittenValues(PHIRead);
+    auto WrittenValue = determinePHIWrittenValues(SAI);
 
     // { DomainPHIWrite[] -> [Element[] -> Scatter[]] }
     auto WrittenTranslator = give(isl_union_map_range_product(
@@ -2394,43 +2376,36 @@ private:
     if (isConflicting(Proposed, true, 4))
       return false;
 
-    mapPHI(PHIRead, std::move(PHITarget), std::move(ExpandedTargetWrites),
+    mapPHI(SAI, std::move(PHITarget), std::move(ExpandedTargetWrites),
            std::move(Lifetime), std::move(Proposed));
     return true;
   }
 
-  void mapPHI(MemoryAccess *PHIRead,
+  void mapPHI(const ScopArrayInfo *SAI,
               // { DomainPHIRead[] -> Element[] }
               IslPtr<isl_map> ReadMapping,
               // { DomainPHIWrite[] -> Element[] }
               IslPtr<isl_union_map> WriteMapping,
               // { DomainPHIRead[] -> Zone[] }
               IslPtr<isl_map> Lifetime, MappingDecision Proposed) {
+	  auto *PHIRead = this->PHIReadAccs.lookup(SAI);
 
     // { Element[] }
     auto ElementSpace =
         give(isl_space_range(isl_map_get_space(ReadMapping.keep())));
 
     int NumMappedAccessed = 1;
-    for (auto &Stmt : *S) {
-      for (auto *MA : Stmt) {
-        if (MA == PHIRead)
-          continue;
-        if (!isLatestAccessingSameScalar(MA, PHIRead))
-          continue;
-        assert(MA->isWrite());
-        assert(MA->isPHIKind());
-        assert(MA->getLatestScopArrayInfo()->isPHIKind());
 
-        auto DomSpace = Stmt.getDomainSpace();
+	for (auto *MA : PHIIncomingAccs.lookup(SAI)) {
+        auto DomSpace =  give( MA->getStatement()->getDomainSpace());
         auto WriteTargetSpace = give(
-            isl_space_map_from_domain_and_range(DomSpace, ElementSpace.copy()));
+            isl_space_map_from_domain_and_range(DomSpace.take(), ElementSpace.copy()));
         auto NewAccRel = give(isl_union_map_extract_map(
             WriteMapping.keep(), WriteTargetSpace.take()));
 
         MA->setNewAccessRelation(NewAccRel.take());
         NumMappedAccessed += 1;
-      }
+      
     }
 
     PHIRead->setNewAccessRelation(ReadMapping.copy());
@@ -2491,12 +2466,14 @@ private:
         DL.getTypeAllocSize(TargetStoreMA->getAccessValue()->getType());
 
     while (!Worklist.empty()) {
-      auto MA = Worklist.pop_back_val();
+      auto* MA = Worklist.pop_back_val();
+
       if (MA->isLatestArrayKind())
         continue;
-      auto NormMA = NormalizeMA(MA);
-      DEBUG(dbgs() << "\n    Trying to map " << MA << " (Norm: " << NormMA
-                   << ")\n");
+  
+	  	  auto *SAI =MA->getScopArrayInfo(); 
+		  assert(SAI);
+      DEBUG(dbgs() << "\n    Trying to map " << MA << " (SAI: " << SAI                   << ")\n");
 
       auto MASize = DL.getTypeAllocSize(MA->getAccessValue()->getType());
       if (MASize > StoreSize) {
@@ -2504,28 +2481,20 @@ private:
         continue;
       }
 
-      if (!isMappable(NormMA))
+      if (!isMappable(SAI))
         continue;
 
-      if (NormMA->isValueKind() && tryMapValue(MA, NormMA, EltTarget)) {
-        ProcessAllIncoming(NormMA->getStatement());
+      if (SAI->isValueKind() && tryMapValue(SAI, MA, EltTarget)) {
+        ProcessAllIncoming(MA->getStatement());
         AnyMapped = true;
         continue;
       }
 
-      if (NormMA->isPHIKind() && tryMapPHI(NormMA, EltTarget)) {
-        for (auto &PHIWriteStmt : *S) {
-          for (auto *PHIWrite : PHIWriteStmt) {
-            if (NormMA == PHIWrite)
-              continue;
-            if (!isLatestAccessingSameScalar(NormMA, PHIWrite))
-              continue;
-            assert(PHIWrite->isPHIKind());
-            assert(PHIWrite->isMustWrite());
+      if (SAI->isPHIKind() && tryMapPHI(SAI, EltTarget)) {
 
-            ProcessAllIncoming(&PHIWriteStmt);
-          }
-        }
+		  for (auto *PHIWrite : PHIIncomingAccs.lookup(SAI) ) 
+            ProcessAllIncoming(PHIWrite->getStatement());
+        
         AnyMapped = true;
         continue;
       }
@@ -2553,45 +2522,46 @@ private:
     Zone.print(OS, indent + 4);
   }
 
+#if 0
+    DenseMap<Value *, MemoryAccess *> ValueDefs;
+  DenseMap<Value *, MemoryAccess *> PHIReads;
+#endif
+
+  DenseMap< const ScopArrayInfo *, MemoryAccess*> ValueDefAccs;
+  DenseMap<const  ScopArrayInfo *, SmallVector<MemoryAccess*,4> >ValueUseAccs;
+  DenseMap<const ScopArrayInfo *, MemoryAccess *> PHIReadAccs;
+  DenseMap<const ScopArrayInfo*, SmallVector<MemoryAccess*, 4>> PHIIncomingAccs; 
+
   // Find the MemoryAccess that defines an MK_Value/reads and MK_PHI.
   // MK_ExitPHIs are never mapped.
   void findScalarAccesses() {
     for (auto &Stmt : *S) {
       for (auto *MA : Stmt) {
 
-        if (MA->isValueKind() && MA->isWrite()) {
-          auto Val = MA->getOriginalBaseAddr();
-          assert(!ValueDefs.count(Val) &&
+        if (MA->isOriginalValueKind() && MA->isWrite()) {
+          auto *SAI = MA->getScopArrayInfo();
+          assert(!ValueDefAccs.count(SAI) &&
                  "There must be at most one definition per MK_Value scalar");
-          ValueDefs[Val] = MA;
+          ValueDefAccs[SAI] = MA;
         }
 
-        if (MA->isPHIKind() && MA->isRead()) {
-          auto Val = MA->getOriginalBaseAddr();
-          assert(!PHIReads.count(Val) && "There must be exactly one read by "
+		if (MA->isOriginalValueKind() && MA->isRead()) 
+			ValueUseAccs[MA->getScopArrayInfo()].push_back(MA);
+
+
+        if (MA->isOriginalAnyPHIKind() && MA->isRead()) {
+          auto *SAI = MA->getScopArrayInfo();
+          assert(!PHIReadAccs.count(SAI) && "There must be exactly one read by "
                                          "PHI (that's where the PHINode is)");
-          PHIReads[Val] = MA;
+          PHIReadAccs[SAI] = MA;
         }
+
+		if (MA->isOriginalAnyPHIKind() && MA->isWrite()) 
+			PHIIncomingAccs[MA->getScopArrayInfo()].push_back(MA);
       }
     }
   }
 
-  MemoryAccess *NormalizeMA(MemoryAccess *MA) const {
-    assert(MA);
-    if (MA->isValueKind()) {
-      // nullptr means it is a read-only access; don't try to optimize those
-      auto Result = ValueDefs.lookup(MA->getOriginalBaseAddr());
-      return Result;
-    }
-
-    if (MA->isPHIKind()) {
-      auto Result = PHIReads.lookup(MA->getOriginalBaseAddr());
-      assert(Result && "Every PHI must have a READ");
-      return Result;
-    }
-
-    return MA;
-  };
 
   /// Compute when an array element is alive (Its value will be read in the
   /// future) and its value at that time.
@@ -2672,9 +2642,10 @@ public:
     return DelicmMaxOps == 0 || Zone.isUsable();
   }
 
+  /// Try to map as many scalars to unused array elements as possible.
+  ///
+  /// Multiple scalars might be mappable to intersecting unused array element zones, but we can only chose one. This is a greedy algorithm, therefore the first processed will claim it.
   void greedyCollapse() {
-    // TODO: This is a greedy algorithm; we could sort Store MA's according to
-    // some heuristic.
     for (auto &Stmt : *S) {
       for (auto *MA : Stmt) {
         if (!MA->isLatestArrayKind())
@@ -2683,21 +2654,19 @@ public:
           continue;
 
         if (MA->isMayWrite()) {
-          DEBUG(dbgs() << "Access " << MA
+          DEBUG(dbgs() << "Access " << *MA
                        << " pruned because it is a MAY_WRITE\n");
           continue;
         }
 
-        // If requested, skip stores not in loops.
         if (Stmt.getNumIterators() == 0) {
-          DEBUG(dbgs() << "Access " << MA
+          DEBUG(dbgs() << "Access " << *MA
                        << " pruned because it is not in a loop\n");
           continue;
         }
 
-        // If requested, skip stores that access only one element.
-        if (isl_map_is_scalar_access(getAccessRelationFor(MA))) {
-          DEBUG(dbgs() << "Access " << MA
+        if (isScalarAccess(getAccessRelationFor(MA))) {
+          DEBUG(dbgs() << "Access " << *MA
                        << " pruned because it writes only a single element\n");
           continue;
         }

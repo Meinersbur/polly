@@ -107,7 +107,7 @@ static cl::opt<bool>
 static cl::opt<bool> UnprofitableScalarAccs(
     "polly-unprofitable-scalar-accs",
     cl::desc("Count statements with scalar accesses as not optimizable"),
-    cl::Hidden, cl::init(true), cl::cat(PollyCategory));
+    cl::Hidden, cl::init(false), cl::cat(PollyCategory));
 
 //===----------------------------------------------------------------------===//
 
@@ -915,6 +915,10 @@ raw_ostream &polly::operator<<(raw_ostream &OS,
   else
     OS << MemoryAccess::getReductionOperatorStr(RT);
   return OS;
+}
+
+llvm::raw_ostream &polly::operator<<(llvm::raw_ostream &OS, const ScopArrayInfo &SAI)  {
+return OS;
 }
 
 llvm::raw_ostream &polly::operator<<(llvm::raw_ostream &OS,

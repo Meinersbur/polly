@@ -96,15 +96,15 @@ return:
 ; CHECK-NEXT:     { Stmt_reduction_exit[] -> [13] }
 ; CHECK-NEXT: }
 ; CHECK:      Original zone:
-; CHECK-NEXT:     Lifetime: { [MemRef_A[0] -> [i1{{\]\]}} -> Undef[] : i1 <= 13; [MemRef_A[0] -> [i1{{\]\]}} -> [Stmt_reduction_for[4] -> Val_double__phi[{{\]\]}} : i1 >= 14 }
-; CHECK-NEXT:     Written : { [MemRef_A[0] -> [13{{\]\]}} -> [Stmt_reduction_for[4] -> Val_double__phi[{{\]\]}} }
+; CHECK-NEXT:     Lifetime: { [MemRef_A[0] -> [i1{{\]\]}} -> [Stmt_reduction_for[4] -> Val_phi[{{\]\]}} : i1 >= 14; [MemRef_A[0] -> [i1{{\]\]}} -> Undef[] : i1 <= 13 }
+; CHECK-NEXT:     Written : { [MemRef_A[0] -> [13{{\]\]}} -> [Stmt_reduction_for[4] -> Val_phi[{{\]\]}} }
 ; CHECK:      Mapped scalars {
 ; CHECK-NEXT: }
 ; CHECK:      Cleanups {
 ; CHECK-NEXT: }
 ; CHECK:      After zone:
-; CHECK-NEXT:     Lifetime: { [MemRef_A[0] -> [i1{{\]\]}} -> Undef[] : i1 <= 13; [MemRef_A[0] -> [i1{{\]\]}} -> [Stmt_reduction_for[4] -> Val_double__phi[{{\]\]}} : i1 >= 14 }
-; CHECK-NEXT:     Written : { [MemRef_A[0] -> [13{{\]\]}} -> [Stmt_reduction_for[4] -> Val_double__phi[{{\]\]}} }
+; CHECK-NEXT:     Lifetime: { [MemRef_A[0] -> [i1{{\]\]}} -> [Stmt_reduction_for[4] -> Val_phi[{{\]\]}} : i1 >= 14; [MemRef_A[0] -> [i1{{\]\]}} -> Undef[] : i1 <= 13 }
+; CHECK-NEXT:     Written : { [MemRef_A[0] -> [13{{\]\]}} -> [Stmt_reduction_for[4] -> Val_phi[{{\]\]}} }
 ; CHECK:      After Statements {
 ; CHECK-NEXT:     Stmt_reduction_for
 ; CHECK-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 1]

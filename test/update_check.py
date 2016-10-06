@@ -323,6 +323,11 @@ def update_autorule(filename,outfile,known):
 def update_check_rule(filename,outfile,known,CheckInclude=set(),CheckLabelInclude=set()):
     update_check(filename,outfile,known,CheckInclude=set(known.check_include)|CheckInclude,CheckLabelInclude=set(known.check_label_include)|CheckLabelInclude)
 
+def unmodified(outfile,oldlines):
+     with open(outfile, 'w', newline='') as file:
+        for line in oldlines:
+            file.write(line)
+            file.write('\n')
 
 def update_check(filename,outfile,known,CheckInclude,CheckLabelInclude):
     filecheckparser = argparse.ArgumentParser(add_help=False)
@@ -336,6 +341,8 @@ def update_check(filename,outfile,known,CheckInclude,CheckLabelInclude):
 
     runlines = []
     for line in oldlines:
+        if xfailre.match(line):
+            return unmodified(outfile,oldlines)
         m = runre.match(line)
         if m:
             runlines.append(m.group('tool'))
@@ -463,7 +470,7 @@ def update_check(filename,outfile,known,CheckInclude,CheckLabelInclude):
         allchecklines.append(checklines)
 
     if not checkprefixes:
-        return
+        return unmodified(outfile,oldlines)
 
     checkre = re.compile(r'^\s*\;\s*(' + '|'.join([re.escape(s) for s in checkprefixes]) + ')(\-NEXT|\-DAG|\-NOT|\-LABEL|\-SAME)?\s*\:')
     firstcheckline = None
@@ -474,8 +481,6 @@ def update_check(filename,outfile,known,CheckInclude,CheckLabelInclude):
     emptylines = []
     lastwascheck = False
     for line in oldlines:
-        if xfailre.match(line):
-            return False
         if checkre.match(line):
             if firstcheckline is None:
                 firstcheckline = len(newlines) + len(emptylines)
