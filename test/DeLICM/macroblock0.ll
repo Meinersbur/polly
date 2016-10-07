@@ -1,4 +1,4 @@
-; RUN: opt %loadPolly -polly-delicm -analyze < %s
+; RUN: opt %loadPolly -polly-delicm -analyze < %s | FileCheck %s
 
 ; Derived from test-suite/../../../../../mnt/c/Users/Meinersbur/src/llvm/projects/test-suite/MultiSource/Applications/JM/ldecod/macroblock.c
 
@@ -134,3 +134,31 @@ attributes #0 = { nounwind uwtable "disable-tail-calls"="false" "less-precise-fp
 !llvm.ident = !{!0}
 
 !0 = !{!"clang version 4.0.0 (trunk 277335)"}
+
+
+; CHECK:      Original zone:
+; CHECK-NEXT:     Lifetime: null
+; CHECK-NEXT:     Written : null
+; CHECK:      Mapped scalars {
+; CHECK-NEXT: }
+; CHECK:      Cleanups {
+; CHECK-NEXT: }
+; CHECK:      After zone:
+; CHECK-NEXT:     Lifetime: null
+; CHECK-NEXT:     Written : null
+; CHECK:      After Statements {
+; CHECK-NEXT:     Stmt_for_cond2067_preheader
+; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; CHECK-NEXT:                 [indvars_iv53, p_1, switch_downshift] -> { Stmt_for_cond2067_preheader[i0] -> MemRef_img[602 + 16indvars_iv53 + 16i0] };
+; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; CHECK-NEXT:                 [indvars_iv53, p_1, switch_downshift] -> { Stmt_for_cond2067_preheader[i0] -> MemRef_img[1178 + 16indvars_iv53 + 16i0] };
+; CHECK-NEXT:     Stmt_for_cond2143_preheader
+; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; CHECK-NEXT:                 [indvars_iv53, p_1, switch_downshift] -> { Stmt_for_cond2143_preheader[i0] -> MemRef_m6[0] };
+; CHECK-NEXT:     Stmt_if_then2188
+; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; CHECK-NEXT:                 [indvars_iv53, p_1, switch_downshift] -> { Stmt_if_then2188[i0, i1] -> MemRef_img[602 + 192i0] };
+; CHECK-NEXT:     Stmt_if_else2255
+; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; CHECK-NEXT:                 [indvars_iv53, p_1, switch_downshift] -> { Stmt_if_else2255[i0, i1] -> MemRef_img[602 + 192i0 + 16i1] };
+; CHECK-NEXT: }

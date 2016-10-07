@@ -1,4 +1,4 @@
-; RUN: opt %loadPolly  -polly-delicm -analyze < %s
+; RUN: opt %loadPolly -polly-delicm -analyze < %s | FileCheck %s
 
 ; Derived from test-suite/../../../../../mnt/c/Users/Meinersbur/src/llvm/projects/test-suite/MultiSource/Benchmarks/TSVC/ControlFlow-flt/tsc.c
 
@@ -49,3 +49,35 @@ for.body.i935:                                    ; preds = %for.body28.i943
 if.end1110:                                       ; preds = %for.body.i935
   ret void
 }
+
+
+; CHECK:      Original zone:
+; CHECK-NEXT:     Lifetime: { [MemRef_global_data[31999] -> [i1, i2{{\]\]}} -> Val_1_000000e_00[] : i1 >= 2; [MemRef_global_data[31999] -> [1, i2{{\]\]}} -> Val_1_000000e_00[] : i2 > 0; [MemRef_global_data[i0] -> [i1, i2{{\]\]}} -> Undef[] : 0 <= i0 <= 31999 and i1 < 0 and 10*floor((i0)/10) <= -4 + i0; [MemRef_global_data[32004] -> [i1, i2{{\]\]}} -> Undef[]; [MemRef_global_data[31999] -> [i1, i2{{\]\]}} -> Undef[] : i1 <= 0; [MemRef_global_data[i0] -> [0, i2{{\]\]}} -> Undef[] : 0 <= i0 <= 31999 and 10i2 <= i0 and 10*floor((i0)/10) <= -4 + i0; [MemRef_global_data[31999] -> [1, i2{{\]\]}} -> Undef[] : i2 <= 0; [MemRef_global_data[i0] -> [i1, i2{{\]\]}} -> Val__000000e_00[] : 0 <= i0 <= 31999 and i1 > 0 and 9*floor((i0)/10) >= -3207 + i0 and 10*floor((i0)/10) <= -4 + i0; [MemRef_global_data[i0] -> [0, i2{{\]\]}} -> Val__000000e_00[] : 0 <= i0 <= 31999 and 10i2 > i0 and 9*floor((i0)/10) >= -3207 + i0 and 10*floor((i0)/10) <= -4 + i0 }
+; CHECK-NEXT:     Written : { [MemRef_global_data[i0] -> [0, i2{{\]\]}} -> Val__000000e_00[] : 0 <= i2 <= 3199 and -9 + i0 <= 10i2 <= -4 + i0; [MemRef_global_data[31999] -> [1, 0{{\]\]}} -> Val_1_000000e_00[]; [MemRef_global_data[32004] -> [1, 0{{\]\]}} -> Undef[] }
+; CHECK:      Mapped scalars {
+; CHECK-NEXT: }
+; CHECK:      Cleanups {
+; CHECK-NEXT: }
+; CHECK:      After zone:
+; CHECK-NEXT:     Lifetime: { [MemRef_global_data[31999] -> [i1, i2{{\]\]}} -> Val_1_000000e_00[] : i1 >= 2; [MemRef_global_data[31999] -> [1, i2{{\]\]}} -> Val_1_000000e_00[] : i2 > 0; [MemRef_global_data[i0] -> [i1, i2{{\]\]}} -> Undef[] : 0 <= i0 <= 31999 and i1 < 0 and 10*floor((i0)/10) <= -4 + i0; [MemRef_global_data[32004] -> [i1, i2{{\]\]}} -> Undef[]; [MemRef_global_data[31999] -> [i1, i2{{\]\]}} -> Undef[] : i1 <= 0; [MemRef_global_data[i0] -> [0, i2{{\]\]}} -> Undef[] : 0 <= i0 <= 31999 and 10i2 <= i0 and 10*floor((i0)/10) <= -4 + i0; [MemRef_global_data[31999] -> [1, i2{{\]\]}} -> Undef[] : i2 <= 0; [MemRef_global_data[i0] -> [i1, i2{{\]\]}} -> Val__000000e_00[] : 0 <= i0 <= 31999 and i1 > 0 and 9*floor((i0)/10) >= -3207 + i0 and 10*floor((i0)/10) <= -4 + i0; [MemRef_global_data[i0] -> [0, i2{{\]\]}} -> Val__000000e_00[] : 0 <= i0 <= 31999 and 10i2 > i0 and 9*floor((i0)/10) >= -3207 + i0 and 10*floor((i0)/10) <= -4 + i0 }
+; CHECK-NEXT:     Written : { [MemRef_global_data[i0] -> [0, i2{{\]\]}} -> Val__000000e_00[] : 0 <= i2 <= 3199 and -9 + i0 <= 10i2 <= -4 + i0; [MemRef_global_data[31999] -> [1, 0{{\]\]}} -> Val_1_000000e_00[]; [MemRef_global_data[32004] -> [1, 0{{\]\]}} -> Undef[] }
+; CHECK:      After Statements {
+; CHECK-NEXT:     Stmt_for_body28_i943
+; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; CHECK-NEXT:                 { Stmt_for_body28_i943[i0] -> MemRef_global_data[4 + 10i0] };
+; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; CHECK-NEXT:                 { Stmt_for_body28_i943[i0] -> MemRef_global_data[5 + 10i0] };
+; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; CHECK-NEXT:                 { Stmt_for_body28_i943[i0] -> MemRef_global_data[6 + 10i0] };
+; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; CHECK-NEXT:                 { Stmt_for_body28_i943[i0] -> MemRef_global_data[7 + 10i0] };
+; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; CHECK-NEXT:                 { Stmt_for_body28_i943[i0] -> MemRef_global_data[8 + 10i0] };
+; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; CHECK-NEXT:                 { Stmt_for_body28_i943[i0] -> MemRef_global_data[9 + 10i0] };
+; CHECK-NEXT:     Stmt_for_body_i935
+; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; CHECK-NEXT:                 { Stmt_for_body_i935[] -> MemRef_global_data[32004] };
+; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; CHECK-NEXT:                 { Stmt_for_body_i935[] -> MemRef_global_data[31999] };
+; CHECK-NEXT: }

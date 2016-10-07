@@ -1,6 +1,4 @@
-; opt %loadPolly -polly-delicm -analyze < %s
 ; RUN: opt %loadPolly -basicaa -loop-rotate -licm -polly-scops -polly-delicm -analyze < %s | FileCheck %s
-; opt %loadPolly -basicaa -loop-rotate -gvn -polly-delicm -analyze < %s | FileCheck %s
 ; 
 ; dgemm kernel
 ; C := alpha*A*B + beta*C

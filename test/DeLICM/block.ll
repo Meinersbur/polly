@@ -1,4 +1,4 @@
-; RUN: opt %loadPolly -polly-known -polly-delicm -analyze < %s
+; RUN: opt %loadPolly -polly-delicm -analyze < %s
 
 ; Derived from test-suite/../../../../../mnt/c/Users/Meinersbur/src/llvm/projects/test-suite/MultiSource/Applications/JM/lencod/block.c
 

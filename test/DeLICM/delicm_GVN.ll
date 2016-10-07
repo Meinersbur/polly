@@ -1,4 +1,4 @@
-; RUN: opt %loadPolly -polly-scops -analyze < %s | FileCheck %s
+; RUN: opt %loadPolly -polly-scops -analyze < %s 
 ;
 ;    void func(int n, double A[static const n], int m) {
 ;      for (int j = 0; j < n; j += 1) { /* parallel loop */

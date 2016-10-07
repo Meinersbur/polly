@@ -1,5 +1,5 @@
-; RUN: opt %loadPolly -polly-scops -analyze < %s | FileCheck %s -check-prefix=SCOPS
-; RUN: opt %loadPolly -polly-codegen -S < %s | FileCheck %s -check-prefix=CODEGEN
+; RUN: opt %loadPolly -polly-scops -analyze < %s
+; RUN: opt %loadPolly -polly-codegen -S < %s
 ;
 ;    void foo(long n, float A[n]) {
 ;      for (long i = 0; i < n; i += 1) {

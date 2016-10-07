@@ -917,8 +917,10 @@ raw_ostream &polly::operator<<(raw_ostream &OS,
   return OS;
 }
 
-llvm::raw_ostream &polly::operator<<(llvm::raw_ostream &OS, const ScopArrayInfo &SAI)  {
-return OS;
+llvm::raw_ostream &polly::operator<<(llvm::raw_ostream &OS,
+                                     const ScopArrayInfo &SAI) {
+  OS << "ScopArrayInfo";
+  return OS;
 }
 
 llvm::raw_ostream &polly::operator<<(llvm::raw_ostream &OS,

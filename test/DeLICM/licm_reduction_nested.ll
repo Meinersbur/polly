@@ -1,5 +1,5 @@
-; RUN: opt %loadPolly -basicaa -loop-rotate -indvars       -polly-prepare -polly-scops -analyze < %s | FileCheck %s
-; RUN: opt %loadPolly -basicaa -loop-rotate -indvars -licm -polly-prepare -polly-scops -analyze < %s | FileCheck %s
+; RUN: opt %loadPolly -basicaa -loop-rotate -indvars       -polly-prepare -polly-scops -analyze < %s | FileCheck %s --check-prefix=NOLICM
+; RUN: opt %loadPolly -basicaa -loop-rotate -indvars -licm -polly-prepare -polly-scops -analyze < %s | FileCheck %s --check-prefix=LICM
 ;
 ; XFAIL: *
 ;
@@ -55,56 +55,3 @@ for.inc.6:                                        ; preds = %for.end
 for.end.8:                                        ; preds = %for.cond
   ret void
 }
-
-
-; CHECK:      Printing analysis 'Basic Alias Analysis (stateless AA impl)' for function 'foo':
-; CHECK-NEXT: Pass::print not implemented for pass: 'Basic Alias Analysis (stateless AA impl)'!
-; CHECK-NEXT: Printing analysis 'Rotate Loops':
-; CHECK-NEXT: Pass::print not implemented for pass: 'Rotate Loops'!
-; CHECK-NEXT: Printing analysis 'Induction Variable Simplification':
-; CHECK-NEXT: Pass::print not implemented for pass: 'Induction Variable Simplification'!
-; CHECK-NEXT: Printing analysis 'Rotate Loops':
-; CHECK-NEXT: Pass::print not implemented for pass: 'Rotate Loops'!
-; CHECK-NEXT: Printing analysis 'Induction Variable Simplification':
-; CHECK-NEXT: Pass::print not implemented for pass: 'Induction Variable Simplification'!
-; CHECK-NEXT: Printing analysis 'Polly - Prepare code for polly' for function 'foo':
-; CHECK-NEXT: Printing analysis 'Polly - Create polyhedral description of Scops' for region: 'for.body.3 => for.end' in function 'foo':
-; CHECK-NEXT: Invalid Scop!
-; CHECK-NEXT: Printing analysis 'Polly - Create polyhedral description of Scops' for region: 'for.body => for.end.8' in function 'foo':
-; CHECK-NEXT:     Function: foo
-; CHECK-NEXT:     Region: %for.body---%for.end.8
-; CHECK-NEXT:     Max Loop Depth:  2
-; CHECK-NEXT:     Invariant Accesses: {
-; CHECK-NEXT:     }
-; CHECK-NEXT:     Context:
-; CHECK-NEXT:     [j] -> {  : -9223372036854775808 <= j <= 9223372036854775807 }
-; CHECK-NEXT:     Assumed Context:
-; CHECK-NEXT:     [j] -> {  :  }
-; CHECK-NEXT:     Invalid Context:
-; CHECK-NEXT:     [j] -> {  : 1 = 0 }
-; CHECK-NEXT:     p0: %j
-; CHECK-NEXT:     Arrays {
-; CHECK-NEXT:         i64 MemRef_B[*]; // Element size 8
-; CHECK-NEXT:         i64 MemRef_A[*]; // Element size 8
-; CHECK-NEXT:     }
-; CHECK-NEXT:     Arrays (Bounds as pw_affs) {
-; CHECK-NEXT:         i64 MemRef_B[*]; // Element size 8
-; CHECK-NEXT:         i64 MemRef_A[*]; // Element size 8
-; CHECK-NEXT:     }
-; CHECK-NEXT:     Alias Groups (0):
-; CHECK-NEXT:         n/a
-; CHECK-NEXT:     Statements {
-; CHECK-NEXT:         Stmt_for_body_3
-; CHECK-NEXT:             Domain :=
-; CHECK-NEXT:                 [j] -> { Stmt_for_body_3[i0, i1] : 0 <= i0 <= 99 and 0 <= i1 <= 99 };
-; CHECK-NEXT:             Schedule :=
-; CHECK-NEXT:                 [j] -> { Stmt_for_body_3[i0, i1] -> [i0, i1] };
-; CHECK-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 0]
-; CHECK-NEXT:                 [j] -> { Stmt_for_body_3[i0, i1] -> MemRef_B[i0 + i1] };
-; CHECK-NEXT:             ReadAccess :=    [Reduction Type: +] [Scalar: 0]
-; CHECK-NEXT:                 [j] -> { Stmt_for_body_3[i0, i1] -> MemRef_A[j] };
-; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: +] [Scalar: 0]
-; CHECK-NEXT:                 [j] -> { Stmt_for_body_3[i0, i1] -> MemRef_A[j] };
-; CHECK-NEXT:     }
-; CHECK-NEXT: Printing analysis 'Polly - Create polyhedral description of Scops' for region: 'entry => <Function Return>' in function 'foo':
-; CHECK-NEXT: Invalid Scop!

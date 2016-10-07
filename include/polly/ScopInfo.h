@@ -1034,12 +1034,10 @@ public:
   void dump() const;
 };
 
-
-
 llvm::raw_ostream &operator<<(llvm::raw_ostream &OS,
                               MemoryAccess::ReductionType RT);
 
-llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, const ScopArrayInfo &SAI) ;
+llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, const ScopArrayInfo &SAI);
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, const MemoryAccess &MA);
 
