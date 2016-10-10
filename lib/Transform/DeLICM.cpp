@@ -1025,31 +1025,6 @@ public:
   }
 }; // class MappingDecision
 
-struct CleanupReport {
-  std::string StmtBaseName;
-  Value *Scalar;
-  IslPtr<isl_map> AccRel;
-
-  CleanupReport(std::string Stmt, Value *Scalar, IslPtr<isl_map> AccRel)
-      : StmtBaseName(Stmt), Scalar(Scalar), AccRel(std::move(AccRel)) {
-    DEBUG(print(llvm::dbgs(), 0));
-  }
-
-  CleanupReport(const CleanupReport &That) = delete;
-  CleanupReport(CleanupReport &&That)
-      : StmtBaseName(std::move(That.StmtBaseName)), Scalar(That.Scalar),
-        AccRel(That.AccRel) {
-    That.AccRel = nullptr;
-  }
-
-  void print(llvm::raw_ostream &OS, int indent = 0) const {
-    OS.indent(indent) << "Cleanup:\n";
-    OS.indent(indent + 4) << "Stmt: " << StmtBaseName << "\n";
-    OS.indent(indent + 4) << "Scalar: " << *Scalar << "\n";
-    OS.indent(indent + 4) << "AccRel: " << AccRel << "\n";
-  }
-};
-
 void MappingDecision::dump() const { print(llvm::errs()); }
 } // anonymous namespace
 
@@ -1242,18 +1217,6 @@ protected:
 
   // For initialization order, this must be declared after Schedule.
   isl_ctx *IslCtx = nullptr;
-
-private:
-  SmallVector<CleanupReport, 8> CleanupReports;
-
-protected:
-  void printCleanups(llvm::raw_ostream &OS, int indent = 0) {
-    OS.indent(indent) << "Cleanups {\n";
-    for (auto &Report : CleanupReports) {
-      Report.print(OS, indent + 4);
-    }
-    OS.indent(indent) << "}\n";
-  }
 
 public:
   ComputeZone(Scop *S)
@@ -1764,61 +1727,7 @@ protected:
     return true;
   }
 
-public:
-  // Remove load-store pairs that access the same element in the block.
-  void cleanup() {
 
-    SmallVector<MemoryAccess *, 8> StoresToRemove;
-    for (auto &Stmt : *S) {
-      for (auto *WA : Stmt) {
-        if (!WA->isMustWrite())
-          continue;
-        if (!WA->getLatestScopArrayInfo()->isArrayKind())
-          continue;
-
-        auto ReadingValue = getUsedValue(WA);
-        if (!ReadingValue)
-          continue;
-
-        auto RA = getReadAccessForValue(&Stmt, ReadingValue);
-        if (!RA)
-          continue;
-        if (!RA->getLatestScopArrayInfo()->isArrayKind())
-          continue;
-
-        auto WARel = getAccessRelationFor(WA);
-        auto RARel = getAccessRelationFor(RA);
-
-        auto IsEqualAccRel = isl_map_is_equal(RARel.keep(), WARel.keep());
-
-        if (!IsEqualAccRel) {
-          DEBUG(dbgs() << "    Not cleaning up " << *WA
-                       << " because of unequal access relations:\n");
-          DEBUG(dbgs() << "      RA: " << RARel << "\n");
-          DEBUG(dbgs() << "      WA: " << WARel << "\n");
-        }
-
-        if (IsEqualAccRel)
-          StoresToRemove.push_back(WA);
-      }
-    }
-
-    for (auto *WA : StoresToRemove) {
-      auto Stmt = WA->getStatement();
-      auto AccRel = getAccessRelationFor(WA);
-      auto AccVal = WA->getAccessValue();
-
-      DEBUG(dbgs() << "    Cleanup of\n");
-      DEBUG(dbgs() << "        " << WA << "\n");
-      DEBUG(dbgs() << "      Scalar: " << *AccVal << "\n");
-      DEBUG(dbgs() << "      AccRel: " << AccRel << "\n");
-
-      CleanupReports.emplace_back(Stmt->getBaseName(), AccVal, AccRel);
-
-      Stmt->removeSingleMemoryAccess(WA);
-      // TODO: Also remove read accesses when not used anymore
-    }
-  }
 
 protected:
   // { [Element[] -> Domain[]] -> Scatter[] }
@@ -2678,7 +2587,6 @@ public:
   void print(llvm::raw_ostream &OS, int indent = 0) {
     printBefore(OS, indent);
     printMappedScalars(OS, indent);
-    printCleanups(OS, indent);
     printAfter(OS, indent);
     printAccesses(OS, indent);
   }
@@ -2706,9 +2614,6 @@ private:
 
     DEBUG(dbgs() << "Collapsing scalars to unused array elements...\n");
     ZoneComputer->greedyCollapse();
-
-    DEBUG(dbgs() << "Cleanup neutral load-store pairs...\n");
-    ZoneComputer->cleanup();
 
     DEBUG(dbgs() << "Simplifying...\n");
     S.simplifySCoP(true);

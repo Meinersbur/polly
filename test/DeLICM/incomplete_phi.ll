@@ -125,12 +125,6 @@ return:
 ; CHECK-NEXT:             Lifetime: { [MemRef_C[i0] -> [i1{{\]\]}} -> [Stmt_inner_for[i0, o1] -> Val_phi[{{\]\]}} : 3o1 = -2 - 12i0 + i1 and i0 <= 2 and i1 >= 2 + 12i0 and 14 <= i1 <= 14 + 9i0 and i1 <= 11 + 12i0; [MemRef_C[0] -> [i1{{\]\]}} -> [Stmt_inner_for[0, o1] -> Val_phi[{{\]\]}} : 3o1 = -2 + i1 and 2 <= i1 <= 11; [MemRef_C[2] -> [35{{\]\]}} -> [Stmt_inner_for[2, 3] -> Val_phi[{{\]\]}} }
 ; CHECK-NEXT:             Written : { [MemRef_C[i0] -> [i1{{\]\]}} -> [Stmt_inner_for[i0, o1] -> Val_phi[{{\]\]}} : 3o1 = -1 - 12i0 + i1 and i0 <= 2 and i1 > 12i0 and 13 <= i1 <= 10 + 12i0; [MemRef_C[0] -> [i1{{\]\]}} -> [Stmt_inner_for[0, o1] -> Val_phi[{{\]\]}} : 3o1 = -1 + i1 and 0 < i1 <= 10 }
 ; CHECK-NEXT: }
-; CHECK:      Cleanups {
-; CHECK-NEXT:     Cleanup:
-; CHECK-NEXT:         Stmt: Stmt_inner_exit
-; CHECK-NEXT:         Scalar:   %phi = phi double [ 0.000000e+00, %outer.body ], [ %sum, %inner.inc ]
-; CHECK-NEXT:         AccRel: { Stmt_inner_exit[i0] -> MemRef_C[i0] : 0 <= i0 <= 2 }
-; CHECK-NEXT: }
 ; CHECK:      After zone:
 ; CHECK-NEXT:     Lifetime: { [MemRef_C[i0] -> [i1{{\]\]}} -> Undef[] : 0 <= i0 <= 2 and i1 <= 11 + 12i0 and ((i1 <= 34 and 3*floor((-2 + i1)/3) <= -3 + i1) or (3*floor((-2 + i1)/3) = -2 + i1 and i1 <= 1 + 12i0)); [MemRef_C[i0] -> [i1{{\]\]}} -> [Stmt_inner_for[i0, o1] -> Val_phi[{{\]\]}} : 3o1 = -2 - 12i0 + i1 and i0 <= 2 and i1 >= 2 + 12i0 and 14 <= i1 <= 14 + 9i0 and i1 <= 11 + 12i0; [MemRef_C[i0] -> [i1{{\]\]}} -> [Stmt_inner_for[i0, 3] -> Val_phi[{{\]\]}} : 0 <= i0 <= 2 and i1 >= 12 + 12i0; [MemRef_C[0] -> [i1{{\]\]}} -> [Stmt_inner_for[0, o1] -> Val_phi[{{\]\]}} : 3o1 = -2 + i1 and 2 <= i1 <= 11; [MemRef_C[2] -> [35{{\]\]}} -> [Stmt_inner_for[2, 3] -> Val_phi[{{\]\]}} }
 ; CHECK-NEXT:     Written : { [MemRef_C[i0] -> [i1{{\]\]}} -> [Stmt_inner_for[i0, o1] -> Val_phi[{{\]\]}} : 3o1 = -1 - 12i0 + i1 and i0 <= 2 and i1 > 12i0 and 13 <= i1 <= 10 + 12i0; [MemRef_C[0] -> [i1{{\]\]}} -> [Stmt_inner_for[0, o1] -> Val_phi[{{\]\]}} : 3o1 = -1 + i1 and 0 < i1 <= 10; [MemRef_C[i0] -> [11 + 12i0{{\]\]}} -> [Stmt_inner_for[i0, 3] -> Val_phi[{{\]\]}} : 0 <= i0 <= 2 }
@@ -155,4 +149,10 @@ return:
 ; CHECK-NEXT:                 { Stmt_inner_inc[i0, i1] -> MemRef_sum[] };
 ; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 1]
 ; CHECK-NEXT:                 { Stmt_inner_inc[i0, i1] -> MemRef_phi__phi[] };
+; CHECK-NEXT:     Stmt_inner_exit
+; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; CHECK-NEXT:                 { Stmt_inner_exit[i0] -> MemRef_C[i0] };
+; CHECK-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:                 { Stmt_inner_exit[i0] -> MemRef_phi[] };
+; CHECK-NEXT:            new: { Stmt_inner_exit[i0] -> MemRef_C[i0] : 0 <= i0 <= 2 };
 ; CHECK-NEXT: }

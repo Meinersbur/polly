@@ -141,8 +141,6 @@ attributes #0 = { nounwind uwtable "disable-tail-calls"="false" "less-precise-fp
 ; CHECK-NEXT:     Written : null
 ; CHECK:      Mapped scalars {
 ; CHECK-NEXT: }
-; CHECK:      Cleanups {
-; CHECK-NEXT: }
 ; CHECK:      After zone:
 ; CHECK-NEXT:     Lifetime: null
 ; CHECK-NEXT:     Written : null

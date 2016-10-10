@@ -51,8 +51,6 @@ return:
 ; CHECK-NEXT:     Written : [n, m] -> { [MemRef_A[i0] -> [i0, i2{{\]\]}} -> [Stmt_body[i0, i2] -> Val_add[{{\]\]}} : 0 <= i0 < n and 0 <= i2 < m }
 ; CHECK:      Mapped scalars {
 ; CHECK-NEXT: }
-; CHECK:      Cleanups {
-; CHECK-NEXT: }
 ; CHECK:      After zone:
 ; CHECK-NEXT:     Lifetime: [n, m] -> { [MemRef_A[i0] -> [i1, i2{{\]\]}} -> [Stmt_body[i0, -1 + m] -> Val_add[{{\]\]}} : m > 0 and 0 <= i0 < n and i1 > i0; [MemRef_A[i0] -> [i0, i2{{\]\]}} -> [Stmt_body[i0, -1 + m] -> Val_add[{{\]\]}} : m > 0 and 0 <= i0 < n and i2 > m; [MemRef_A[i0] -> [i0, i2{{\]\]}} -> [Stmt_body[i0, -1 + i2] -> Val_add[{{\]\]}} : 0 <= i0 < n and 0 < i2 <= m }
 ; CHECK-NEXT:     Written : [n, m] -> { [MemRef_A[i0] -> [i0, i2{{\]\]}} -> [Stmt_body[i0, i2] -> Val_add[{{\]\]}} : 0 <= i0 < n and 0 <= i2 < m }

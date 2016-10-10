@@ -106,8 +106,6 @@ return:
 ; CHECK-NEXT:     Written : { [MemRef_C[i0] -> [i1{{\]\]}} -> [Stmt_nk_alpha[o0, i0 - 3o0, -3i0 + i1] -> Val_beta_c_alpha_a_b[{{\]\]}} : 3i0 <= i1 <= 2 + 3i0 and 0 <= o0 <= 2 and -2 + i0 <= 3o0 <= i0 }
 ; CHECK:      Mapped scalars {
 ; CHECK-NEXT: }
-; CHECK:      Cleanups {
-; CHECK-NEXT: }
 ; CHECK:      After zone:
 ; CHECK-NEXT:     Lifetime: { [MemRef_C[i0] -> [i1{{\]\]}} -> [Stmt_nk_alpha[o0, i0 - 3o0, 2] -> Val_beta_c_alpha_a_b[{{\]\]}} : i1 >= 4 + 3i0 and 0 <= o0 <= 2 and -2 + i0 <= 3o0 <= i0; [MemRef_C[i0] -> [i1{{\]\]}} -> [Stmt_nk_alpha[o0, i0 - 3o0, -1 - 3i0 + i1] -> Val_beta_c_alpha_a_b[{{\]\]}} : 3i0 < i1 <= 3 + 3i0 and 0 <= o0 <= 2 and -2 + i0 <= 3o0 <= i0 }
 ; CHECK-NEXT:     Written : { [MemRef_C[i0] -> [i1{{\]\]}} -> [Stmt_nk_alpha[o0, i0 - 3o0, -3i0 + i1] -> Val_beta_c_alpha_a_b[{{\]\]}} : 3i0 <= i1 <= 2 + 3i0 and 0 <= o0 <= 2 and -2 + i0 <= 3o0 <= i0 }
