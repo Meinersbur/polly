@@ -115,6 +115,54 @@ TEST(DeLICM, ReachingDefinitionZone) {
       "Stmt_reduction_for[4] : 12 < i }");
 }
 
+void checkComputeArrayLifetime(const char *ScheduleStr ,
+                                  const char *WritesStr, const char *ReadsStr,
+                                  int ReadEltInSameInst, int InclWrite,
+                                  int InclLastRead, int ExitReads, const char *ExpectedStr) {
+	  BOOL_FOR(ReadEltInSameInst) BOOL_FOR(InclWrite) BOOL_FOR(InclLastRead) BOOL_FOR(ExitReads) {
+    isl_ctx *Ctx = isl_ctx_alloc();
+
+    {
+      auto Schedule = give(isl_union_map_read_from_str(Ctx, ScheduleStr));
+      auto Writes = give(isl_union_map_read_from_str(Ctx, WritesStr));
+      auto Reads = give(isl_union_map_read_from_str(Ctx, ReadsStr));
+      auto Expected = give(isl_union_map_read_from_str(Ctx, ExpectedStr));
+
+      auto Result = computeArrayLifetime(Schedule, Writes, Reads, ReadEltInSameInst,InclWrite, InclLastRead, ExitReads);
+      auto Success = isl_union_map_is_equal(Result.keep(), Expected.keep());
+
+      EXPECT_EQ(isl_bool_true, Success);
+    }
+
+    isl_ctx_free(Ctx);
+  }
+}
+
+TEST(DeLICM, ArrayPerWriteLifetimeZone) {
+	checkComputeArrayLifetime("{ }","{ }", "{ }", indef, indef, indef, indef, "{ }");
+	checkComputeArrayLifetime("{ Read[] -> [10] }","{ Read[] -> A[] }", "{ }", indef, indef, indef, false, "{ }");
+
+	checkComputeArrayLifetime("{ Def[] -> [10] }","{ Def[] -> A[] }", "{ }", indef, indef, indef, false, "{ }");
+	checkComputeArrayLifetime("{ Def[] -> [10] }","{ Def[] -> A[] }", "{ }", indef, false, indef, true, "{ [A[] -> Def[]] -> [i] : 10 < i }");
+	checkComputeArrayLifetime("{ Def[] -> [10] }","{ Def[] -> A[] }", "{ }", indef, true, indef, true, "{ [A[] -> Def[]] -> [i] : 10 <= i }");
+
+	checkComputeArrayLifetime("{ Def[] -> [10]; Read[] -> [20] }","{ Def[] -> A[] }", "{ Read[] -> A[] }",indef, false, false,  false, "{ [A[] -> Def[]] -> [i] : 10 < i < 20 }");
+	checkComputeArrayLifetime("{ Def[] -> [10]; Read[] -> [20] }","{ Def[] -> A[] }", "{ Read[] -> A[] }", indef,true, false,  false, "{ [A[] -> Def[]] -> [i] : 10 <= i < 20 }");
+	checkComputeArrayLifetime("{ Def[] -> [10]; Read[] -> [20] }","{ Def[] -> A[] }", "{ Read[] -> A[] }",indef, false, true,  false, "{ [A[] -> Def[]] -> [i] : 10 < i <= 20 }");
+	checkComputeArrayLifetime("{ Def[] -> [10]; Read[] -> [20] }","{ Def[] -> A[] }", "{ Read[] -> A[] }",indef, true, true,  false, "{ [A[] -> Def[]] -> [i] : 10 <= i <= 20 }");
+	checkComputeArrayLifetime("{ Def[] -> [10]; Read[] -> [20] }","{ Def[] -> A[] }", "{ Read[] -> A[] }", indef, false, indef, true, "{ [A[] -> Def[]] -> [i] : 10 < i }");
+	checkComputeArrayLifetime("{ Def[] -> [10]; Read[] -> [20] }","{ Def[] -> A[] }", "{ Read[] -> A[] }", indef, true, indef, true, "{ [A[] -> Def[]] -> [i] : 10 <= i }");
+
+	checkComputeArrayLifetime("{ Def[] -> [10]; Read1[] -> [20]; Read2[] -> [30] }","{ Def[] -> A[] }", "{ Read1[] -> A[]; Read2[] -> A[] }",indef, true, indef,  true, "{ [A[] -> Def[]] -> [i] : 10 <= i }");
+	checkComputeArrayLifetime("{ Def[] -> [10]; Read1[] -> [20]; Read2[] -> [30] }","{ Def[] -> A[] }", "{ Read1[] -> A[]; Read2[] -> A[] }", indef, true, true, false, "{ [A[] -> Def[]] -> [i] : 10 <= i <= 30 }");
+
+	checkComputeArrayLifetime("{ Def1[] -> [0]; Read[] -> [10]; Def2[] -> [20] }","{ Def1[] -> A[]; Def2[] -> A[] }", "{ Read[] -> A[] }", indef,  true, true,  false,  "{ [A[] -> Def1[]] -> [i] : 0 <= i <= 10 }");
+	checkComputeArrayLifetime("{ Def1[] -> [0]; Read[] -> [10]; Def2[] -> [20] }","{ Def1[] -> A[]; Def2[] -> A[] }", "{ Read[] -> A[] }", indef,  true, true,  true,  "{ [A[] -> Def1[]] -> [i] : 0 <= i <= 10; [A[] -> Def2[]] -> [i] : 20 <= i }");
+
+	checkComputeArrayLifetime("{ Def1[] -> [0]; Def2[] -> [10]; Read[] -> [10] }","{ Def1[] -> A[]; Def2[] -> A[] }", "{ Read[] -> A[] }", false,  true, true,  true,  "{ [A[] -> Def1[]] -> [i] : 0 <= i <= 10; [A[] -> Def2[]] -> [i] : 10 <= i }");
+	checkComputeArrayLifetime("{ Def1[] -> [0]; Def2[] -> [10]; Read[] -> [10] }","{ Def1[] -> A[]; Def2[] -> A[] }", "{ Read[] -> A[] }", true,   true, true,  true, "{ [A[] -> Def2[]] -> [i] : 10 <= i }");
+}
+
 void computeReachingOverwriteZone_check(const char *ScheduleStr,
                                         const char *DefsStr,
                                         int IncludePrevWrite,
