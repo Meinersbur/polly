@@ -341,6 +341,78 @@ void isConflicting_check(const char *ThisKnownStr, const char *ThisUndefStr,
   isl_ctx_free(Ctx);
 }
 
+IslPtr<isl_union_set> unionSpace(NonowningIslPtr<isl_union_set> USet) {
+		  auto Result = give(isl_union_set_empty(isl_union_set_get_space(USet.keep())));
+  foreachElt(USet, [=, &Result](IslPtr<isl_set> Set) {
+	  auto Space = give(isl_set_get_space(Set.keep()));
+	  auto Universe = give(isl_set_universe(Space.take()));
+	Result = give(isl_union_set_add_set( Result.take(), Universe.take()  ));
+  });
+  return Result;
+}
+
+bool checkIsConflicting(const char *ExistingKnownStr, const char *ExistingUnknownStr, const char *ExistingUndefStr,  const char *ExistingWrittenStr, 
+	const char *ProposedKnownStr,  const char *ProposedUnknownStr,  const char *ProposedUndefStr,  const char *ProposedWrittenStr) {
+	std::unique_ptr<isl_ctx ,decltype(&isl_ctx_free)> Ctx  (   isl_ctx_alloc() , &isl_ctx_free);
+  LLVMContext C;
+
+    auto ExistingKnown = give(isl_union_map_read_from_str(Ctx.get(), ExistingKnownStr)) ;
+	auto ExistingUnknown = ExistingUnknownStr  ? give(isl_union_set_read_from_str(Ctx.get(), ExistingUnknownStr)) : nullptr;
+    auto ExistingUndef = ExistingUndefStr  ? give(isl_union_set_read_from_str(Ctx.get(), ExistingUndefStr)): nullptr;
+	 auto ExistingWritten = give(isl_union_map_read_from_str(Ctx.get(), ExistingWrittenStr)) ;
+
+	auto ProposedKnown = give(isl_union_map_read_from_str(Ctx.get(), ProposedKnownStr)) ;
+	auto ProposedUnknown = ProposedUnknownStr  ? give(isl_union_set_read_from_str(Ctx.get(), ProposedUnknownStr)) : nullptr;
+    auto ProposedUndef = ProposedUndefStr  ? give(isl_union_set_read_from_str(Ctx.get(), ProposedUndefStr)): nullptr;
+		 auto ProposedWritten = give(isl_union_map_read_from_str(Ctx.get(), ProposedWrittenStr)) ;
+						
+
+    auto UndefVal = UndefValue::get(IntegerType::get(C, 8));
+    auto UndefId = give(isl_id_alloc(Ctx.get(), "Undef", UndefVal));
+    auto UndefSpace = give( isl_space_set_tuple_id(isl_space_set_alloc(Ctx.get(), 0, 0), isl_dim_set, UndefId.take()));
+    auto UndefSet = give(isl_set_universe(UndefSpace.take()));
+    auto UndefUSet = give(isl_union_set_from_set(UndefSet.take()));
+
+		auto ExistingDefined= give(isl_union_map_domain(ExistingKnown.copy()));
+	auto ExistingLifetime = ExistingKnown;
+	if (ExistingUnknown) {
+			ExistingDefined = give(isl_union_set_union(ExistingDefined.take(), ExistingUnknown.copy()));
+		ExistingLifetime = give(isl_union_map_union(ExistingLifetime.take(),  isl_union_map_from_domain(ExistingUnknown.copy())));
+	}
+	if (ExistingUndef) {
+		ExistingDefined = give(isl_union_set_union(ExistingDefined.take(), ExistingUndef.copy()));
+		ExistingLifetime = give(isl_union_map_union(ExistingLifetime.take(),  isl_union_map_from_domain_and_range(ExistingUndef.copy(), UndefUSet.copy())));
+	}
+
+		auto ProposedDefined= give(isl_union_map_domain(ProposedKnown.copy()));
+	auto ProposedLifetime = ProposedKnown;
+	if (ProposedUnknown) {
+			ProposedDefined = give(isl_union_set_union(ProposedDefined.take(), ProposedUnknown.copy()));
+		ProposedLifetime = give(isl_union_map_union(ProposedLifetime.take(),  isl_union_map_from_domain(ProposedUnknown.copy())));
+	}
+	if (ProposedUndef) {
+		ProposedDefined = give(isl_union_set_union(ProposedDefined.take(), ProposedUndef.copy()));
+		ProposedLifetime = give(isl_union_map_union(ProposedLifetime.take(),  isl_union_map_from_domain_and_range(ProposedUndef.copy(), UndefUSet.copy())));
+	}
+
+	auto ExistingUniverse = unionSpace(  ExistingDefined );
+	auto ProposedUniverse = unionSpace(  ProposedDefined );
+	auto Universe = give(isl_union_set_union(ExistingUniverse.take(), ProposedUniverse.take()));
+
+	//if (!ExistingUnknownStr)  
+	//	ExistingLifetime = give(isl_union_map_union( ExistingLifetime.take(), isl_union_map_from_domain(isl_union_set_subtract(Universe.copy(), ExistingDefined.copy() )) ));
+	if (!ExistingUndefStr)  
+		ExistingLifetime = give(isl_union_map_union( ExistingLifetime.take(), isl_union_map_from_domain_and_range(isl_union_set_subtract(Universe.copy(), ExistingDefined.copy() ),  UndefUSet.copy()) ));
+
+	if (!ProposedUnknownStr)  
+		ExistingLifetime = give(isl_union_map_union( ExistingLifetime.take(), isl_union_map_from_domain(isl_union_set_subtract(Universe.copy(), ExistingDefined.copy() )) ));
+	//if (!ProposedUndefStr)  
+	//	ExistingLifetime = give(isl_union_map_union( ExistingLifetime.take(), isl_union_map_from_domain_and_range(isl_union_set_subtract(Universe.copy(), ExistingDefined.copy() ),  UndefUSet.copy()) ));
+
+    return polly::isConflicting(ExistingLifetime, true, ExistingWritten,   ProposedLifetime, false, ProposedWritten);
+}
+
+
 void isConflicting_checksymmetric(const char *ThisKnownStr,
                                   const char *ThisWrittenStr,
                                   const char *ThatKnownStr,
@@ -352,8 +424,7 @@ void isConflicting_checksymmetric(const char *ThisKnownStr,
 }
 
 TEST(DeLICM, IsConflicting) {
-  isConflicting_check(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-                      false);
+  isConflicting_check(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,    false);
   isConflicting_check(nullptr, nullptr, "{ Dom[0] -> Val[] }", nullptr, nullptr,
                       nullptr, false);
   isConflicting_check(nullptr, nullptr, "{ Dom[0] -> [] }", nullptr, nullptr,
@@ -381,8 +452,10 @@ TEST(DeLICM, IsConflicting) {
                                "{ Dom[0] -> ValB[] }", nullptr, true);
   isConflicting_check("{ Dom[0] -> Val[] }", nullptr, nullptr, nullptr,
                       "{ Dom[0] }", nullptr, true);
-  isConflicting_check(nullptr, nullptr, nullptr, "{ Dom[] -> Val[] }", nullptr,
-                      nullptr, true);
+  isConflicting_check(nullptr, nullptr, nullptr, "{ Dom[] -> Val[] }", nullptr,  nullptr, true);
+  EXPECT_TRUE(checkIsConflicting("{}",                nullptr, "{}", "{}",
+	                            "{ Dom[] -> Val[] }",          "{}", nullptr,
+	                            "{}"));
 
   // computeArrayUnusedZone_checksymmetric("{ Dom[i] -> Val[] : 0 < i < 10 }",
   // nullptr, nullptr,  "{ Dom[0] -> [] }", true );

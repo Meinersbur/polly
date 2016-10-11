@@ -649,11 +649,9 @@ IslPtr<isl_union_map> expandMapping(IslPtr<isl_union_map> Relevant,
                                     IslPtr<isl_union_set> Universe) {
   Relevant = give(isl_union_map_coalesce(Relevant.take()));
   auto RelevantDomain = give(isl_union_map_domain(Relevant.copy()));
-  auto Simplified =
-      give(isl_union_map_gist_domain(Relevant.take(), RelevantDomain.take()));
+  auto Simplified = give(isl_union_map_gist_domain(Relevant.take(), RelevantDomain.take()));
   Simplified = give(isl_union_map_coalesce(Simplified.take()));
-  return give(
-      isl_union_map_intersect_domain(Simplified.take(), Universe.take()));
+  return give( isl_union_map_intersect_domain(Simplified.take(), Universe.take()));
 }
 
 /// Determine whether an access touches at most one element.
@@ -715,11 +713,25 @@ IslPtr<isl_union_set> getUnknownValInstDomain(NonowningIslPtr<isl_union_map> UMa
   auto Result = give(isl_union_set_empty(isl_union_map_get_space(UMap.keep())));
   foreachElt(UMap, [=, &Result](IslPtr<isl_map> Map) {
     if (isMapToUnknown(Map))
-      Result = give(
-          isl_union_set_add_set(Result.take(), isl_map_domain(Map.take())));
+      Result = give(isl_union_set_add_set(Result.take(), isl_map_domain(Map.take())));
   });
   return Result;
 }
+
+/// Return the domain of everything that maps to Undef.
+///
+/// @param UMap { Domain[] -> ValInst[] }
+///
+/// @return { Domain[] }
+IslPtr<isl_union_set> getUndefValInstDomain(NonowningIslPtr<isl_union_map> UMap) {
+  auto Result = give(isl_union_set_empty(isl_union_map_get_space(UMap.keep())));
+  foreachElt(UMap, [=, &Result](IslPtr<isl_map> Map) {
+    if (isMapToUndef(Map))
+      Result = give( isl_union_set_add_set(Result.take(), isl_map_domain(Map.take())));
+  });
+  return Result;
+}
+
 
 /// Remove everything that maps to llvm::Undef.
 ///
@@ -749,6 +761,28 @@ IslPtr<isl_union_map> filterKnownValInst(NonowningIslPtr<isl_union_map> UMap) {
   return Result;
 }
 
+/// Make the complement of each set in the union set.
+IslPtr<isl_union_set> complement(NonowningIslPtr<isl_union_set> USet, NonowningIslPtr<isl_union_set> Universe) {
+	assert(isl_union_set_is_subset(USet.keep(), Universe.keep())==isl_bool_true);
+
+	  auto Result = give(isl_union_set_empty(isl_union_set_get_space(USet.keep())));
+  foreachElt(Universe, [=, &Result](IslPtr<isl_set> UniverseSet) {
+	  auto Set = give(isl_union_set_extract_set(USet.keep(), isl_set_get_space(UniverseSet.keep())));
+	Result = give(isl_union_set_add_set( Result.take(), isl_set_subtract (UniverseSet.take(),  Set.take()) ));
+  });
+  return Result;
+}
+
+IslPtr<isl_union_set> unionSpace(NonowningIslPtr<isl_union_set> USet) {
+		  auto Result = give(isl_union_set_empty(isl_union_set_get_space(USet.keep())));
+  foreachElt(USet, [=, &Result](IslPtr<isl_set> Set) {
+	  auto Space = give(isl_set_get_space(Set.keep()));
+	  auto Universe = give(isl_set_universe(Space.take()));
+	Result = give(isl_union_set_add_set( Result.take(), Universe.take()  ));
+  });
+  return Result;
+}
+
 /// Represent the knowledge of the contents any array elements in any zone or the knowledge we would add when mapping a scalar to an array element.
 ///
 /// Every array element at every zone unit has one three states:
@@ -757,8 +791,8 @@ IslPtr<isl_union_map> filterKnownValInst(NonowningIslPtr<isl_union_map> UMap) {
 /// - Unknown: The element contains a value, but it is not a determinable llvm::Value instance.
 ///
 /// There are two uses for the Knowledge class:
-/// 1) To represent the knowledge of the current state of ScopInfo. The Undef state means that an element is currently unused: there is no read of it before the next overwrite.
-/// 2) To represent the requirements for mapping a scalar to array elements. The undef state means that there is no change/requirement.
+/// 1) To represent the knowledge of the current state of ScopInfo. The Undef state means that an element is currently unused: there is no read of it before the next overwrite. Also called 'existing'.
+/// 2) To represent the requirements for mapping a scalar to array elements. The undef state means that there is no change/requirement. Also called 'proposed'.
 ///
 /// In addition to the these states at unit zones, Knowledge need to know when values are written. This is because written values may have no lifetime (one reason is that the value is never read). Such writes would therefore never conflict, but overwrite values that might still be required. Another source of problems problem are multiple writes to the same element at the same timepoint, because their order is undefined. Writes can either write know or unknown states. An 'undef' write would a non-existing write.
 class Knowledge {
@@ -845,10 +879,8 @@ public:
     auto ThatKnowDomain = filterKnownValInst(That.Lifetime);
     auto ThatDomain = give(isl_union_map_domain(That.Lifetime.take()));
 
-    Lifetime =
-        give(isl_union_map_subtract_domain(Lifetime.take(), ThatDomain.take()));
-    Lifetime =
-        give(isl_union_map_union(Lifetime.take(), ThatKnowDomain.take()));
+    Lifetime =   give(isl_union_map_subtract_domain(Lifetime.take(), ThatDomain.take()));
+    Lifetime =  give(isl_union_map_union(Lifetime.take(), ThatKnowDomain.take()));
 
     Written = give(isl_union_map_union(Written.take(), That.Written.take()));
 
@@ -861,147 +893,113 @@ public:
   ///
   /// A conflict is defined as non-preserved semantics when they are merged. For instance, when for the same array and zone they assume different llvm::Values.
   ///
-  /// @param This One of the knowledges; current implementation requires it to be 'implicit unknown' (use case 1).
-  /// @param That One of the knowledges; current implementation requires it to be 'implicit undef' (use case 2).
- /// @param DumpReason If the knowledges are conflicting, dump the reason to llvm::dbgs().
+  /// @param Existing One of the knowledges; current implementation requires it to be 'implicit unknown' (use case 1).
+  /// @param Proposed One of the knowledges; current implementation requires it to be 'implicit undef' (use case 2).
+ /// @param OS Dump the conflict reason to this output stream; use nullptr to not output anything.
   /// @param Indent Indention for the conflict reason.
   ///
   /// @return True, iff the two knowledges are conflicting.
-	  static bool isConflicting(const Knowledge &This,                            const Knowledge &That ,                            bool DumpReason = false, unsigned Indent = 0) {
+	  static bool isConflicting(const Knowledge &Existing,                            const Knowledge &Proposed ,                 llvm::raw_ostream *OS=nullptr , unsigned Indent = 0) {
+    assert(Existing.isImplicitLifetimeUnknown());
+	assert(Proposed.isImplicitLifetimeUndef());
 
-    assert(This.ImplicitLifetimeIsUnknown && !That.ImplicitLifetimeIsUnknown &&   "Other not yet implemented");
+	// The following domain intersections conflict:
+	// 1) Unknown vs Unknown
+	// 2a) Known vs Unknown, 2b) Unknown vs Known
+	// 3) Known vs Known that do not map to the same llvm::Value instance
+	// 4a) Written vs Unknown, 4b) Unknown vs Written
+	// 5a) Written vs Known, 5b) Know vs Written that to not write the same llvm::Value instance
 
-    auto ThisKnownOrUndefDomain =
-        give(isl_union_map_domain(This.Lifetime.copy()));
-    // auto ThisUndefDomain =
-    // getUndefValInstDomain(isl_union_map_copy(This.Lifetime));
-    auto ThisKnown = filterKnownValInst(This.Lifetime);
-    auto ThisKnownDomain = give(isl_union_map_domain(ThisKnown.copy()));
 
-    // auto ThatKnownOrUnknown = isl_union_map_copy(That.Lifetime);
-    // auto ThatKnownOrUnknownDomain =
-    // isl_union_map_domain(isl_union_map_copy(That.Lifetime));
-    auto ThatUnknownDomain = getUnknownValInstDomain(That.Lifetime);
-    auto ThatKnown = filterKnownValInst(That.Lifetime);
-    auto ThatKnownDomain = give(isl_union_map_domain(ThatKnown.copy()));
-
-    auto OverlapKnown = give(isl_union_set_intersect(ThisKnownDomain.copy(),
-                                                     ThatKnownDomain.copy()));
-    auto ThisOverlapKnown = give(
-        isl_union_map_intersect_domain(ThisKnown.copy(), OverlapKnown.copy()));
-    auto ThatOverlapKnown = give(
-        isl_union_map_intersect_domain(ThatKnown.copy(), OverlapKnown.copy()));
-
-    if (!isl_union_set_is_disjoint(ThatUnknownDomain.keep(),
-                                   ThisKnownDomain.keep())) {
-      if (DumpReason) 
-        dbgs().indent(Indent)
-            << "Conflict between existing unknown an proposed unknown\n";
+	
+   	   
+	// Check 1) and 2a)
+	auto ExistingUndef = getUndefValInstDomain(Existing.Lifetime);
+	auto ProposedUnknownDomain = getUnknownValInstDomain(Proposed.Lifetime);
+    if (!isl_union_set_is_subset(ProposedUnknownDomain.keep(),  ExistingUndef.keep())) {
+      if (OS) 
+        OS->indent(Indent)   << "Conflict with proposed unknown\n";
       return true;
     }
 
-    if (!isl_union_set_is_disjoint(ThatUnknownDomain.keep(),
-                                   ThisKnownDomain.keep())) {
-      if (DumpReason) {
-        dbgs().indent(Indent)
-            << "Conflict between existing unknown an proposed unknown\n";
-        auto Conflict = give(isl_union_map_intersect_domain(
-            ThisKnown.copy(), ThatUnknownDomain.copy()));
-        dbgs().indent(Indent) << "  Conflicting existing known is: " << Conflict
-                              << "\n";
+	// Check 2b)
+	auto ProposedKnown = filterKnownValInst(Proposed.Lifetime);
+	auto ProposedKnownDomain = give(isl_union_map_domain(ProposedKnown.copy()));
+ 	auto ExistingKnownOrUndefDomain = give(isl_union_map_domain(Existing.Lifetime.copy()));
+   if (!isl_union_set_is_subset(ProposedKnownDomain.keep(),     ExistingKnownOrUndefDomain.keep())) {
+      if (OS) 
+        OS->indent(Indent) << "Conflict of existing unknown\n";
+      return true;
+    }
+
+	// Check 3)
+ 	auto ExistingKnown = filterKnownValInst(Existing.Lifetime);
+	auto ExistingKnownDomain = give(isl_union_map_domain(ExistingKnown.copy()));
+  auto CommonOverlapKnown = give(isl_union_set_intersect(ExistingKnownDomain.copy(), ProposedKnownDomain.copy()));
+    auto ExistingOverlapKnown = give( isl_union_map_intersect_domain(ExistingKnown.copy(), CommonOverlapKnown.copy()));
+    auto ProposedOverlapKnown = give( isl_union_map_intersect_domain(ProposedKnown.copy(), CommonOverlapKnown.copy()));
+    if (!isl_union_map_is_equal(ExistingOverlapKnown.keep(),  ProposedOverlapKnown.keep())) {
+      if (OS) {
+        OS->indent(Indent)  << "Conflict of lifetime-to-map known with existing known\n";
+        auto ExistingConflict = give(isl_union_map_subtract( ExistingOverlapKnown.copy(), ProposedOverlapKnown.copy()));
+        auto ProposedConflict = give(isl_union_map_subtract( ProposedOverlapKnown.copy(), ExistingOverlapKnown.copy()));
+        OS->indent(Indent+2) << "Existing wants: " << ExistingConflict    << '\n';
+        OS->indent(Indent+2) << "Proposed wants: " << ProposedConflict   << '\n';
       }
       return true;
     }
 
-    if (!isl_union_map_is_equal(ThisOverlapKnown.keep(),
-                                ThatOverlapKnown.keep())) {
-      if (DumpReason) {
-        dbgs().indent(Indent)
-            << "Conflict of lifetime-to-map known with existing known\n";
-        auto ThisConflicht = give(isl_union_map_subtract(
-            ThisOverlapKnown.copy(), ThatOverlapKnown.copy()));
-        auto ThatConflicht = give(isl_union_map_subtract(
-            ThatOverlapKnown.copy(), ThisOverlapKnown.copy()));
-        dbgs().indent(Indent) << "Existing lifetime wants: " << ThisConflicht
-                              << "\n";
-        dbgs().indent(Indent) << "Lifetime-to-map wants: " << ThatConflicht
-                              << "\n";
-      }
+
+    auto ExistingWritten = shiftDim(Existing.Written, isl_dim_in, -1, 1);
+    auto ExistingWrittenDomain = give(isl_union_map_domain(ExistingWritten.copy()));
+    auto ExistingWrittenUnknownDomain = getUnknownValInstDomain(ExistingWritten);
+
+    auto ProposedWritten = shiftDim(Proposed.Written, isl_dim_in, -1, 1);
+    auto ProposedWrittenDomain = give(isl_union_map_domain(ProposedWritten.copy()));
+    auto ProposedWrittenUnknownDomain = getUnknownValInstDomain(ProposedWritten);
+
+    if (!isl_union_set_is_disjoint(ExistingWrittenDomain.keep(),  ProposedUnknownDomain.keep())) {
+      if (OS) 
+        OS->indent(Indent)  << "Conflict of current write to proposed unknown\n";
       return true;
     }
 
-    if (!isl_union_set_is_subset(ThatKnownDomain.keep(),
-                                 ThisKnownOrUndefDomain.keep())) {
-      if (DumpReason) 
-        dbgs().indent(Indent) << "Conflict of proposed unknown\n";
-      return true;
-    }
-
-    auto ThisWritten = shiftDim(This.Written, isl_dim_in, -1, 1);
-    auto ThisWrittenDomain = give(isl_union_map_domain(ThisWritten.copy()));
-    auto ThisWrittenUnknownDomain = getUnknownValInstDomain(ThisWritten);
-
-    auto ThatWritten = shiftDim(That.Written, isl_dim_in, -1, 1);
-    auto ThatWrittenDomain = give(isl_union_map_domain(ThatWritten.copy()));
-    auto ThatWrittenUnknownDomain = getUnknownValInstDomain(ThatWritten);
-
-    if (!isl_union_set_is_disjoint(ThisWrittenDomain.keep(),
-                                   ThatUnknownDomain.keep())) {
-      if (DumpReason) 
-        dbgs().indent(Indent)
-            << "Conflict of current write to proposed unknown\n";
-      return true;
-    }
-
-    if (!isl_union_set_is_subset(ThatWrittenDomain.keep(),
-                                 ThisKnownOrUndefDomain.keep())) {
-      if (DumpReason) 
+    if (!isl_union_set_is_subset(ProposedWrittenDomain.keep(),  ExistingKnownOrUndefDomain.keep())) {
+      if (OS) 
         dbgs().indent(Indent)
             << "Conflict of proposed write to current unknown\n";
       return true;
     }
 
-    if (!isl_union_set_is_disjoint(ThatWrittenUnknownDomain.keep(),
-                                   ThisKnownDomain.keep())) {
-      if (DumpReason) {
-        dbgs().indent(Indent)
-            << "Conflict of proposed unknown write to current\n";
-      }
+    if (!isl_union_set_is_disjoint(ProposedWrittenUnknownDomain.keep(),  ExistingKnownDomain.keep())) {
+      if (OS) 
+        OS->indent(Indent) << "Conflict of proposed unknown write to current\n";
       return true;
     }
 
-    if (!isl_union_set_is_subset(ThatWrittenUnknownDomain.keep(),
-                                 ThisKnownOrUndefDomain.keep())) {
-      if (DumpReason) {
-        dbgs().indent(Indent)
-            << "Conflict of proposed unknown write to current unknown\n";
-      }
+    if (!isl_union_set_is_subset(ProposedWrittenUnknownDomain.keep(),ExistingKnownOrUndefDomain.keep())) {
+      if (OS) 
+        OS->indent(Indent)  << "Conflict of proposed unknown write to current unknown\n";
       return true;
     }
 
-    if (!isl_union_set_is_disjoint(ThisWrittenUnknownDomain.keep(),
-                                   ThatKnownDomain.keep())) {
-      if (DumpReason) 
-        dbgs().indent(Indent)
-            << "Conflict of current unknown write to proposed\n";
+    if (!isl_union_set_is_disjoint(ExistingWrittenUnknownDomain.keep(),ProposedKnownDomain.keep())) {
+      if (OS) 
+        dbgs().indent(Indent)  << "Conflict of current unknown write to proposed\n";
       return true;
     }
 
-    auto ThatWrittenOverlap = give(isl_union_map_intersect_domain(
-        ThatWritten.copy(), ThisKnownDomain.copy()));
-    if (!isl_union_map_is_subset(ThatWrittenOverlap.keep(), ThisKnown.keep())) {
-      if (DumpReason) 
-        dbgs().indent(Indent)
-            << "Conflict of proposed write to current known\n";
+    auto ThatWrittenOverlap = give(isl_union_map_intersect_domain( ProposedWritten.copy(), ExistingKnownDomain.copy()));
+    if (!isl_union_map_is_subset(ThatWrittenOverlap.keep(), ExistingKnown.keep())) {
+      if (OS) 
+        OS->indent(Indent) << "Conflict of proposed write to current known\n";
       return true;
     }
 
-    auto ThisWrittenOverlap = give(isl_union_map_intersect_domain(
-        ThisWritten.copy(), ThatKnownDomain.copy()));
-    if (!isl_union_map_is_subset(ThisWrittenOverlap.keep(), ThatKnown.keep())) {
-      if (DumpReason) 
-        dbgs().indent(Indent)
-            << "Conflict of current write to proposed known\n";
+    auto ThisWrittenOverlap = give(isl_union_map_intersect_domain(  ExistingWritten.copy(), ProposedKnownDomain.copy()));
+    if (!isl_union_map_is_subset(ThisWrittenOverlap.keep(), ProposedKnown.keep())) {
+      if (OS) 
+        OS->indent(Indent)    << "Conflict of current write to proposed known\n";
       return true;
     }
 
@@ -1239,13 +1237,12 @@ IslPtr<isl_union_map> polly::computeArrayUnused(IslPtr<isl_union_map> Schedule,
 
 bool polly::isConflicting(IslPtr<isl_union_map> ThisLifetime,
                           bool ThisImplicitLifetimeIsUnknown,
-                          IslPtr<isl_union_map> ThisWrittes,
+                          IslPtr<isl_union_map> ThisWritten,
                           IslPtr<isl_union_map> ThatLifetime,
                           bool ThatImplicitLifetimeIsUnknown,
-                          IslPtr<isl_union_map> ThatWrittes) {
-
-  Knowledge This(std::move(ThisLifetime),ThisImplicitLifetimeIsUnknown, std::move(ThisWrittes)                       );
-  Knowledge That(std::move(ThatLifetime),                       ThatImplicitLifetimeIsUnknown, std::move(ThatWrittes));
+                          IslPtr<isl_union_map> ThatWritten) {
+  Knowledge This(std::move(ThisLifetime),ThisImplicitLifetimeIsUnknown, std::move(ThisWritten));
+  Knowledge That(std::move(ThatLifetime), ThatImplicitLifetimeIsUnknown, std::move(ThatWritten));
 
   return Knowledge::isConflicting(This, That,  false);
 }
@@ -1895,9 +1892,9 @@ private:
   SmallVector<MapReport, 8> MapReports;
 
   bool isConflicting(const Knowledge &Proposed) {
-bool PrintReason= false;
-DEBUG(PrintReason = true);
-    return Knowledge::isConflicting(Zone, Proposed, PrintReason, 4);
+raw_ostream *OS=nullptr;
+DEBUG(OS = &llvm::dbgs());
+    return Knowledge::isConflicting(Zone, Proposed, OS, 4);
   }
 
   MemoryAccess *getDefAccsFor(const ScopArrayInfo *SAI) {

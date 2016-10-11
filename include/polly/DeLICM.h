@@ -227,6 +227,7 @@ bool isConflicting(IslPtr<isl_union_map> ThisLifetime,
                    bool ThatImplicitLifetimeIsUnknown,
                    IslPtr<isl_union_map> ThatWrites);
 
+
 llvm::Pass *createDeLICMPass();
 } // namespace polly
 
