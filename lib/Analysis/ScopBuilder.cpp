@@ -590,10 +590,16 @@ void ScopBuilder::ensureValueRead(Value *V, BasicBlock *UserBB) {
   if (UserStmt->lookupValueReadOf(V))
     return;
 
+#if 0
+  // MK: By definition, MK_ExitPHI have no read MemoryAcesses!
+
   // For exit PHIs use the MK_ExitPHI MemoryKind not MK_Value.
   ScopArrayInfo::MemoryKind Kind = ScopArrayInfo::MK_Value;
-  if (!ValueStmt && isa<PHINode>(V))
+  if (!ValueStmt && isa<PHINode>(V) && )
     Kind = ScopArrayInfo::MK_ExitPHI;
+#else 
+    ScopArrayInfo::MemoryKind Kind = ScopArrayInfo::MK_Value;
+#endif
 
   addMemoryAccess(UserBB, nullptr, MemoryAccess::READ, V, V->getType(), true, V,
                   ArrayRef<const SCEV *>(), ArrayRef<const SCEV *>(), Kind);

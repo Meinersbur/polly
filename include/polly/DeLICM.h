@@ -45,10 +45,19 @@ class Scop;
 /// { [A[5] -> [i]] -> Write[] : 0 < i < 10;
 ///   [A[5] -> [i]] -> Overwrite[] : 10 < i }
 ///
-/// That is, between timepoint 0 (Write[]) and timepoint 10 (Overwrite[]), the content of A[5] was written by statement instance Write[] and after timepoint 10 by Overwrite[]. Values not defined in the map have no known definition. This includes the statements instance timepoints themselves, because reads in those timepoints could either read the old or the new value, defined only by the statement itself. But this can be changed by @p InclDef and @p InclRedef. InclDef=false and InclRedef=true will return a zone. Unless @p InclDef and @p InclRedef are both true, there is only one unique definition per element and timepoint.
+/// That is, between timepoint 0 (Write[]) and timepoint 10 (Overwrite[]), the
+/// content of A[5] was written by statement instance Write[] and after
+/// timepoint 10 by Overwrite[]. Values not defined in the map have no known
+/// definition. This includes the statements instance timepoints themselves,
+/// because reads in those timepoints could either read the old or the new
+/// value, defined only by the statement itself. But this can be changed by @p
+/// InclDef and @p InclRedef. InclDef=false and InclRedef=true will return a
+/// zone. Unless @p InclDef and @p InclRedef are both true, there is only one
+/// unique definition per element and timepoint.
 ///
 /// @param Schedule  { DomainWrite[] -> Scatter[] }
-///                  Schedule of (at least) all array writes. Instances not in @p Writes will be ignored.
+///                  Schedule of (at least) all array writes. Instances not in
+///                  @p Writes will be ignored.
 /// @param Writes    { DomainWrite[] -> Element[] }
 ///                  Elements written to by the statement instances.
 /// @param InclDef   Whether to include the definition's timepoint as where the
@@ -64,7 +73,9 @@ class Scop;
 ///                  { [A[] -> [10]] -> Write[] } to the result.
 ///
 /// @return { [Element[] -> Scatter[]] -> DomainWrite[] }
-///         The reaching definitions as described above, or nullptr if either @p Schedule or @p Writes is nullptr, or the ISL max operations count has exceeded.
+///         The reaching definitions as described above, or nullptr if either @p
+///         Schedule or @p Writes is nullptr, or the ISL max operations count
+///         has exceeded.
 IslPtr<isl_union_map> computeReachingDefinition(IslPtr<isl_union_map> Schedule,
                                                 IslPtr<isl_union_map> Writes,
                                                 bool InclDef, bool InclRedef);
@@ -79,26 +90,38 @@ IslPtr<isl_union_map> computeReachingDefinition(IslPtr<isl_union_map> Schedule,
 /// Result:
 /// { [A[5] -> Write[]] -> [i] : 0 < i < 10 }
 ///
-/// Note: Lifetimes are expressed in terms of the preceding write. Hence, reads before the first read cannot expressed by this function.
+/// Note: Lifetimes are expressed in terms of the preceding write. Hence, reads
+/// before the first read cannot expressed by this function.
 ///
 /// @param Schedule          { Domain[] -> Scatter[] }
-///                          The schedule of (at least) all statement instances occurring in @p Writes or @p Reads. All other instances will be ignored.
+///                          The schedule of (at least) all statement instances
+///                          occurring in @p Writes or @p Reads. All other
+///                          instances will be ignored.
 /// @param Writes            { DomainDef[] -> Element[] }
 ///                          Elements written to by the statement instances.
 /// @param Reads             { DomainRead[] -> Element[] }
 ///                          Elements read from by the statement instances.
 /// @param ReadEltInSameInst Whether a load will read the value from a write
-///                          that is scheduled at the same timepoint (Writes happen before reads).
-/// @param InclWrite         Whether to also include the timepoint where a value is written to the lifetime. If enabled for the example, it changes to { [A[5] -> Def[]] -> [i] : 0 <= i < 10 }.
-/// @param InclLastRead      Whether to also include the timepoint where with the last use to the lifetime. If enabled for the example, it changes to { [A[5] -> Def[]] -> [i] : 0 < i <= 10 }.
-/// @param ExitReads         Whether to extend the lifetimes that are not overwritten into infinity. This corresponds to the assumption that the values must be available after the scop. If enabled, the example changes to { [A[5] -> Def[]] -> [i] : 0 < i }
+///                          that is scheduled at the same timepoint (Writes
+///                          happen before reads).
+/// @param InclWrite         Whether to also include the timepoint where a value
+/// is written to the lifetime. If enabled for the example, it changes to {
+/// [A[5] -> Def[]] -> [i] : 0 <= i < 10 }.
+/// @param InclLastRead      Whether to also include the timepoint where with
+/// the last use to the lifetime. If enabled for the example, it changes to {
+/// [A[5] -> Def[]] -> [i] : 0 < i <= 10 }.
+/// @param ExitReads         Whether to extend the lifetimes that are not
+/// overwritten into infinity. This corresponds to the assumption that the
+/// values must be available after the scop. If enabled, the example changes to
+/// { [A[5] -> Def[]] -> [i] : 0 < i }
 ///
 /// @return { [Element[] -> DomainWrite[]] -> Zone[] }
-IslPtr<isl_union_map> computeArrayLifetime(
-    IslPtr<isl_union_map> Schedule,
-    IslPtr<isl_union_map> Writes,
-    IslPtr<isl_union_map> Reads, bool ReadEltInSameInst, bool InclWrite,
-    bool InclLastRead, bool ExitReads);
+IslPtr<isl_union_map> computeArrayLifetime(IslPtr<isl_union_map> Schedule,
+                                           IslPtr<isl_union_map> Writes,
+                                           IslPtr<isl_union_map> Reads,
+                                           bool ReadEltInSameInst,
+                                           bool InclWrite, bool InclLastRead,
+                                           bool ExitReads);
 
 /// Compute the next overwrite for each array element.
 ///
@@ -113,18 +136,27 @@ IslPtr<isl_union_map> computeArrayLifetime(
 /// { [A[5] -> [i]] -> Write[] : i < 0;
 ///   [A[5] -> [i]] -> Overwrite[] : 0 < i < 10 }
 ///
-/// That is, A[5] will be overwritten next by Write[] when before timepoint 0, or by Overwrite[] when between timepoints 0 and 10. Use InclPrevWrite=false and InclOverwrite=true to interpret the result as a Zone.
+/// That is, A[5] will be overwritten next by Write[] when before timepoint 0,
+/// or by Overwrite[] when between timepoints 0 and 10. Use InclPrevWrite=false
+/// and InclOverwrite=true to interpret the result as a Zone.
 ///
 /// @param Schedule      { DomainWrite[] -> Scatter[] }
-///                      Schedule of (at least) all array writes. Instances not in @p Writes will be ignored.
+///                      Schedule of (at least) all array writes. Instances not
+///                      in @p Writes will be ignored.
 /// @param Writes        { DomainWrite[] -> Element[] }
 ///                      Elements written to by the statement instances.
 /// @param InclPrevWrite Whether to extend an overwrite timepoints to include
-///                      the timepoint where the previous write happens (the previous write would happen at the beginning of its timepoint). In this example, this adds
+///                      the timepoint where the previous write happens (the
+///                      previous write would happen at the beginning of its
+///                      timepoint). In this example, this adds
 ///                      { [A[5] -> [0]] -> Overwrite[] } to the result.
 /// @param InclOverwrite Whether the reaching overwrite includes the timepoint
-///                      of the overwrite itself (so the overwrite would happen at then end of its timepoint). In the example, this adds
-///                      { [A[5] -> [0]] -> Write[]; [A[5] -> [10]] -> Overwrite[] } to the result.
+///                      of the overwrite itself (so the overwrite would happen
+///                      at then end of its timepoint). In the example, this
+///                      adds
+///                      { [A[5] -> [0]] -> Write[];
+///                        [A[5] -> [10]] -> Overwrite[] }
+///                      to the result.
 ///
 /// @return { [Element[] -> Scatter[]] -> DomainWrite[] }
 ///         The reaching overwrite as defined above, or nullptr if either @p
@@ -153,7 +185,10 @@ IslPtr<isl_union_map> computeReachingOverwrite(IslPtr<isl_union_map> Schedule,
 /// { A[5] -> [i] : 0 < i < 10;
 ///   A[6] -> [i] : i < 20 }
 ///
-/// That is, A[5] is unused between timepoint 0 (the read) and timepoint 10 (the write). A[6] is unused before timepoint 20, but might be used after the scop's execution (A[5] and any other A[i] as well). Use InclLastRead=false and InclWrite=true to interpret the result as zone.
+/// That is, A[5] is unused between timepoint 0 (the read) and timepoint 10 (the
+/// write). A[6] is unused before timepoint 20, but might be used after the
+/// scop's execution (A[5] and any other A[i] as well). Use InclLastRead=false
+/// and InclWrite=true to interpret the result as zone.
 ///
 /// @param Schedule          { Domain[] -> Scatter[] }
 ///                          The schedule of (at least) all statement instances
@@ -182,7 +217,10 @@ IslPtr<isl_union_map> computeReachingOverwrite(IslPtr<isl_union_map> Schedule,
 ///                          during the timepoint). In the example, this option
 ///                          adds { A[5] -> [0] } to the result.
 /// @param InclWrite         Whether the timepoint where an element is written
-///                          itself counts as unused (the write happens at the end of its timepoint; no (other) operations uses the element during the timepoint). In this example, this adds
+///                          itself counts as unused (the write happens at the
+///                          end of its timepoint; no (other) operations uses
+///                          the element during the timepoint). In this example,
+///                          this adds
 ///                          { A[5] -> [10]; A[6] -> [20] } to the result.
 ///
 /// @return { Element[] -> Scatter[] }
@@ -215,7 +253,6 @@ bool isConflicting(IslPtr<isl_union_map> ExistingLifetime,
                    IslPtr<isl_union_map> ProposedLifetime,
                    bool ProposedImplicitLifetimeIsUnknown,
                    IslPtr<isl_union_map> ProposedWrites);
-
 
 llvm::Pass *createDeLICMPass();
 } // namespace polly

@@ -115,11 +115,12 @@ TEST(DeLICM, ReachingDefinitionZone) {
       "Stmt_reduction_for[4] : 12 < i }");
 }
 
-void checkComputeArrayLifetime(const char *ScheduleStr ,
-                                  const char *WritesStr, const char *ReadsStr,
-                                  int ReadEltInSameInst, int InclWrite,
-                                  int InclLastRead, int ExitReads, const char *ExpectedStr) {
-	  BOOL_FOR(ReadEltInSameInst) BOOL_FOR(InclWrite) BOOL_FOR(InclLastRead) BOOL_FOR(ExitReads) {
+void checkComputeArrayLifetime(const char *ScheduleStr, const char *WritesStr,
+                               const char *ReadsStr, int ReadEltInSameInst,
+                               int InclWrite, int InclLastRead, int ExitReads,
+                               const char *ExpectedStr) {
+  BOOL_FOR(ReadEltInSameInst)
+  BOOL_FOR(InclWrite) BOOL_FOR(InclLastRead) BOOL_FOR(ExitReads) {
     isl_ctx *Ctx = isl_ctx_alloc();
 
     {
@@ -128,7 +129,9 @@ void checkComputeArrayLifetime(const char *ScheduleStr ,
       auto Reads = give(isl_union_map_read_from_str(Ctx, ReadsStr));
       auto Expected = give(isl_union_map_read_from_str(Ctx, ExpectedStr));
 
-      auto Result = computeArrayLifetime(Schedule, Writes, Reads, ReadEltInSameInst,InclWrite, InclLastRead, ExitReads);
+      auto Result =
+          computeArrayLifetime(Schedule, Writes, Reads, ReadEltInSameInst,
+                               InclWrite, InclLastRead, ExitReads);
       auto Success = isl_union_map_is_equal(Result.keep(), Expected.keep());
 
       EXPECT_EQ(isl_bool_true, Success);
@@ -139,28 +142,73 @@ void checkComputeArrayLifetime(const char *ScheduleStr ,
 }
 
 TEST(DeLICM, ArrayPerWriteLifetimeZone) {
-	checkComputeArrayLifetime("{ }","{ }", "{ }", indef, indef, indef, indef, "{ }");
-	checkComputeArrayLifetime("{ Read[] -> [10] }","{ Read[] -> A[] }", "{ }", indef, indef, indef, false, "{ }");
+  checkComputeArrayLifetime("{ }", "{ }", "{ }", indef, indef, indef, indef,
+                            "{ }");
+  checkComputeArrayLifetime("{ Read[] -> [10] }", "{ Read[] -> A[] }", "{ }",
+                            indef, indef, indef, false, "{ }");
 
-	checkComputeArrayLifetime("{ Def[] -> [10] }","{ Def[] -> A[] }", "{ }", indef, indef, indef, false, "{ }");
-	checkComputeArrayLifetime("{ Def[] -> [10] }","{ Def[] -> A[] }", "{ }", indef, false, indef, true, "{ [A[] -> Def[]] -> [i] : 10 < i }");
-	checkComputeArrayLifetime("{ Def[] -> [10] }","{ Def[] -> A[] }", "{ }", indef, true, indef, true, "{ [A[] -> Def[]] -> [i] : 10 <= i }");
+  checkComputeArrayLifetime("{ Def[] -> [10] }", "{ Def[] -> A[] }", "{ }",
+                            indef, indef, indef, false, "{ }");
+  checkComputeArrayLifetime("{ Def[] -> [10] }", "{ Def[] -> A[] }", "{ }",
+                            indef, false, indef, true,
+                            "{ [A[] -> Def[]] -> [i] : 10 < i }");
+  checkComputeArrayLifetime("{ Def[] -> [10] }", "{ Def[] -> A[] }", "{ }",
+                            indef, true, indef, true,
+                            "{ [A[] -> Def[]] -> [i] : 10 <= i }");
 
-	checkComputeArrayLifetime("{ Def[] -> [10]; Read[] -> [20] }","{ Def[] -> A[] }", "{ Read[] -> A[] }",indef, false, false,  false, "{ [A[] -> Def[]] -> [i] : 10 < i < 20 }");
-	checkComputeArrayLifetime("{ Def[] -> [10]; Read[] -> [20] }","{ Def[] -> A[] }", "{ Read[] -> A[] }", indef,true, false,  false, "{ [A[] -> Def[]] -> [i] : 10 <= i < 20 }");
-	checkComputeArrayLifetime("{ Def[] -> [10]; Read[] -> [20] }","{ Def[] -> A[] }", "{ Read[] -> A[] }",indef, false, true,  false, "{ [A[] -> Def[]] -> [i] : 10 < i <= 20 }");
-	checkComputeArrayLifetime("{ Def[] -> [10]; Read[] -> [20] }","{ Def[] -> A[] }", "{ Read[] -> A[] }",indef, true, true,  false, "{ [A[] -> Def[]] -> [i] : 10 <= i <= 20 }");
-	checkComputeArrayLifetime("{ Def[] -> [10]; Read[] -> [20] }","{ Def[] -> A[] }", "{ Read[] -> A[] }", indef, false, indef, true, "{ [A[] -> Def[]] -> [i] : 10 < i }");
-	checkComputeArrayLifetime("{ Def[] -> [10]; Read[] -> [20] }","{ Def[] -> A[] }", "{ Read[] -> A[] }", indef, true, indef, true, "{ [A[] -> Def[]] -> [i] : 10 <= i }");
+  checkComputeArrayLifetime("{ Def[] -> [10]; Read[] -> [20] }",
+                            "{ Def[] -> A[] }", "{ Read[] -> A[] }", indef,
+                            false, false, false,
+                            "{ [A[] -> Def[]] -> [i] : 10 < i < 20 }");
+  checkComputeArrayLifetime("{ Def[] -> [10]; Read[] -> [20] }",
+                            "{ Def[] -> A[] }", "{ Read[] -> A[] }", indef,
+                            true, false, false,
+                            "{ [A[] -> Def[]] -> [i] : 10 <= i < 20 }");
+  checkComputeArrayLifetime("{ Def[] -> [10]; Read[] -> [20] }",
+                            "{ Def[] -> A[] }", "{ Read[] -> A[] }", indef,
+                            false, true, false,
+                            "{ [A[] -> Def[]] -> [i] : 10 < i <= 20 }");
+  checkComputeArrayLifetime("{ Def[] -> [10]; Read[] -> [20] }",
+                            "{ Def[] -> A[] }", "{ Read[] -> A[] }", indef,
+                            true, true, false,
+                            "{ [A[] -> Def[]] -> [i] : 10 <= i <= 20 }");
+  checkComputeArrayLifetime("{ Def[] -> [10]; Read[] -> [20] }",
+                            "{ Def[] -> A[] }", "{ Read[] -> A[] }", indef,
+                            false, indef, true,
+                            "{ [A[] -> Def[]] -> [i] : 10 < i }");
+  checkComputeArrayLifetime("{ Def[] -> [10]; Read[] -> [20] }",
+                            "{ Def[] -> A[] }", "{ Read[] -> A[] }", indef,
+                            true, indef, true,
+                            "{ [A[] -> Def[]] -> [i] : 10 <= i }");
 
-	checkComputeArrayLifetime("{ Def[] -> [10]; Read1[] -> [20]; Read2[] -> [30] }","{ Def[] -> A[] }", "{ Read1[] -> A[]; Read2[] -> A[] }",indef, true, indef,  true, "{ [A[] -> Def[]] -> [i] : 10 <= i }");
-	checkComputeArrayLifetime("{ Def[] -> [10]; Read1[] -> [20]; Read2[] -> [30] }","{ Def[] -> A[] }", "{ Read1[] -> A[]; Read2[] -> A[] }", indef, true, true, false, "{ [A[] -> Def[]] -> [i] : 10 <= i <= 30 }");
+  checkComputeArrayLifetime(
+      "{ Def[] -> [10]; Read1[] -> [20]; Read2[] -> [30] }", "{ Def[] -> A[] }",
+      "{ Read1[] -> A[]; Read2[] -> A[] }", indef, true, indef, true,
+      "{ [A[] -> Def[]] -> [i] : 10 <= i }");
+  checkComputeArrayLifetime(
+      "{ Def[] -> [10]; Read1[] -> [20]; Read2[] -> [30] }", "{ Def[] -> A[] }",
+      "{ Read1[] -> A[]; Read2[] -> A[] }", indef, true, true, false,
+      "{ [A[] -> Def[]] -> [i] : 10 <= i <= 30 }");
 
-	checkComputeArrayLifetime("{ Def1[] -> [0]; Read[] -> [10]; Def2[] -> [20] }","{ Def1[] -> A[]; Def2[] -> A[] }", "{ Read[] -> A[] }", indef,  true, true,  false,  "{ [A[] -> Def1[]] -> [i] : 0 <= i <= 10 }");
-	checkComputeArrayLifetime("{ Def1[] -> [0]; Read[] -> [10]; Def2[] -> [20] }","{ Def1[] -> A[]; Def2[] -> A[] }", "{ Read[] -> A[] }", indef,  true, true,  true,  "{ [A[] -> Def1[]] -> [i] : 0 <= i <= 10; [A[] -> Def2[]] -> [i] : 20 <= i }");
+  checkComputeArrayLifetime("{ Def1[] -> [0]; Read[] -> [10]; Def2[] -> [20] }",
+                            "{ Def1[] -> A[]; Def2[] -> A[] }",
+                            "{ Read[] -> A[] }", indef, true, true, false,
+                            "{ [A[] -> Def1[]] -> [i] : 0 <= i <= 10 }");
+  checkComputeArrayLifetime("{ Def1[] -> [0]; Read[] -> [10]; Def2[] -> [20] }",
+                            "{ Def1[] -> A[]; Def2[] -> A[] }",
+                            "{ Read[] -> A[] }", indef, true, true, true,
+                            "{ [A[] -> Def1[]] -> [i] : 0 <= i <= 10; [A[] -> "
+                            "Def2[]] -> [i] : 20 <= i }");
 
-	checkComputeArrayLifetime("{ Def1[] -> [0]; Def2[] -> [10]; Read[] -> [10] }","{ Def1[] -> A[]; Def2[] -> A[] }", "{ Read[] -> A[] }", false,  true, true,  true,  "{ [A[] -> Def1[]] -> [i] : 0 <= i <= 10; [A[] -> Def2[]] -> [i] : 10 <= i }");
-	checkComputeArrayLifetime("{ Def1[] -> [0]; Def2[] -> [10]; Read[] -> [10] }","{ Def1[] -> A[]; Def2[] -> A[] }", "{ Read[] -> A[] }", true,   true, true,  true, "{ [A[] -> Def2[]] -> [i] : 10 <= i }");
+  checkComputeArrayLifetime("{ Def1[] -> [0]; Def2[] -> [10]; Read[] -> [10] }",
+                            "{ Def1[] -> A[]; Def2[] -> A[] }",
+                            "{ Read[] -> A[] }", false, true, true, true,
+                            "{ [A[] -> Def1[]] -> [i] : 0 <= i <= 10; [A[] -> "
+                            "Def2[]] -> [i] : 10 <= i }");
+  checkComputeArrayLifetime("{ Def1[] -> [0]; Def2[] -> [10]; Read[] -> [10] }",
+                            "{ Def1[] -> A[]; Def2[] -> A[] }",
+                            "{ Read[] -> A[] }", true, true, true, true,
+                            "{ [A[] -> Def2[]] -> [i] : 10 <= i }");
 }
 
 void computeReachingOverwriteZone_check(const char *ScheduleStr,
@@ -342,82 +390,137 @@ void isConflicting_check(const char *ThisKnownStr, const char *ThisUndefStr,
 }
 
 IslPtr<isl_union_set> unionSpace(NonowningIslPtr<isl_union_set> USet) {
-		  auto Result = give(isl_union_set_empty(isl_union_set_get_space(USet.keep())));
+  auto Result = give(isl_union_set_empty(isl_union_set_get_space(USet.keep())));
   foreachElt(USet, [=, &Result](IslPtr<isl_set> Set) {
-	  auto Space = give(isl_set_get_space(Set.keep()));
-	  auto Universe = give(isl_set_universe(Space.take()));
-	Result = give(isl_union_set_add_set( Result.take(), Universe.take()  ));
+    auto Space = give(isl_set_get_space(Set.keep()));
+    auto Universe = give(isl_set_universe(Space.take()));
+    Result = give(isl_union_set_add_set(Result.take(), Universe.take()));
   });
   return Result;
 }
 
 bool checkIsConflicting(
-const char *ExistingKnownStr, const char *ExistingUnknownStr/*necessary?*/, const char *ExistingUndefStr,  const char *ExistingWrittenStr,/* const char *ExistingWrittenUnknownStr,*/ 
-const char *ProposedKnownStr, const char *ProposedUnknownStr/*necessary?*/, const char *ProposedUndefStr,  const char *ProposedWrittenStr/*, const char *ProposedWrittenUnknownStr*/) {
-	std::unique_ptr<isl_ctx ,decltype(&isl_ctx_free)> Ctx  (   isl_ctx_alloc() , &isl_ctx_free);
+    const char *ExistingKnownStr, const char *ExistingUnknownStr /*necessary?*/,
+    const char *ExistingUndefStr,
+    const char *ExistingWrittenStr, /* const char *ExistingWrittenUnknownStr,*/
+    const char *ProposedKnownStr, const char *ProposedUnknownStr /*necessary?*/,
+    const char *ProposedUndefStr,
+    const char
+        *ProposedWrittenStr /*, const char *ProposedWrittenUnknownStr*/) {
+  std::unique_ptr<isl_ctx, decltype(&isl_ctx_free)> Ctx(isl_ctx_alloc(),
+                                                        &isl_ctx_free);
   LLVMContext C;
 
-    auto ExistingKnown = give(isl_union_map_read_from_str(Ctx.get(), ExistingKnownStr)) ;
-	auto ExistingUnknown = ExistingUnknownStr  ? give(isl_union_set_read_from_str(Ctx.get(), ExistingUnknownStr)) : nullptr;
-    auto ExistingUndef = ExistingUndefStr  ? give(isl_union_set_read_from_str(Ctx.get(), ExistingUndefStr)): nullptr;
-	auto ExistingWritten = give(isl_union_map_read_from_str(Ctx.get(), ExistingWrittenStr)) ;
-	 //auto ExistingWrittenUnknown = give(isl_union_set_read_from_str(Ctx.get(), ExistingWrittenUnknownStr));
+  auto ExistingKnown =
+      give(isl_union_map_read_from_str(Ctx.get(), ExistingKnownStr));
+  auto ExistingUnknown =
+      ExistingUnknownStr
+          ? give(isl_union_set_read_from_str(Ctx.get(), ExistingUnknownStr))
+          : nullptr;
+  auto ExistingUndef =
+      ExistingUndefStr
+          ? give(isl_union_set_read_from_str(Ctx.get(), ExistingUndefStr))
+          : nullptr;
+  auto ExistingWritten =
+      give(isl_union_map_read_from_str(Ctx.get(), ExistingWrittenStr));
+  // auto ExistingWrittenUnknown = give(isl_union_set_read_from_str(Ctx.get(),
+  // ExistingWrittenUnknownStr));
 
-	auto ProposedKnown = give(isl_union_map_read_from_str(Ctx.get(), ProposedKnownStr)) ;
-	auto ProposedUnknown = ProposedUnknownStr  ? give(isl_union_set_read_from_str(Ctx.get(), ProposedUnknownStr)) : nullptr;
-    auto ProposedUndef = ProposedUndefStr  ? give(isl_union_set_read_from_str(Ctx.get(), ProposedUndefStr)): nullptr;
-    auto ProposedWritten = give(isl_union_map_read_from_str(Ctx.get(), ProposedWrittenStr)) ;
-	//auto ProposedWrittenUnknown = give(isl_union_set_read_from_str(Ctx.get(), ProposedWrittenUnknownStr));
-						
-    auto UndefVal = UndefValue::get(IntegerType::get(C, 8));
-    auto UndefId = give(isl_id_alloc(Ctx.get(), "Undef", UndefVal));
-    auto UndefSpace = give( isl_space_set_tuple_id(isl_space_set_alloc(Ctx.get(), 0, 0), isl_dim_set, UndefId.take()));
-    auto UndefSet = give(isl_set_universe(UndefSpace.take()));
-    auto UndefUSet = give(isl_union_set_from_set(UndefSet.take()));
+  auto ProposedKnown =
+      give(isl_union_map_read_from_str(Ctx.get(), ProposedKnownStr));
+  auto ProposedUnknown =
+      ProposedUnknownStr
+          ? give(isl_union_set_read_from_str(Ctx.get(), ProposedUnknownStr))
+          : nullptr;
+  auto ProposedUndef =
+      ProposedUndefStr
+          ? give(isl_union_set_read_from_str(Ctx.get(), ProposedUndefStr))
+          : nullptr;
+  auto ProposedWritten =
+      give(isl_union_map_read_from_str(Ctx.get(), ProposedWrittenStr));
+  // auto ProposedWrittenUnknown = give(isl_union_set_read_from_str(Ctx.get(),
+  // ProposedWrittenUnknownStr));
 
-	auto ExistingDefined= give(isl_union_map_domain(ExistingKnown.copy()));
-	auto ExistingLifetime = ExistingKnown;
-	if (ExistingUnknown) {
-			ExistingDefined = give(isl_union_set_union(ExistingDefined.take(), ExistingUnknown.copy()));
-		ExistingLifetime = give(isl_union_map_union(ExistingLifetime.take(),  isl_union_map_from_domain(ExistingUnknown.copy())));
-	}
-	if (ExistingUndef) {
-		ExistingDefined = give(isl_union_set_union(ExistingDefined.take(), ExistingUndef.copy()));
-		ExistingLifetime = give(isl_union_map_union(ExistingLifetime.take(),  isl_union_map_from_domain_and_range(ExistingUndef.copy(), UndefUSet.copy())));
-	}
+  auto UndefVal = UndefValue::get(IntegerType::get(C, 8));
+  auto UndefId = give(isl_id_alloc(Ctx.get(), "Undef", UndefVal));
+  auto UndefSpace = give(isl_space_set_tuple_id(
+      isl_space_set_alloc(Ctx.get(), 0, 0), isl_dim_set, UndefId.take()));
+  auto UndefSet = give(isl_set_universe(UndefSpace.take()));
+  auto UndefUSet = give(isl_union_set_from_set(UndefSet.take()));
 
-	auto ProposedDefined= give(isl_union_map_domain(ProposedKnown.copy()));
-	auto ProposedLifetime = ProposedKnown;
-	if (ProposedUnknown) {
-			ProposedDefined = give(isl_union_set_union(ProposedDefined.take(), ProposedUnknown.copy()));
-		ProposedLifetime = give(isl_union_map_union(ProposedLifetime.take(),  isl_union_map_from_domain(ProposedUnknown.copy())));
-	}
-	if (ProposedUndef) {
-		ProposedDefined = give(isl_union_set_union(ProposedDefined.take(), ProposedUndef.copy()));
-		ProposedLifetime = give(isl_union_map_union(ProposedLifetime.take(),  isl_union_map_from_domain_and_range(ProposedUndef.copy(), UndefUSet.copy())));
-	}
+  auto ExistingDefined = give(isl_union_map_domain(ExistingKnown.copy()));
+  auto ExistingLifetime = ExistingKnown;
+  if (ExistingUnknown) {
+    ExistingDefined = give(
+        isl_union_set_union(ExistingDefined.take(), ExistingUnknown.copy()));
+    ExistingLifetime = give(
+        isl_union_map_union(ExistingLifetime.take(),
+                            isl_union_map_from_domain(ExistingUnknown.copy())));
+  }
+  if (ExistingUndef) {
+    ExistingDefined =
+        give(isl_union_set_union(ExistingDefined.take(), ExistingUndef.copy()));
+    ExistingLifetime = give(isl_union_map_union(
+        ExistingLifetime.take(), isl_union_map_from_domain_and_range(
+                                     ExistingUndef.copy(), UndefUSet.copy())));
+  }
 
-	auto ExistingUniverse = unionSpace(  ExistingDefined );
-	ExistingUniverse = give(isl_union_set_union(ExistingUniverse.take(),  unionSpace( give(isl_union_map_domain( ExistingWritten.copy() )) ).take() ));
-	//ExistingUniverse = give(isl_union_set_union(ExistingUniverse.take(),  unionSpace( ExistingWrittenUnknown ).take() ));
-	auto ProposedUniverse = unionSpace(  ProposedDefined );
-	ProposedUniverse = give(isl_union_set_union(ProposedUniverse.take(),  unionSpace( give(isl_union_map_domain( ProposedWritten.copy() )) ).take() ));
-	//ProposedUniverse = give(isl_union_set_union(ProposedUniverse.take(),  unionSpace( ProposedWrittenUnknown ).take() ));
-	auto Universe = give(isl_union_set_union(ExistingUniverse.take(), ProposedUniverse.take()));
+  auto ProposedDefined = give(isl_union_map_domain(ProposedKnown.copy()));
+  auto ProposedLifetime = ProposedKnown;
+  if (ProposedUnknown) {
+    ProposedDefined = give(
+        isl_union_set_union(ProposedDefined.take(), ProposedUnknown.copy()));
+    ProposedLifetime = give(
+        isl_union_map_union(ProposedLifetime.take(),
+                            isl_union_map_from_domain(ProposedUnknown.copy())));
+  }
+  if (ProposedUndef) {
+    ProposedDefined =
+        give(isl_union_set_union(ProposedDefined.take(), ProposedUndef.copy()));
+    ProposedLifetime = give(isl_union_map_union(
+        ProposedLifetime.take(), isl_union_map_from_domain_and_range(
+                                     ProposedUndef.copy(), UndefUSet.copy())));
+  }
 
-	//if (!ExistingUnknownStr)  
-	//	ExistingLifetime = give(isl_union_map_union( ExistingLifetime.take(), isl_union_map_from_domain(isl_union_set_subtract(Universe.copy(), ExistingDefined.copy() )) ));
-	if (!ExistingUndefStr)  
-		ExistingLifetime = give(isl_union_map_union( ExistingLifetime.take(), isl_union_map_from_domain_and_range(isl_union_set_subtract(Universe.copy(), ExistingDefined.copy() ),  UndefUSet.copy()) ));
+  auto ExistingUniverse = unionSpace(ExistingDefined);
+  ExistingUniverse = give(isl_union_set_union(
+      ExistingUniverse.take(),
+      unionSpace(give(isl_union_map_domain(ExistingWritten.copy()))).take()));
+  // ExistingUniverse = give(isl_union_set_union(ExistingUniverse.take(),
+  // unionSpace( ExistingWrittenUnknown ).take() ));
+  auto ProposedUniverse = unionSpace(ProposedDefined);
+  ProposedUniverse = give(isl_union_set_union(
+      ProposedUniverse.take(),
+      unionSpace(give(isl_union_map_domain(ProposedWritten.copy()))).take()));
+  // ProposedUniverse = give(isl_union_set_union(ProposedUniverse.take(),
+  // unionSpace( ProposedWrittenUnknown ).take() ));
+  auto Universe = give(
+      isl_union_set_union(ExistingUniverse.take(), ProposedUniverse.take()));
 
-	if (!ProposedUnknownStr)  
-		ExistingLifetime = give(isl_union_map_union( ExistingLifetime.take(), isl_union_map_from_domain(isl_union_set_subtract(Universe.copy(), ExistingDefined.copy() )) ));
-	//if (!ProposedUndefStr)  
-	//	ExistingLifetime = give(isl_union_map_union( ExistingLifetime.take(), isl_union_map_from_domain_and_range(isl_union_set_subtract(Universe.copy(), ExistingDefined.copy() ),  UndefUSet.copy()) ));
+  // if (!ExistingUnknownStr)
+  //	ExistingLifetime = give(isl_union_map_union( ExistingLifetime.take(),
+  // isl_union_map_from_domain(isl_union_set_subtract(Universe.copy(),
+  // ExistingDefined.copy() )) ));
+  if (!ExistingUndefStr)
+    ExistingLifetime = give(isl_union_map_union(
+        ExistingLifetime.take(),
+        isl_union_map_from_domain_and_range(
+            isl_union_set_subtract(Universe.copy(), ExistingDefined.copy()),
+            UndefUSet.copy())));
 
-    return polly::isConflicting(ExistingLifetime, true, ExistingWritten,   ProposedLifetime, false, ProposedWritten);
+  if (!ProposedUnknownStr)
+    ExistingLifetime = give(
+        isl_union_map_union(ExistingLifetime.take(),
+                            isl_union_map_from_domain(isl_union_set_subtract(
+                                Universe.copy(), ExistingDefined.copy()))));
+  // if (!ProposedUndefStr)
+  //	ExistingLifetime = give(isl_union_map_union( ExistingLifetime.take(),
+  // isl_union_map_from_domain_and_range(isl_union_set_subtract(Universe.copy(),
+  // ExistingDefined.copy() ),  UndefUSet.copy()) ));
+
+  return polly::isConflicting(ExistingLifetime, true, ExistingWritten,
+                              ProposedLifetime, false, ProposedWritten);
 }
-
 
 void isConflicting_checksymmetric(const char *ThisKnownStr,
                                   const char *ThisWrittenStr,
@@ -430,7 +533,8 @@ void isConflicting_checksymmetric(const char *ThisKnownStr,
 }
 
 TEST(DeLICM, IsConflicting) {
-  isConflicting_check(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,    false);
+  isConflicting_check(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+                      false);
   isConflicting_check(nullptr, nullptr, "{ Dom[0] -> Val[] }", nullptr, nullptr,
                       nullptr, false);
   isConflicting_check(nullptr, nullptr, "{ Dom[0] -> [] }", nullptr, nullptr,
@@ -447,10 +551,10 @@ TEST(DeLICM, IsConflicting) {
                       nullptr, nullptr, false);
   isConflicting_check(nullptr, "{ Dom[i] }", nullptr, nullptr, nullptr,
                       "{ Dom[0] -> Val[] }", false);
-  //isConflicting_check(nullptr, "{ Dom[i] }", "{ Dom[0] -> [] }", nullptr, nullptr, "{ Dom[0] -> Val[] }", false);
-  EXPECT_TRUE(checkIsConflicting("{}", "{ Dom[i] }", nullptr, "{ }",
-	                             "{}", nullptr,      "{}",    "{ Dom[0] -> Val[] }"));
-
+  // isConflicting_check(nullptr, "{ Dom[i] }", "{ Dom[0] -> [] }", nullptr,
+  // nullptr, "{ Dom[0] -> Val[] }", false);
+  EXPECT_TRUE(checkIsConflicting("{}", "{ Dom[i] }", nullptr, "{ }", "{}",
+                                 nullptr, "{}", "{ Dom[0] -> Val[] }"));
 
   isConflicting_check(nullptr, "{ Dom[i] }", "{ Dom[0] -> Val[] }",
                       "{ Dom[i] -> Val[] }", nullptr, nullptr, false);
@@ -459,10 +563,10 @@ TEST(DeLICM, IsConflicting) {
                                "{ Dom[0] -> ValB[] }", nullptr, true);
   isConflicting_check("{ Dom[0] -> Val[] }", nullptr, nullptr, nullptr,
                       "{ Dom[0] }", nullptr, true);
-  isConflicting_check(nullptr, nullptr, nullptr, "{ Dom[] -> Val[] }", nullptr,  nullptr, true);
-  EXPECT_TRUE(checkIsConflicting("{}",                nullptr, "{}", "{}",
-	                            "{ Dom[] -> Val[] }",          "{}", nullptr,
-	                            "{}"));
+  isConflicting_check(nullptr, nullptr, nullptr, "{ Dom[] -> Val[] }", nullptr,
+                      nullptr, true);
+  EXPECT_TRUE(checkIsConflicting("{}", nullptr, "{}", "{}",
+                                 "{ Dom[] -> Val[] }", "{}", nullptr, "{}"));
 
   // computeArrayUnusedZone_checksymmetric("{ Dom[i] -> Val[] : 0 < i < 10 }",
   // nullptr, nullptr,  "{ Dom[0] -> [] }", true );
@@ -499,18 +603,18 @@ TEST(DeLICM, IsConflicting) {
                       nullptr, nullptr, true);
 
   EXPECT_TRUE(checkIsConflicting("{}", "{}", nullptr, "{ Dom[0] -> ValA[] }",
-	                             "{}", "{}", nullptr, "{ Dom[0] -> ValB[] }"));
-  EXPECT_TRUE(checkIsConflicting("{}", "{}", nullptr, "{ Dom[0] -> [] }",
-	                             "{}", "{}", nullptr, "{ Dom[0] -> Val[] }"));
+                                 "{}", "{}", nullptr, "{ Dom[0] -> ValB[] }"));
+  EXPECT_TRUE(checkIsConflicting("{}", "{}", nullptr, "{ Dom[0] -> [] }", "{}",
+                                 "{}", nullptr, "{ Dom[0] -> Val[] }"));
   EXPECT_TRUE(checkIsConflicting("{}", "{}", nullptr, "{ Dom[0] -> Val[] }",
-	                             "{}", "{}", nullptr, "{ Dom[0] -> [] }"));
+                                 "{}", "{}", nullptr, "{ Dom[0] -> [] }"));
 
-  EXPECT_TRUE(checkIsConflicting("{}", "{}", nullptr, "{ Dom[0] -> [] }",
-	                             "{}", "{}", nullptr, "{ Dom[0] -> [] }"));
+  EXPECT_TRUE(checkIsConflicting("{}", "{}", nullptr, "{ Dom[0] -> [] }", "{}",
+                                 "{}", nullptr, "{ Dom[0] -> [] }"));
 
-  EXPECT_FALSE(checkIsConflicting("{}", "{}", nullptr, "{ Dom[0] -> ValA[]; Dom[0] -> ValB[] }",
-	                             "{}", "{}", nullptr, "{  }"));
-
+  EXPECT_FALSE(checkIsConflicting("{}", "{}", nullptr,
+                                  "{ Dom[0] -> ValA[]; Dom[0] -> ValB[] }",
+                                  "{}", "{}", nullptr, "{  }"));
 }
 
 } // anonymous namespace
