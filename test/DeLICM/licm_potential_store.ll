@@ -88,12 +88,12 @@ for.end.6:                                        ; preds = %for.cond
 
 
 ; NOLICM:      Original zone:
-; NOLICM-NEXT:     Lifetime: [n] -> { [MemRef_A[0] -> [i1, i2, i3{{\]\]}} -> [Stmt_for_end[4] -> Val_x_addr_1_lcssa[{{\]\]}} : i1 >= 5; [MemRef_A[0] -> [4, i2, i3{{\]\]}} -> [Stmt_for_end[4] -> Val_x_addr_1_lcssa[{{\]\]}} : i2 >= 3; [MemRef_A[0] -> [4, 2, i3{{\]\]}} -> [Stmt_for_end[4] -> Val_x_addr_1_lcssa[{{\]\]}} : i3 > 0; [MemRef_A[0] -> [i1, i2, i3{{\]\]}} -> Undef[] : i1 <= 4 and (i1 <= 3 or (i1 >= 0 and i2 <= 1)); [MemRef_A[0] -> [i1, 2, i3{{\]\]}} -> Undef[] : 0 <= i1 <= 4 and i3 <= 0 }
+; NOLICM-NEXT:     Lifetime: [n] -> { [MemRef_A[0] -> [i1, i2, i3{{\]\]}} -> [Stmt_for_end[4] -> Val_x_addr_1_lcssa[{{\]\]}} : i1 >= 5; [MemRef_A[0] -> [4, i2, i3{{\]\]}} -> [Stmt_for_end[4] -> Val_x_addr_1_lcssa[{{\]\]}} : i2 >= 3; [MemRef_A[0] -> [4, 2, i3{{\]\]}} -> [Stmt_for_end[4] -> Val_x_addr_1_lcssa[{{\]\]}} : i3 > 0; [MemRef_A[0] -> [i1, i2, i3{{\]\]}} -> Undef[] : i1 <= 4 and (i1 <= 3 or (i1 >= 0 and i2 <= 1)); [MemRef_A[0] -> [i1, 2, i3{{\]\]}} -> Undef[] : 0 <= i1 <= 4 and i3 <= 0 } + Unknown
 ; NOLICM-NEXT:     Written : [n] -> { [MemRef_A[0] -> [i1, 2, 0{{\]\]}} -> [Stmt_for_end[i1] -> Val_x_addr_1_lcssa[{{\]\]}} : 0 <= i1 <= 4 }
 ; NOLICM:      Mapped scalars {
 ; NOLICM-NEXT: }
 ; NOLICM:      After zone:
-; NOLICM-NEXT:     Lifetime: [n] -> { [MemRef_A[0] -> [i1, i2, i3{{\]\]}} -> [Stmt_for_end[4] -> Val_x_addr_1_lcssa[{{\]\]}} : i1 >= 5; [MemRef_A[0] -> [4, i2, i3{{\]\]}} -> [Stmt_for_end[4] -> Val_x_addr_1_lcssa[{{\]\]}} : i2 >= 3; [MemRef_A[0] -> [4, 2, i3{{\]\]}} -> [Stmt_for_end[4] -> Val_x_addr_1_lcssa[{{\]\]}} : i3 > 0; [MemRef_A[0] -> [i1, i2, i3{{\]\]}} -> Undef[] : i1 <= 4 and (i1 <= 3 or (i1 >= 0 and i2 <= 1)); [MemRef_A[0] -> [i1, 2, i3{{\]\]}} -> Undef[] : 0 <= i1 <= 4 and i3 <= 0 }
+; NOLICM-NEXT:     Lifetime: [n] -> { [MemRef_A[0] -> [i1, i2, i3{{\]\]}} -> [Stmt_for_end[4] -> Val_x_addr_1_lcssa[{{\]\]}} : i1 >= 5; [MemRef_A[0] -> [4, i2, i3{{\]\]}} -> [Stmt_for_end[4] -> Val_x_addr_1_lcssa[{{\]\]}} : i2 >= 3; [MemRef_A[0] -> [4, 2, i3{{\]\]}} -> [Stmt_for_end[4] -> Val_x_addr_1_lcssa[{{\]\]}} : i3 > 0; [MemRef_A[0] -> [i1, i2, i3{{\]\]}} -> Undef[] : i1 <= 4 and (i1 <= 3 or (i1 >= 0 and i2 <= 1)); [MemRef_A[0] -> [i1, 2, i3{{\]\]}} -> Undef[] : 0 <= i1 <= 4 and i3 <= 0 } + Unknown
 ; NOLICM-NEXT:     Written : [n] -> { [MemRef_A[0] -> [i1, 2, 0{{\]\]}} -> [Stmt_for_end[i1] -> Val_x_addr_1_lcssa[{{\]\]}} : 0 <= i1 <= 4 }
 ; NOLICM:      After Statements {
 ; NOLICM-NEXT:     Stmt_for_cond_1_preheader
@@ -118,12 +118,12 @@ for.end.6:                                        ; preds = %for.cond
 ; NOLICM-NEXT: }
 
 ; LICM:      Original zone:
-; LICM-NEXT:     Lifetime: [n] -> {  }
+; LICM-NEXT:     Lifetime: [n] -> {  } + Unknown
 ; LICM-NEXT:     Written : [n] -> {  }
 ; LICM:      Mapped scalars {
 ; LICM-NEXT: }
 ; LICM:      After zone:
-; LICM-NEXT:     Lifetime: [n] -> {  }
+; LICM-NEXT:     Lifetime: [n] -> {  } + Unknown
 ; LICM-NEXT:     Written : [n] -> {  }
 ; LICM:      After Statements {
 ; LICM-NEXT:     Stmt_for_cond_1_preheader
