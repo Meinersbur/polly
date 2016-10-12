@@ -19,7 +19,7 @@ llvm_tools_dir = '''@LLVM_TOOLS_DIR@'''
 link_polly_into_tools = not '''@LINK_POLLY_INTO_TOOLS@'''.lower() in {'','0','n','no','off','false','notfound','link_polly_into_tools-notfound'}
 
 runre = re.compile(r'\s*\;\s*RUN\s*\:(?P<tool>.*)')
-filecheckre = re.compile(r'\s*(?P<tool>.*)\|\s*(?P<filecheck>FileCheck\s[^|]*)')
+filecheckre = re.compile(r'\s*(?P<tool>.*)\|\s*(?P<filecheck>FileCheck[^|]*)')
 emptyline = re.compile(r'\s*(\;\s*)?')
 commentline = re.compile(r'\s*(\;.*)?')
 xfailre = re.compile(r'^\s*\;\s*XFAIL\:\s*\*\s*$')
