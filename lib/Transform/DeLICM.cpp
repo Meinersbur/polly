@@ -1331,14 +1331,16 @@ private:
     return DefStmt != UserStmt;
   }
 
-private:
-  // Check whether accesses within the same statement overlap.
-  // TODO: Can merge into computeZones
-  // TODO: Might check this only when deciding whether a array element involved
-  // is going to be mapped.
+	/// Check whether @p Stmt can be accurately analyzed by zones.
+	///
+	/// What violates our assumptions:
+		/// - A load after a write of the same location; we assume that all reads occur before the writes.
+	/// - Two writes to the same location; we cannot model the order in which these occur.
+	///
+	/// Scalar reads implicitly always occur before other access therefore never violate the first condition. There is also at most one write to a scalar, satisfying the second condition.
   bool isAcceptableStmt(ScopStmt *Stmt) {
-    auto Stores = give(isl_union_map_empty(ParamSpace.copy()));
-    auto Loads = Stores;
+    auto Stores = EmptyUnionMap;
+    auto Loads = EmptyUnionMap;
 
     // This assumes that the MK_Array MemoryAccesses are iterated in order.
     for (auto *MA : *Stmt) {
@@ -1348,6 +1350,7 @@ private:
       auto AccRel = give(isl_union_map_from_map(MA->getAccessRelation()));
 
       if (MA->isRead()) {
+		  // Reject store after load to same location.
         if (!isl_union_map_is_disjoint(Stores.keep(), AccRel.keep()))
           return false;
 
@@ -1355,12 +1358,7 @@ private:
       }
 
       if (MA->isWrite()) {
-        // Write-after-loads are the case we support, as we already guarantee
-        // this for scalar accesses.
-        // FIXME: Check and unit-tests whether all code parts take this into
-        // account.
-        // In region statements the order is less clear, eg. the load and store
-        // might be in a boxed loop.
+        // In region statements the order is less clear, eg. the load and store might be in a boxed loop.
         if (Stmt->isRegionStmt() &&
             !isl_union_map_is_disjoint(Loads.keep(), AccRel.keep()))
           return false;
