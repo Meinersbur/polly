@@ -45,21 +45,11 @@ class Scop;
 /// { [A[5] -> [i]] -> Write[] : 0 < i < 10;
 ///   [A[5] -> [i]] -> Overwrite[] : 10 < i }
 ///
-/// That is, between timepoint 0 (Write[]) and timepoint 10 (Overwrite[]), the
-/// content of A[5] was written by statement instance Write[] and after
-/// timepoint
-/// 10 by Overwrite[]. Values not defined in the map have no known definition.
-/// This includes the statements instance timepoints themselves, because reads
-/// in
-/// those timepoints could either read the old or the new value, defined only by
-/// the statement itself. But this can be changed by @p InclDef and @p
-/// InclRedef. InclDef=false and InclRedef=true will return a zone. Unless @p
-/// InclDef and @p InclRedef are both true, there is only one unique definition
-/// per element and timepoint.
+/// That is, between timepoint 0 (Write[]) and timepoint 10 (Overwrite[]), the content of A[5] was written by statement instance Write[] and after timepoint 10 by Overwrite[]. Values not defined in the map have no known definition. This includes the statements instance timepoints themselves, because reads in those timepoints could either read the old or the new value, defined only by the statement itself. But this can be changed by @p InclDef and @p InclRedef. InclDef=false and InclRedef=true will return a zone. Unless @p InclDef and @p InclRedef are both true, there is only one unique definition per element and timepoint.
 ///
-/// @param Schedule  { DomainDef[] -> Scatter[] }
+/// @param Schedule  { DomainWrite[] -> Scatter[] }
 ///                  Schedule of (at least) all array writes. Instances not in @p Writes will be ignored.
-/// @param Writes    { DomainDef[] -> Element[] }
+/// @param Writes    { DomainWrite[] -> Element[] }
 ///                  Elements written to by the statement instances.
 /// @param InclDef   Whether to include the definition's timepoint as where the
 ///                  element is well-defined (any load at that timepoint would
@@ -73,10 +63,8 @@ class Scop;
 ///                  example, enabling this adds
 ///                  { [A[] -> [10]] -> Write[] } to the result.
 ///
-/// @return { [Element[] -> Scatter[]] -> DomainDef[] }
-///         The reaching definitions as described above, or nullptr if either @p
-///         Schedule or @p Writes is nullptr, or the ISL max operations count has
-///         exceeded.
+/// @return { [Element[] -> Scatter[]] -> DomainWrite[] }
+///         The reaching definitions as described above, or nullptr if either @p Schedule or @p Writes is nullptr, or the ISL max operations count has exceeded.
 IslPtr<isl_union_map> computeReachingDefinition(IslPtr<isl_union_map> Schedule,
                                                 IslPtr<isl_union_map> Writes,
                                                 bool InclDef, bool InclRedef);
@@ -90,6 +78,8 @@ IslPtr<isl_union_map> computeReachingDefinition(IslPtr<isl_union_map> Schedule,
 ///
 /// Result:
 /// { [A[5] -> Write[]] -> [i] : 0 < i < 10 }
+///
+/// Note: Lifetimes are expressed in terms of the preceding write. Hence, reads before the first read cannot expressed by this function.
 ///
 /// @param Schedule          { Domain[] -> Scatter[] }
 ///                          The schedule of (at least) all statement instances occurring in @p Writes or @p Reads. All other instances will be ignored.
@@ -207,25 +197,24 @@ IslPtr<isl_union_map> computeArrayUnused(IslPtr<isl_union_map> Schedule,
 
 /// Determine whether two lifetimes are conflicting.
 ///
-/// For details,
-/// @see polly::Knowledge
+/// Used to unit testing.
 ///
-/// Not prepared for exceeding ISL operations.
-///
-/// @param ThisLifetime { [Element[] -> Zone[]] -> ValInst[] }
-/// @param ThisImplicitLifetimeIsUnknown
-/// @param ThisWrites   { [Element[] -> Scatter[]] -> ValInst[] }
-/// @param ThatLifetime { [Element[] -> Zone[]] -> ValInst[] }
-/// @param ThatImplicitLifetimeIsUnknown
-/// @param ThatWrites   { [Element[] -> Scatter[]] -> ValInst[] }
+/// @param ExistingLifetime { [Element[] -> Zone[]] -> ValInst[] }
+/// @param ExistingImplicitLifetimeIsUnknown
+/// @param ExistingWritten  { [Element[] -> Scatter[]] -> ValInst[] }
+/// @param ProposedLifetime { [Element[] -> Zone[]] -> ValInst[] }
+/// @param ProposedImplicitLifetimeIsUnknown
+/// @param ProposedWritten  { [Element[] -> Scatter[]] -> ValInst[] }
 ///
 /// @param False, iff the lifetimes and writes can me merged.
-bool isConflicting(IslPtr<isl_union_map> ThisLifetime,
-                   bool ThisImplicitLifetimeIsUnknown,
-                   IslPtr<isl_union_map> ThisWrites,
-                   IslPtr<isl_union_map> ThatLifetime,
-                   bool ThatImplicitLifetimeIsUnknown,
-                   IslPtr<isl_union_map> ThatWrites);
+///
+/// @see polly::Knowledge
+bool isConflicting(IslPtr<isl_union_map> ExistingLifetime,
+                   bool ExistingmplicitLifetimeIsUnknown,
+                   IslPtr<isl_union_map> ExistingWrites,
+                   IslPtr<isl_union_map> ProposedLifetime,
+                   bool ProposedImplicitLifetimeIsUnknown,
+                   IslPtr<isl_union_map> ProposedWrites);
 
 
 llvm::Pass *createDeLICMPass();

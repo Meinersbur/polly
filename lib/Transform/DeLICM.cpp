@@ -761,27 +761,8 @@ IslPtr<isl_union_map> filterKnownValInst(NonowningIslPtr<isl_union_map> UMap) {
   return Result;
 }
 
-/// Make the complement of each set in the union set.
-IslPtr<isl_union_set> complement(NonowningIslPtr<isl_union_set> USet, NonowningIslPtr<isl_union_set> Universe) {
-	assert(isl_union_set_is_subset(USet.keep(), Universe.keep())==isl_bool_true);
 
-	  auto Result = give(isl_union_set_empty(isl_union_set_get_space(USet.keep())));
-  foreachElt(Universe, [=, &Result](IslPtr<isl_set> UniverseSet) {
-	  auto Set = give(isl_union_set_extract_set(USet.keep(), isl_set_get_space(UniverseSet.keep())));
-	Result = give(isl_union_set_add_set( Result.take(), isl_set_subtract (UniverseSet.take(),  Set.take()) ));
-  });
-  return Result;
-}
 
-IslPtr<isl_union_set> unionSpace(NonowningIslPtr<isl_union_set> USet) {
-		  auto Result = give(isl_union_set_empty(isl_union_set_get_space(USet.keep())));
-  foreachElt(USet, [=, &Result](IslPtr<isl_set> Set) {
-	  auto Space = give(isl_set_get_space(Set.keep()));
-	  auto Universe = give(isl_set_universe(Space.take()));
-	Result = give(isl_union_set_add_set( Result.take(), Universe.take()  ));
-  });
-  return Result;
-}
 
 /// Represent the knowledge of the contents any array elements in any zone or the knowledge we would add when mapping a scalar to an array element.
 ///
@@ -908,11 +889,11 @@ public:
 	// 2a) Known vs Unknown, 2b) Unknown vs Known
 	// 3) Known vs Known that do not map to the same llvm::Value instance
 	// 4a) Written vs Unknown, 4b) Unknown vs Written
-	// 5a) Written vs Known, 5b) Know vs Written that to not write the same llvm::Value instance
+	// 5a) Written Unknown vs Known, 5b) Known vs Written Unknown
+	// 6a) Written Known vs Known, 6b) Known vs Written Known that do not write the same llvm::Value instance
+	// 7) Written Known/Unknown vs Written Known/Unknown, where the first writes to the same location and at the same timepoint as the latter
+	// TODO: Exception to 7) if the same value is written
 
-
-	
-   	   
 	// Check 1) and 2a)
 	auto ExistingUndef = getUndefValInstDomain(Existing.Lifetime);
 	auto ProposedUnknownDomain = getUnknownValInstDomain(Proposed.Lifetime);
@@ -950,127 +931,131 @@ public:
     }
 
 
-    auto ExistingWritten = shiftDim(Existing.Written, isl_dim_in, -1, 1);
-    auto ExistingWrittenDomain = give(isl_union_map_domain(ExistingWritten.copy()));
-    auto ExistingWrittenUnknownDomain = getUnknownValInstDomain(ExistingWritten);
 
-    auto ProposedWritten = shiftDim(Proposed.Written, isl_dim_in, -1, 1);
-    auto ProposedWrittenDomain = give(isl_union_map_domain(ProposedWritten.copy()));
-    auto ProposedWrittenUnknownDomain = getUnknownValInstDomain(ProposedWritten);
 
-    if (!isl_union_set_is_disjoint(ExistingWrittenDomain.keep(),  ProposedUnknownDomain.keep())) {
+
+	
+
+    // Check 4a)
+	    auto ExistingWritten = shiftDim(Existing.Written, isl_dim_in, -1, 1);
+    auto ExistingWrittenZone = give(isl_union_map_domain(ExistingWritten.copy()));
+    if (!isl_union_set_is_disjoint(ExistingWrittenZone.keep(),  ProposedUnknownDomain.keep())) {
       if (OS) 
         OS->indent(Indent)  << "Conflict of current write to proposed unknown\n";
       return true;
     }
 
-    if (!isl_union_set_is_subset(ProposedWrittenDomain.keep(),  ExistingKnownOrUndefDomain.keep())) {
+	// Check 4b)
+	    auto ProposedWritten = shiftDim(Proposed.Written, isl_dim_in, -1, 1);
+    auto ProposedWrittenZone = give(isl_union_map_domain(ProposedWritten.copy()));
+    if (!isl_union_set_is_subset(ProposedWrittenZone.keep(),  ExistingKnownOrUndefDomain.keep())) {
       if (OS) 
-        dbgs().indent(Indent)
-            << "Conflict of proposed write to current unknown\n";
+        dbgs().indent(Indent)            << "Conflict of proposed write to current unknown\n";
       return true;
     }
-
-    if (!isl_union_set_is_disjoint(ProposedWrittenUnknownDomain.keep(),  ExistingKnownDomain.keep())) {
-      if (OS) 
-        OS->indent(Indent) << "Conflict of proposed unknown write to current\n";
-      return true;
-    }
-
-    if (!isl_union_set_is_subset(ProposedWrittenUnknownDomain.keep(),ExistingKnownOrUndefDomain.keep())) {
-      if (OS) 
-        OS->indent(Indent)  << "Conflict of proposed unknown write to current unknown\n";
-      return true;
-    }
-
-    if (!isl_union_set_is_disjoint(ExistingWrittenUnknownDomain.keep(),ProposedKnownDomain.keep())) {
+		
+	// Check 5a)
+	auto ExistingWrittenUnknownZone = getUnknownValInstDomain(ExistingWritten);
+    if (!isl_union_set_is_disjoint(ExistingWrittenUnknownZone.keep(),ProposedKnownDomain.keep())) {
       if (OS) 
         dbgs().indent(Indent)  << "Conflict of current unknown write to proposed\n";
       return true;
     }
 
-    auto ThatWrittenOverlap = give(isl_union_map_intersect_domain( ProposedWritten.copy(), ExistingKnownDomain.copy()));
-    if (!isl_union_map_is_subset(ThatWrittenOverlap.keep(), ExistingKnown.keep())) {
+	// Check 5b)
+	auto ProposedWrittenUnknownZone = getUnknownValInstDomain(ProposedWritten);
+    if (!isl_union_set_is_disjoint(ProposedWrittenUnknownZone.keep(),  ExistingKnownDomain.keep())) {
+      if (OS) 
+        OS->indent(Indent) << "Conflict of proposed unknown write to current\n";
+      return true;
+    }
+
+	 // Check 6a)
+	auto ExistingWrittenOverlap = give(isl_union_map_intersect_domain(  ExistingWritten.copy(), ProposedKnownDomain.copy()));
+    if (!isl_union_map_is_subset(ExistingWrittenOverlap.keep(), ProposedKnown.keep())) {
+      if (OS) 
+        OS->indent(Indent)    << "Conflict of current write to proposed known\n";
+      return true;
+	}
+
+	// Check 6b)
+		auto ProposedWrittenOverlap = give(isl_union_map_intersect_domain( ProposedWritten.copy(), ExistingKnownDomain.copy()));
+    if (!isl_union_map_is_subset(ProposedWrittenOverlap.keep(), ExistingKnown.keep())) {
       if (OS) 
         OS->indent(Indent) << "Conflict of proposed write to current known\n";
       return true;
     }
 
-    auto ThisWrittenOverlap = give(isl_union_map_intersect_domain(  ExistingWritten.copy(), ProposedKnownDomain.copy()));
-    if (!isl_union_map_is_subset(ThisWrittenOverlap.keep(), ProposedKnown.keep())) {
-      if (OS) 
-        OS->indent(Indent)    << "Conflict of current write to proposed known\n";
-      return true;
-    }
-
-	// TODO: Check multiple writes at same timepoint.
-
+	// Check 7)
+	auto ExistingWrittenDomain = give(isl_union_map_domain(Existing.Written .copy()));
+		auto ProposedWrittenDomain = give(isl_union_map_domain(Proposed.Written .copy()));
+	if (!isl_union_set_is_disjoint(ExistingWrittenDomain.keep(), ProposedWrittenDomain.keep())  ) {
+		if (OS)  {
+			OS->indent(Indent) << "Conflict because of existing/proposed undefined write order\n";
+						auto Overlap = give(isl_union_set_intersect(ExistingWrittenDomain.take(), ProposedWrittenDomain.take()));
+						auto ExistingOverwrite = give(isl_union_map_intersect_domain( Existing.Written.copy(),Overlap.copy()  ));
+							auto ProposedOverwrite = give(isl_union_map_intersect_domain( Proposed.Written.copy(),Overlap.take()  ));
+						OS->indent(Indent+2) << "Existing wants to write: " << ExistingOverwrite << '\n';
+						OS->indent(Indent+2) << "Proposed wants to write: " << ProposedOverwrite << '\n';
+		}
+		return true;
+	}
+   
     return false;
   }
 };
-
-void Knowledge::dump() const { print(llvm::errs()); }
 } // anonymous namespace
+
+ void Knowledge::dump() const { print(llvm::errs()); }
 
 IslPtr<isl_union_map>
 polly::computeReachingDefinition(IslPtr<isl_union_map> Schedule,
-                                 IslPtr<isl_union_map> Writes, bool IncludeDef,
-                                 bool IncludeRedef) {
-  //assert(!Schedule || isl_union_map_is_bijective(Schedule.keep()));
-
+                                 IslPtr<isl_union_map> Writes, bool InclDef,
+                                 bool InclRedef) {
   // { Scatter[] }
   auto ScatterSpace = getScatterSpace(Schedule);
 
-  // { Element[] -> ScatterDef[] }
-  auto DefSched =
-      give(isl_union_map_apply_domain(Schedule.copy(), Writes.take()));
+  // { Element[] -> ScatterWrite[] }
+  auto DefSched =  give(isl_union_map_apply_domain(Schedule.copy(), Writes.take()));
 
-  // { ScatterUse[] -> ScatterDef[] }
-  auto Before = give(IncludeRedef ? isl_map_lex_gt(ScatterSpace.take())
-                                  : isl_map_lex_ge(ScatterSpace.take()));
+  // { ScatterRead[] -> ScatterWrite[] }
+  auto Before = give(InclRedef ? isl_map_lex_gt(ScatterSpace.take())    : isl_map_lex_ge(ScatterSpace.take()));
 
-  // { ScatterDef[] -> [ScatterUse[] -> ScatterDef[]] }
+  // { ScatterWrite[] -> [ScatterRead[] -> ScatterWrite[]] }
   auto BeforeMap = give(isl_map_reverse(isl_map_range_map(Before.take())));
 
-  // { Element[] -> [ScatterUse[] -> ScatterDef[]] }
+  // { Element[] -> [ScatterUse[] -> ScatterWrite[]] }
   auto DefSchedBefore =
       give(isl_union_map_apply_domain(isl_union_map_from_map(BeforeMap.take()),
                                       isl_union_map_reverse(DefSched.copy())));
 
   // For each element, at every point in time, map to the times of previous
   // definitions.
-  // { [Element[] -> ScatterUse[]] -> ScatterDef[] }
+  // { [Element[] -> ScatterRead[]] -> ScatterWrite[] }
   auto ReachableDefs = give(isl_union_map_uncurry(DefSchedBefore.take()));
   auto LastReachableDef = give(isl_union_map_lexmax(ReachableDefs.copy()));
 
-  // { [Element[] -> ScatterDef[]] -> ScatterDef[] }
+  // { [Element[] -> ScatterWrite[]] -> ScatterWrite[] }
   auto SelfUse = give(isl_union_map_range_map(DefSched.take()));
 
-  if (IncludeDef && IncludeRedef) {
+  if (InclDef && InclRedef) {
     // Add the Def itself to the solution.
-
-    LastReachableDef =
-        give(isl_union_map_union(LastReachableDef.take(), SelfUse.take()));
+    LastReachableDef =  give(isl_union_map_union(LastReachableDef.take(), SelfUse.take()));
     LastReachableDef = give(isl_union_map_coalesce(LastReachableDef.take()));
-  } else if (!IncludeDef && !IncludeRedef) {
+  } else if (!InclDef && !InclRedef) {
     // Remove Def itself from the solution.
-
-    LastReachableDef =
-        give(isl_union_map_subtract(LastReachableDef.take(), SelfUse.take()));
+    LastReachableDef =give(isl_union_map_subtract(LastReachableDef.take(), SelfUse.take()));
   }
 
-  // { [Element[] -> ScatterUse[]] -> Domain[] }
-  return give(isl_union_map_apply_range(
-      LastReachableDef.take(), isl_union_map_reverse(Schedule.take())));
+  // { [Element[] -> ScatterRead[]] -> Domain[] }
+  return give(isl_union_map_apply_range( LastReachableDef.take(), isl_union_map_reverse(Schedule.take())));
 }
 
-// TODO: This doesn't get any range from any reads that is not preceded by a write
 IslPtr<isl_union_map> polly::computeArrayLifetime(
     IslPtr<isl_union_map> Schedule,
     IslPtr<isl_union_map> Writes,
     IslPtr<isl_union_map> Reads, bool ReadEltInSameInst, bool InclWrite,
     bool InclLastRead, bool ExitReads) {
-
   IslPtr<isl_union_map> ExitRays;
   if (ExitReads) {
     // Add all writes that are never overwritten as rays.
@@ -1141,44 +1126,41 @@ IslPtr<isl_union_map> polly::computeReachingOverwrite(
   auto WriteAction =
       give(isl_union_map_apply_domain(Schedule.copy(), Writes.take()));
 
-  // { ScatterDef[] -> Elt[] }
+  // { ScatterWrite[] -> Element[] }
   auto WriteActionRev = give(isl_union_map_reverse(WriteAction.copy()));
 
-  // { ScatterUse[] -> ScatterWrite[] }
+  // { ScatterRead[] -> ScatterWrite[] }
   auto After = give(InclPrevWrite ? isl_map_lex_lt(ScatterSpace.take())
                                      : isl_map_lex_le(ScatterSpace.take()));
 
-  // { ScatterDef[] -> [ScatterUse[] -> ScatterWrite[]] }
+  // { ScatterWrite[] -> [ScatterRead[] -> ScatterWrite[]] }
   auto BeforeMap = give(isl_map_reverse(isl_map_range_map(After.take())));
 
-  // { Element[] -> [ScatterUse[] -> ScatterDef[]] }
+  // { Element[] -> [ScatterRead[] -> ScatterWrite[]] }
   auto DefSchedBefore = give(isl_union_map_apply_domain(
       isl_union_map_from_map(BeforeMap.take()), WriteActionRev.take()));
 
-  // For each element, at every point in time, map to the times of previous
-  // definitions.
-  // { [Element[] -> ScatterUse[]] -> ScatterWrite[] }
+  // For each element, at every point in time, map to the times of previous definitions.
+  // { [Element[] -> ScatterRead[]] -> ScatterWrite[] }
   auto ReachableDefs = give(isl_union_map_uncurry(DefSchedBefore.take()));
   auto LastReachableDef = give(isl_union_map_lexmin(ReachableDefs.take()));
 
   if (InclPrevWrite && IncludeOverwrite) {
     // Add the def itself to the solution
 
-    // { [Element[] -> ScatterDef[]] -> ScatterDef[] }
+    // { [Element[] -> ScatterWrite[]] -> ScatterWrite[] }
     auto SelfUse = give(isl_union_map_range_map(WriteAction.take()));
-    LastReachableDef =
-        give(isl_union_map_union(LastReachableDef.take(), SelfUse.take()));
+    LastReachableDef = give(isl_union_map_union(LastReachableDef.take(), SelfUse.take()));
     LastReachableDef = give(isl_union_map_coalesce(LastReachableDef.take()));
   } else if (!InclPrevWrite && !IncludeOverwrite) {
     // Remove def itself from the solution
 
-    // { [Element[] -> ScatterDef[]] -> ScatterDef[] }
+    // { [Element[] -> ScatterWrite[]] -> ScatterWrite[] }
     auto SelfUse = give(isl_union_map_range_map(WriteAction.take()));
-    LastReachableDef =
-        give(isl_union_map_subtract(LastReachableDef.take(), SelfUse.take()));
+    LastReachableDef =   give(isl_union_map_subtract(LastReachableDef.take(), SelfUse.take()));
   }
 
-  // { [Element[] -> ScatterUse[]] -> Domain[] }
+  // { [Element[] -> ScatterRead[]] -> Domain[] }
   auto LastReachableDefDomain = give(isl_union_map_apply_range(
       LastReachableDef.take(), isl_union_map_reverse(Schedule.take())));
 
@@ -1193,15 +1175,12 @@ IslPtr<isl_union_map> polly::computeArrayUnused(IslPtr<isl_union_map> Schedule,
                                                 bool IncludeWrite) {
 
   // { Element[] -> Scatter[] }
-  auto ReadActions =
-      give(isl_union_map_apply_domain(Schedule.copy(), Reads.take()));
-  auto WriteActions =
-      give(isl_union_map_apply_domain(Schedule.copy(), Writes.copy()));
+  auto ReadActions =      give(isl_union_map_apply_domain(Schedule.copy(), Reads.take()));
+  auto WriteActions =      give(isl_union_map_apply_domain(Schedule.copy(), Writes.copy()));
 
-  // { [Element[] -> Zone[] }
+  // { [Element[] -> Scatter[] }
   auto AfterReads = afterScatter(ReadActions, ReadEltInSameInst);
-  auto WritesBeforeAnyReads =
-      give(isl_union_map_subtract(WriteActions.take(), AfterReads.take()));
+  auto WritesBeforeAnyReads =      give(isl_union_map_subtract(WriteActions.take(), AfterReads.take()));
   auto BeforeWritesBeforeAnyReads =
       beforeScatter(WritesBeforeAnyReads, !IncludeWrite);
 
@@ -1210,7 +1189,7 @@ IslPtr<isl_union_map> polly::computeArrayUnused(IslPtr<isl_union_map> Schedule,
       isl_union_map_range_map(isl_union_map_reverse(Writes.copy())),
       Schedule.copy()));
 
-  // { [Element[] -> Zone[]] -> DomainWrite[] }
+  // { [Element[] -> Scatter[]] -> DomainWrite[] }
   auto ReachingOverwrite = computeReachingOverwrite(
       Schedule, Writes, ReadEltInSameInst, !ReadEltInSameInst);
 
@@ -1219,113 +1198,69 @@ IslPtr<isl_union_map> polly::computeArrayUnused(IslPtr<isl_union_map> Schedule,
       ReachingOverwrite.take(), isl_union_map_wrap(ReadActions.take())));
 
   // { [Element[] -> DomainWrite[]] -> Scatter[] }
-  auto ReadsOverwrittenRotated = give(isl_union_map_reverse(
-      isl_union_map_curry(reverseDomain(ReadsOverwritten).take())));
-  auto LastOverwrittenRead =
-      give(isl_union_map_lexmax(ReadsOverwrittenRotated.take()));
+  auto ReadsOverwrittenRotated = give(isl_union_map_reverse(      isl_union_map_curry(reverseDomain(ReadsOverwritten).take())));
+  auto LastOverwrittenRead =      give(isl_union_map_lexmax(ReadsOverwrittenRotated.take()));
+  
+  // { [Element[] -> DomainWrite[]] -> Scatter[] }
+  auto BetweenLastReadOverwrite = betweenScatter(LastOverwrittenRead, EltDomWrites, IncludeLastRead, IncludeWrite);
 
-  // { [Element[] -> DomainWrite[]] -> Zone[] }
-  auto BetweenLastReadOverwrite = betweenScatter(
-      LastOverwrittenRead, EltDomWrites, IncludeLastRead, IncludeWrite);
-
-  auto Result = give(isl_union_map_union(
+ return give(isl_union_map_union(
       BeforeWritesBeforeAnyReads.take(),
       isl_union_map_domain_factor_domain(BetweenLastReadOverwrite.take())));
-
-  return Result;
 }
 
-bool polly::isConflicting(IslPtr<isl_union_map> ThisLifetime,
-                          bool ThisImplicitLifetimeIsUnknown,
-                          IslPtr<isl_union_map> ThisWritten,
-                          IslPtr<isl_union_map> ThatLifetime,
-                          bool ThatImplicitLifetimeIsUnknown,
-                          IslPtr<isl_union_map> ThatWritten) {
-  Knowledge This(std::move(ThisLifetime),ThisImplicitLifetimeIsUnknown, std::move(ThisWritten));
-  Knowledge That(std::move(ThatLifetime), ThatImplicitLifetimeIsUnknown, std::move(ThatWritten));
+bool polly::isConflicting(IslPtr<isl_union_map> ExistingLifetime,
+                          bool ExistingImplicitLifetimeIsUnknown,
+                          IslPtr<isl_union_map> ExistingWritten,
+                          IslPtr<isl_union_map> ProposedLifetime,
+                          bool ProposedImplicitLifetimeIsUnknown,
+                          IslPtr<isl_union_map> ProposedWritten) {
+  Knowledge Existing(std::move(ExistingLifetime),ExistingImplicitLifetimeIsUnknown, std::move(ExistingWritten));
+  Knowledge Proposed(std::move(ProposedLifetime), ProposedImplicitLifetimeIsUnknown, std::move(ProposedWritten));
 
-  return Knowledge::isConflicting(This, That,  false);
+  return Knowledge::isConflicting(Existing, Proposed);
 }
 
 namespace {
 
-/// Base class for algorithms based on zones.
-class ComputeZone {
+/// Base class for algorithms based on zones, like DeLICM.
+class ZoneAlgorithm {
 protected:
-  Scop *S = nullptr;
+  Scop *S;
+  isl_ctx *IslCtx;
+
   IslPtr<isl_union_map> Schedule;
   IslPtr<isl_space> ParamSpace;
   IslPtr<isl_space> ScatterSpace;
 
-  // For initialization order, this must be declared after Schedule.
-  isl_ctx *IslCtx = nullptr;
+  IslPtr<isl_union_map> EmptyUnionMap;
+  IslPtr<isl_union_set> EmptyUnionSet;
 
-public:
-  ComputeZone(Scop *S)
-      : S(S), Schedule(give(S->getSchedule())),
-        ParamSpace(give(isl_union_map_get_space(Schedule.keep()))),
-        IslCtx(S->getIslCtx()) {
+  /// Prepare the object before computing the zones of @p S.
+  ZoneAlgorithm(Scop *S)
+      : S(S), IslCtx(S->getIslCtx()), Schedule(give(S->getSchedule())),
+        ParamSpace(give(isl_union_map_get_space(Schedule.keep()))) {
 
-    // Schedule may not contain all parameters (eg. if they are not used)
-    for (auto &Stmt : *S) {
-      auto Domain = give(Stmt.getDomainSpace());
-      ParamSpace =
-          give(isl_space_align_params(ParamSpace.take(), Domain.take()));
-    }
-    Schedule =
-        give(isl_union_map_align_params(Schedule.take(), ParamSpace.copy()));
-
+	   auto Domains = give( S->getDomains());
+	    ParamSpace = give(isl_space_align_params(ParamSpace.take(), isl_union_set_get_space( Domains.keep())));
+		Schedule =   give(isl_union_map_intersect_domain(Schedule.take(), Domains.take()));
     ScatterSpace = getScatterSpace(Schedule);
 
-    EmptyUnionMap = give(isl_union_map_empty(ParamSpace.copy()));
+      EmptyUnionMap = give(isl_union_map_empty(ParamSpace.copy()));
     EmptyUnionSet = give(isl_union_set_empty(ParamSpace.copy()));
-
-    auto Domains = EmptyUnionSet;
-    for (auto &Stmt : *S) {
-      auto Domain = give(Stmt.getDomain());
-      Domains = give(isl_union_set_add_set(Domains.take(), Domain.take()));
-    }
-    Schedule =
-        give(isl_union_map_intersect_domain(Schedule.take(), Domains.take()));
   }
 
 private:
-  Value *getUniqueIncoming(MemoryAccess *MA) {
-    assert(MA->isAnyPHIKind());
-    assert(MA->isWrite());
-
-    Value *IncomingValue = nullptr;
-    for (auto Incoming : MA->getIncoming()) {
-      auto Val = Incoming.second;
-      assert(Val);
-
-      // Handle undef values as if they don't exist.
-      if (isa<UndefValue>(Val))
-        continue;
-
-      if (IncomingValue && Val != IncomingValue)
-        return nullptr;
-
-      IncomingValue = Val;
-    }
-    return IncomingValue;
-  }
-
-  Value *getUsedValue(MemoryAccess *MA) {
-    if (MA->isWrite() && (MA->isValueKind() || MA->isArrayKind()))
-      return MA->getAccessValue();
-
-    if (MA->isWrite() && MA->isAnyPHIKind())
-      return getUniqueIncoming(MA);
-
-    return nullptr;
-  }
-
+	/// Of all the llvm::Values that represent the same content, try to find an unique one.
+	///
+	/// PHI nodes with just one incoming block are introduced by LCSSA. All other exact copy instructions (eg. bitwise 'or' with zero) should be removed by InstCombine.
+	///
+	/// Without this normalization, the two values would be considered different, leading to less optimization opportunities.
   Value *deLCSSA(Value *Val) {
     if (!Val)
       return Val;
 
-    if (auto PHI = dyn_cast<PHINode>(Val)) {
+    if (auto* PHI = dyn_cast<PHINode>(Val)) {
       Value *NormVal = nullptr;
       for (auto &Use : PHI->incoming_values()) {
         auto InVal = Use.get();
@@ -1346,64 +1281,55 @@ private:
     return Val;
   }
 
-  MemoryAccess *getReadAccessForValue(ScopStmt *Stmt, llvm::Value *Val) {
-    if (!isa<Instruction>(Val))
-      return nullptr;
-
-    for (auto *MA : *Stmt) {
-      if (!MA->isRead())
-        continue;
-      if (MA->getAccessValue() != Val)
-        continue;
-
-      return MA;
-    }
-
-    return nullptr;
-  }
-
-public:
-  Scop *getScop() const { return S; }
-
-protected:
-  void printAccesses(llvm::raw_ostream &OS, int indent = 0) {
-    OS.indent(indent) << "After Statements {\n";
-    for (auto &Stmt : *S) {
-      OS.indent(indent + 4) << Stmt.getBaseName() << "\n";
-      for (auto *MA : Stmt)
-        MA->print(OS); // No indent parameters
-    }
-    OS.indent(indent) << "}\n";
-  }
-
-private:
-  // This cannot be used if the user is a PHI!
+#if 0
+  /// Determine whether an instruction is defined in the same statement instance as in which it is used.
+  ///
+  /// @param Val      The instruction defining a value.
+  /// @param UserStmt The statement using @p Val. The use must not be a PHI, they must handled separately.
+  ///
+  /// @return True iff @p Val is defined in @p UserStmt.
   bool isIntraStmtUse(Value *Val, ScopStmt *UserStmt) const {
     assert(UserStmt);
+    auto *Inst = dyn_cast<Instruction>(Val);
 
-    auto Inst = dyn_cast<Instruction>(Val);
-    if (!Inst)
+	// Non-instructions (eg. literals) are not adding to complexity
+    if (!Inst) {
+		assert(false);
       return false;
+	}
 
-    auto DefStmt = S->getStmtFor(Inst);
+    auto *DefStmt = S->getStmtFor(Inst);
 
     // This assumes that there must be a PHI in the same statement if we are
     // going to use a value from a previous execution of the same statement.
     return DefStmt == UserStmt;
   }
-
-#if 0
-protected:
-  bool isLatestAccessingSameScalar(MemoryAccess *Acc1, MemoryAccess *Acc2) {
-    assert(Acc1->isLatestScalarKind() || Acc2->isLatestScalarKind());
-    if (!Acc1->isLatestScalarKind())
-      return false;
-    if (!Acc2->isLatestScalarKind())
-      return false;
-
-    return Acc1->getLatestScopArrayInfo() == Acc2->getLatestScopArrayInfo();
-  }
 #endif
+
+    /// Determine whether an instruction is defined in a different statement instance as in which it is used.
+  ///
+  /// @param Val      The instruction defining a value.
+  /// @param UserStmt The statement using @p Val. The use must not be a PHI, they must handled separately.
+  ///
+  /// @return True iff a use of @p Val in @p UserStmt introduces a flow-dependency.
+    bool isXtraStmtUse(Value *Val, ScopStmt *UserStmt) const {
+    assert(UserStmt);
+    auto *Inst = dyn_cast<Instruction>(Val);
+
+	// Non-instruction like literals do not add inter-stmt dependencies.
+    if (!Inst) 
+      return false;
+	
+    auto *DefStmt = S->getStmtFor(Inst);
+
+	// Read-only uses do not add inter-stmt dependencies.
+	if (!DefStmt)
+		return false;
+
+    // This assumes that there must be a PHI in the same statement if we are
+    // going to use a value from a previous execution of the same statement.
+    return DefStmt != UserStmt;
+  }
 
 private:
   // Check whether accesses within the same statement overlap.
@@ -1547,7 +1473,7 @@ protected:
     // predecessor for _every_ PHI.
     auto NormV = deLCSSA(V);
 
-    if (!DefDomain && isIntraStmtUse(V, UserStmt)) {
+    if (!DefDomain && !isXtraStmtUse(V, UserStmt)) {
       // assert(V==NormV && "Cannot yet handle the case where NormV is
       // extra-stmt");
       // Easy case: the definition is in the using Stmt itself, so use UserDom[]
@@ -1609,8 +1535,7 @@ protected:
   }
 
 protected:
-  IslPtr<isl_union_map> EmptyUnionMap;
-  IslPtr<isl_union_set> EmptyUnionSet;
+
 
   // { [Element[] -> Zone[]] -> DomainWrite[] }
   IslPtr<isl_union_map> WriteReachDefZone;
@@ -1849,8 +1774,12 @@ protected:
   }
   IslPtr<isl_union_map> getSchedule() const { return Schedule; }
 
-  friend class Knowledge;
-}; // class ZoneComputer
+  //friend class Knowledge;
+
+  public:
+	/// Return the SCoP this object is analyzing.
+  Scop *getScop() const { return S; }
+};
 
 struct MapReport {
   MemoryAccess *NormMA;
@@ -1884,7 +1813,7 @@ struct MapReport {
   }
 };
 
-class DeLICMImpl : public ComputeZone {
+class DeLICMImpl : public ZoneAlgorithm {
 private:
   Knowledge OriginalZone;
   Knowledge Zone;
@@ -2464,6 +2393,16 @@ DEBUG(OS = &llvm::dbgs());
     Zone.print(OS, indent + 4);
   }
 
+    void printAccesses(llvm::raw_ostream &OS, int indent = 0) {
+    OS.indent(indent) << "After Statements {\n";
+    for (auto &Stmt : *S) {
+      OS.indent(indent + 4) << Stmt.getBaseName() << "\n";
+      for (auto *MA : Stmt)
+        MA->print(OS); // No indent parameters
+    }
+    OS.indent(indent) << "}\n";
+  }
+
 #if 0
     DenseMap<Value *, MemoryAccess *> ValueDefs;
   DenseMap<Value *, MemoryAccess *> PHIReads;
@@ -2561,7 +2500,7 @@ DEBUG(OS = &llvm::dbgs());
   }
 
 public:
-  DeLICMImpl(Scop *S) : ComputeZone(S) {}
+  DeLICMImpl(Scop *S) : ZoneAlgorithm(S) {}
 
   /// Calculate the lifetime (definition to last use) of every array element.
   ///

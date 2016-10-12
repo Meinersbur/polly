@@ -351,29 +351,31 @@ IslPtr<isl_union_set> unionSpace(NonowningIslPtr<isl_union_set> USet) {
   return Result;
 }
 
-bool checkIsConflicting(const char *ExistingKnownStr, const char *ExistingUnknownStr, const char *ExistingUndefStr,  const char *ExistingWrittenStr, 
-	const char *ProposedKnownStr,  const char *ProposedUnknownStr,  const char *ProposedUndefStr,  const char *ProposedWrittenStr) {
+bool checkIsConflicting(
+const char *ExistingKnownStr, const char *ExistingUnknownStr/*necessary?*/, const char *ExistingUndefStr,  const char *ExistingWrittenStr,/* const char *ExistingWrittenUnknownStr,*/ 
+const char *ProposedKnownStr, const char *ProposedUnknownStr/*necessary?*/, const char *ProposedUndefStr,  const char *ProposedWrittenStr/*, const char *ProposedWrittenUnknownStr*/) {
 	std::unique_ptr<isl_ctx ,decltype(&isl_ctx_free)> Ctx  (   isl_ctx_alloc() , &isl_ctx_free);
   LLVMContext C;
 
     auto ExistingKnown = give(isl_union_map_read_from_str(Ctx.get(), ExistingKnownStr)) ;
 	auto ExistingUnknown = ExistingUnknownStr  ? give(isl_union_set_read_from_str(Ctx.get(), ExistingUnknownStr)) : nullptr;
     auto ExistingUndef = ExistingUndefStr  ? give(isl_union_set_read_from_str(Ctx.get(), ExistingUndefStr)): nullptr;
-	 auto ExistingWritten = give(isl_union_map_read_from_str(Ctx.get(), ExistingWrittenStr)) ;
+	auto ExistingWritten = give(isl_union_map_read_from_str(Ctx.get(), ExistingWrittenStr)) ;
+	 //auto ExistingWrittenUnknown = give(isl_union_set_read_from_str(Ctx.get(), ExistingWrittenUnknownStr));
 
 	auto ProposedKnown = give(isl_union_map_read_from_str(Ctx.get(), ProposedKnownStr)) ;
 	auto ProposedUnknown = ProposedUnknownStr  ? give(isl_union_set_read_from_str(Ctx.get(), ProposedUnknownStr)) : nullptr;
     auto ProposedUndef = ProposedUndefStr  ? give(isl_union_set_read_from_str(Ctx.get(), ProposedUndefStr)): nullptr;
-		 auto ProposedWritten = give(isl_union_map_read_from_str(Ctx.get(), ProposedWrittenStr)) ;
+    auto ProposedWritten = give(isl_union_map_read_from_str(Ctx.get(), ProposedWrittenStr)) ;
+	//auto ProposedWrittenUnknown = give(isl_union_set_read_from_str(Ctx.get(), ProposedWrittenUnknownStr));
 						
-
     auto UndefVal = UndefValue::get(IntegerType::get(C, 8));
     auto UndefId = give(isl_id_alloc(Ctx.get(), "Undef", UndefVal));
     auto UndefSpace = give( isl_space_set_tuple_id(isl_space_set_alloc(Ctx.get(), 0, 0), isl_dim_set, UndefId.take()));
     auto UndefSet = give(isl_set_universe(UndefSpace.take()));
     auto UndefUSet = give(isl_union_set_from_set(UndefSet.take()));
 
-		auto ExistingDefined= give(isl_union_map_domain(ExistingKnown.copy()));
+	auto ExistingDefined= give(isl_union_map_domain(ExistingKnown.copy()));
 	auto ExistingLifetime = ExistingKnown;
 	if (ExistingUnknown) {
 			ExistingDefined = give(isl_union_set_union(ExistingDefined.take(), ExistingUnknown.copy()));
@@ -384,7 +386,7 @@ bool checkIsConflicting(const char *ExistingKnownStr, const char *ExistingUnknow
 		ExistingLifetime = give(isl_union_map_union(ExistingLifetime.take(),  isl_union_map_from_domain_and_range(ExistingUndef.copy(), UndefUSet.copy())));
 	}
 
-		auto ProposedDefined= give(isl_union_map_domain(ProposedKnown.copy()));
+	auto ProposedDefined= give(isl_union_map_domain(ProposedKnown.copy()));
 	auto ProposedLifetime = ProposedKnown;
 	if (ProposedUnknown) {
 			ProposedDefined = give(isl_union_set_union(ProposedDefined.take(), ProposedUnknown.copy()));
@@ -396,7 +398,11 @@ bool checkIsConflicting(const char *ExistingKnownStr, const char *ExistingUnknow
 	}
 
 	auto ExistingUniverse = unionSpace(  ExistingDefined );
+	ExistingUniverse = give(isl_union_set_union(ExistingUniverse.take(),  unionSpace( give(isl_union_map_domain( ExistingWritten.copy() )) ).take() ));
+	//ExistingUniverse = give(isl_union_set_union(ExistingUniverse.take(),  unionSpace( ExistingWrittenUnknown ).take() ));
 	auto ProposedUniverse = unionSpace(  ProposedDefined );
+	ProposedUniverse = give(isl_union_set_union(ProposedUniverse.take(),  unionSpace( give(isl_union_map_domain( ProposedWritten.copy() )) ).take() ));
+	//ProposedUniverse = give(isl_union_set_union(ProposedUniverse.take(),  unionSpace( ProposedWrittenUnknown ).take() ));
 	auto Universe = give(isl_union_set_union(ExistingUniverse.take(), ProposedUniverse.take()));
 
 	//if (!ExistingUnknownStr)  
@@ -441,10 +447,11 @@ TEST(DeLICM, IsConflicting) {
                       nullptr, nullptr, false);
   isConflicting_check(nullptr, "{ Dom[i] }", nullptr, nullptr, nullptr,
                       "{ Dom[0] -> Val[] }", false);
-  isConflicting_check(nullptr, "{ Dom[i] }", "{ Dom[0] -> [] }", nullptr,
-                      nullptr, "{ Dom[0] -> Val[] }", false);
-  isConflicting_check(nullptr, "{ Dom[i] }", "{ Dom[0] -> Val[] }", nullptr,
-                      nullptr, "{ Dom[0] -> Val[] }", false);
+  //isConflicting_check(nullptr, "{ Dom[i] }", "{ Dom[0] -> [] }", nullptr, nullptr, "{ Dom[0] -> Val[] }", false);
+  EXPECT_TRUE(checkIsConflicting("{}", "{ Dom[i] }", nullptr, "{ }",
+	                             "{}", nullptr,      "{}",    "{ Dom[0] -> Val[] }"));
+
+
   isConflicting_check(nullptr, "{ Dom[i] }", "{ Dom[0] -> Val[] }",
                       "{ Dom[i] -> Val[] }", nullptr, nullptr, false);
 
@@ -490,6 +497,20 @@ TEST(DeLICM, IsConflicting) {
                       "{ Dom[i] -> Val[] }", nullptr, nullptr, true);
   isConflicting_check(nullptr, nullptr, "{ Dom[0] -> [] }", "{ Dom[i] -> [] }",
                       nullptr, nullptr, true);
+
+  EXPECT_TRUE(checkIsConflicting("{}", "{}", nullptr, "{ Dom[0] -> ValA[] }",
+	                             "{}", "{}", nullptr, "{ Dom[0] -> ValB[] }"));
+  EXPECT_TRUE(checkIsConflicting("{}", "{}", nullptr, "{ Dom[0] -> [] }",
+	                             "{}", "{}", nullptr, "{ Dom[0] -> Val[] }"));
+  EXPECT_TRUE(checkIsConflicting("{}", "{}", nullptr, "{ Dom[0] -> Val[] }",
+	                             "{}", "{}", nullptr, "{ Dom[0] -> [] }"));
+
+  EXPECT_TRUE(checkIsConflicting("{}", "{}", nullptr, "{ Dom[0] -> [] }",
+	                             "{}", "{}", nullptr, "{ Dom[0] -> [] }"));
+
+  EXPECT_FALSE(checkIsConflicting("{}", "{}", nullptr, "{ Dom[0] -> ValA[]; Dom[0] -> ValB[] }",
+	                             "{}", "{}", nullptr, "{  }"));
+
 }
 
 } // anonymous namespace
