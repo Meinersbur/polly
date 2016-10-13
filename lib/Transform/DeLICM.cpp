@@ -2277,8 +2277,8 @@ private:
   IslPtr<isl_union_map> determinePHIWrittenValues(const ScopArrayInfo *SAI) {
     auto *PHIRead = this->PHIReadAccs.lookup(SAI);
     auto Result = EmptyUnionMap;
-    // auto PHIInst = cast<PHINode>( PHIRead->getAccessValue());
-    auto *ReadStmt = PHIRead->getStatement();
+   
+   
 
     for (auto *MA : PHIIncomingAccs.lookup(SAI)) {
       // { PHIWriteDomain[] -> ValInst[] }
