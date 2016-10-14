@@ -67,9 +67,8 @@ class Scop;
 ///                  to the result.
 /// @param InclRedef Whether to assume that at the timepoint where an element
 ///                  is overwritten, it still contains the old value (any load
-///                  at
-///                  that timepoint would happen before the overwrite). In this
-///                  example, enabling this adds
+///                  at that timepoint would happen before the overwrite). In
+///                  this example, enabling this adds
 ///                  { [A[] -> [10]] -> Write[] } to the result.
 ///
 /// @return { [Element[] -> Scatter[]] -> DomainWrite[] }
@@ -105,15 +104,18 @@ IslPtr<isl_union_map> computeReachingDefinition(IslPtr<isl_union_map> Schedule,
 ///                          that is scheduled at the same timepoint (Writes
 ///                          happen before reads).
 /// @param InclWrite         Whether to also include the timepoint where a value
-/// is written to the lifetime. If enabled for the example, it changes to {
-/// [A[5] -> Def[]] -> [i] : 0 <= i < 10 }.
+///                          is written to the lifetime. If enabled for the
+///                          example, it changes to
+///                          { [A[5] -> Def[]] -> [i] : 0 <= i < 10 }.
 /// @param InclLastRead      Whether to also include the timepoint where with
-/// the last use to the lifetime. If enabled for the example, it changes to {
-/// [A[5] -> Def[]] -> [i] : 0 < i <= 10 }.
+///                          the last use to the lifetime. If enabled for the
+///                          example, it changes to
+///                          { [A[5] -> Def[]] -> [i] : 0 < i <= 10 }.
 /// @param ExitReads         Whether to extend the lifetimes that are not
-/// overwritten into infinity. This corresponds to the assumption that the
-/// values must be available after the scop. If enabled, the example changes to
-/// { [A[5] -> Def[]] -> [i] : 0 < i }
+///                          overwritten into infinity. This corresponds to the
+///                          assumption that the values must be available after
+///                          the scop. If enabled, the example changes to
+///                          { [A[5] -> Def[]] -> [i] : 0 < i }
 ///
 /// @return { [Element[] -> DomainWrite[]] -> Zone[] }
 IslPtr<isl_union_map> computeArrayLifetime(IslPtr<isl_union_map> Schedule,
@@ -235,7 +237,7 @@ IslPtr<isl_union_map> computeArrayUnused(IslPtr<isl_union_map> Schedule,
 
 /// Determine whether two lifetimes are conflicting.
 ///
-/// Used to unit testing.
+/// Used by unittesting.
 ///
 /// @param ExistingLifetime { [Element[] -> Zone[]] -> ValInst[] }
 /// @param ExistingImplicitLifetimeIsUnknown

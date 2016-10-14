@@ -117,7 +117,7 @@ return:
 ; CHECK-NEXT:     Lifetime: { [MemRef_C[i0] -> [i1{{\]\]}} -> Undef[] : 0 <= i0 <= 2 and i1 <= 11 + 12i0; [MemRef_C[i0] -> [i1{{\]\]}} -> [Stmt_inner_for[i0, 3] -> Val_phi[{{\]\]}} : 0 <= i0 <= 2 and i1 >= 12 + 12i0 } + Unknown
 ; CHECK-NEXT:     Written : { [MemRef_C[i0] -> [11 + 12i0{{\]\]}} -> [Stmt_inner_for[i0, 3] -> Val_phi[{{\]\]}} : 0 <= i0 <= 2 }
 ; CHECK:      Mapped scalars {
-; CHECK-NEXT:     Scalar access Stmt_inner_for MK_Value Define MemRef_phi as %phi [new: { Stmt_inner_for[i0, i1] -> MemRef_C[i0] : i1 >= 0 and 4 - 4i0 <= i1 <= 11 - 4i0 and i1 <= 3; Stmt_inner_for[0, i1] -> MemRef_C[0] : 0 <= i1 <= 3 }]:
+; CHECK-NEXT:     Scalar access ScopArrayInfo:
 ; CHECK-NEXT:         Accesses:  3
 ; CHECK-NEXT:         Target:    { Stmt_inner_for[i0, i1] -> MemRef_C[i0] : i1 >= 0 and 4 - 4i0 <= i1 <= 11 - 4i0 and i1 <= 3; Stmt_inner_for[0, i1] -> MemRef_C[0] : 0 <= i1 <= 3 }
 ; CHECK-NEXT:         Lifetime:  { Stmt_inner_for[i0, i1] -> [2 + 12i0 + 3i1] : 0 <= i0 <= 2 and 0 <= i1 <= 4 - i0 and i1 <= 3; Stmt_inner_for[2, 3] -> [35] }
@@ -143,7 +143,7 @@ return:
 ; CHECK-NEXT:                 { Stmt_inner_body[i0, i1] -> MemRef_sum[] };
 ; CHECK-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 1]
 ; CHECK-NEXT:                 { Stmt_inner_body[i0, i1] -> MemRef_phi[] };
-; CHECK-NEXT:            new: { Stmt_inner_body[i0, i1] -> MemRef_C[i0] : i0 <= 2 and i1 >= 0 and 4 - 4i0 <= i1 <= 2; Stmt_inner_body[0, i1] -> MemRef_C[0] : 0 <= i1 <= 2 };
+; CHECK-NEXT:            new: { Stmt_inner_body[i0, i1] -> MemRef_C[i0] : 0 <= i0 <= 2 and 0 <= i1 <= 10 - 4i0 and i1 <= 2 };
 ; CHECK-NEXT:     Stmt_inner_inc
 ; CHECK-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 1]
 ; CHECK-NEXT:                 { Stmt_inner_inc[i0, i1] -> MemRef_sum[] };

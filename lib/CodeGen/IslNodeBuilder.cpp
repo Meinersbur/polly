@@ -724,8 +724,6 @@ IslNodeBuilder::createNewAccesses(ScopStmt *Stmt,
            "Generating new index expressions to indirect arrays not working");
 
     auto Schedule = isl_ast_build_get_schedule(Build);
-    assert(!MA->getLatestScopArrayInfo()->getBasePtrOriginSAI() &&
-           "Indirect access codegen not supported");
     auto PWAccRel = MA->applyScheduleToAccessRelation(Schedule);
 
     auto AccessExpr = isl_ast_build_access_from_pw_multi_aff(Build, PWAccRel);

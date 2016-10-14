@@ -285,14 +285,14 @@ IslPtr<isl_set> singleton(IslPtr<isl_union_set> USet,
                                  ExpectedSpace.keep()) == isl_bool_true);
   return Result;
 }
-
+#if 0
 /// Returns whether @p Map has a mapping for at least all elements of @p Domain.
 isl_bool isMapDomainSubsetOf(IslPtr<isl_map> Map,
                              NonowningIslPtr<isl_set> Domain) {
   auto Subset = give(isl_map_domain(Map.take()));
   return isl_set_is_subset(Subset.keep(), Domain.keep());
 }
-
+#endif
 /// Determine how many dimensions the scatter space of @p Schedule has.
 ///
 /// The schedule must not be empty and have equal number of dimensions of any
@@ -648,7 +648,7 @@ IslPtr<isl_union_map> computeScalarLifetime(IslPtr<isl_union_map> Schedule,
 /// @param Writes            { DomainWrite[] }
 /// @param Reads             { DomainRead[] }
 /// @param ReadEltInSameInst A read at the same timepoint as a write will read
-/// that value instead of the previous's.
+///                          that value instead of the previous's.
 /// @param InclWrite         Include the write itself to the lifetime.
 /// @param InclLastRead      Include the last write to the lifetime.
 /// @param ExitReads         Extend the last definition to infinity.
@@ -669,14 +669,14 @@ IslPtr<isl_map> computeScalarLifetime(IslPtr<isl_union_map> Schedule,
           .take()));
 }
 
-/// Simplify the a map inplace.
+/// Simplify a map inplace.
 void simplify(IslPtr<isl_map> &Map) {
   Map = give(isl_map_compute_divs(Map.take()));
   Map = give(isl_map_detect_equalities(Map.take()));
   Map = give(isl_map_coalesce(Map.take()));
 }
 
-/// Simplify the a union map inplace.
+/// Simplify a union map inplace.
 void simplify(IslPtr<isl_union_map> &Map) {
   Map = give(isl_union_map_compute_divs(Map.take()));
   Map = give(isl_union_map_detect_equalities(Map.take()));
@@ -707,8 +707,8 @@ MemoryAccess *getInputAccessOf(Value *InputVal, ScopStmt *Stmt) {
 /// @param Universe The domain to which @p Relevant needs to be extended.
 ///
 /// @return A map with that associates the domain elements of @p Relevant to the
-/// same elements and in addition the elements of @p Universe to some undefined
-/// elements. The function prefers to return simple maps.
+///         same elements and in addition the elements of @p Universe to some
+///         undefined elements. The function prefers to return simple maps.
 IslPtr<isl_union_map> expandMapping(IslPtr<isl_union_map> Relevant,
                                     IslPtr<isl_union_set> Universe) {
   Relevant = give(isl_union_map_coalesce(Relevant.take()));
@@ -922,7 +922,7 @@ public:
     checkConsistency();
   }
 
-  /// Alternative ctor taking isl_maps instead isl_union_map.
+  /// Alternative constructor taking isl_maps instead isl_union_map.
   Knowledge(IslPtr<isl_map> Lifetime, bool ImplicitLifetimeIsUnknown,
             IslPtr<isl_map> Written)
       : Knowledge(give(isl_union_map_from_map(Lifetime.take())),
@@ -933,12 +933,12 @@ public:
   bool isUsable() const { return Lifetime && Written; }
 
   /// Print the content of this object to @p OS.
-  void print(llvm::raw_ostream &OS, unsigned indent = 0) const {
+  void print(llvm::raw_ostream &OS, unsigned Indent = 0) const {
     if (isImplicitLifetimeUnknown())
-      OS.indent(indent) << "Lifetime: " << Lifetime << " + Unknown\n";
+      OS.indent(Indent) << "Lifetime: " << Lifetime << " + Unknown\n";
     else
-      OS.indent(indent) << "Lifetime: " << Lifetime << " + Undef\n";
-    OS.indent(indent) << "Written : " << Written << '\n';
+      OS.indent(Indent) << "Lifetime: " << Lifetime << " + Undef\n";
+    OS.indent(Indent) << "Written : " << Written << '\n';
   }
 
   /// Dump the object content stderr. Meant to be called in a debugger.
@@ -954,13 +954,13 @@ public:
     assert(this->isImplicitLifetimeUnknown());
     assert(That.isImplicitLifetimeUndef());
 
-    auto ThatKnowDomain = filterKnownValInst(That.Lifetime);
+    auto ThatKnownDomain = filterKnownValInst(That.Lifetime);
     auto ThatDomain = give(isl_union_map_domain(That.Lifetime.take()));
 
     Lifetime =
         give(isl_union_map_subtract_domain(Lifetime.take(), ThatDomain.take()));
     Lifetime =
-        give(isl_union_map_union(Lifetime.take(), ThatKnowDomain.take()));
+        give(isl_union_map_union(Lifetime.take(), ThatKnownDomain.take()));
 
     Written = give(isl_union_map_union(Written.take(), That.Written.take()));
 
@@ -977,12 +977,13 @@ public:
   /// llvm::Values.
   ///
   /// @param Existing One of the knowledges; current implementation requires it
-  /// to be 'implicit unknown' (use case 1).
+  ///                 to be 'implicit unknown' (use case 1).
   /// @param Proposed One of the knowledges; current implementation requires it
-  /// to be 'implicit undef' (use case 2).
-  /// @param OS Dump the conflict reason to this output stream; use nullptr to
-  /// not output anything.
-  /// @param Indent Indention for the conflict reason.
+  ///                 to be 'implicit undef' (use case 2).
+  /// @param OS       Dump the conflict reason to this output stream; use
+  /// nullptr to
+  ///                 not output anything.
+  /// @param Indent   Indention for the conflict reason.
   ///
   /// @return True, iff the two knowledges are conflicting.
   static bool isConflicting(const Knowledge &Existing,
@@ -999,10 +1000,10 @@ public:
     // 4a) Written vs Unknown, 4b) Unknown vs Written
     // 5a) Written Unknown vs Known, 5b) Known vs Written Unknown
     // 6a) Written Known vs Known, 6b) Known vs Written Known that do not write
-    // the same llvm::Value instance
+    //     the same llvm::Value instance
     // 7) Written Known/Unknown vs Written Known/Unknown, where the first writes
-    // to the same location and at the same timepoint as the latter
-    // TODO: Exception to 7) if the same value is written
+    //    to the same location and at the same timepoint as the latter
+    // TODO: Exception to 7) if the same value is written.
 
     // Check 1) and 2a)
     auto ExistingUndef = getUndefValInstDomain(Existing.Lifetime);
@@ -1426,7 +1427,35 @@ protected:
     return give(isl_union_set_from_set(makeUnknownSet().take()));
   }
 
-  /// Create an isl_id that represent 'unused storage'.
+  /// Create a domain-to-unknown value mapping.
+  ///
+  /// @param Domain { Domain[] }
+  ///
+  /// @return { Domain[] -> ValInst[] }
+  IslPtr<isl_map> makeUnknownForDomain(IslPtr<isl_set> Domain) const {
+    return give(isl_map_from_domain(Domain.take()));
+  }
+
+  /// Create a statement-to-unknown value mapping.
+  ///
+  /// @param Stmt The statement whose instances are mapped to unknown.
+  ///
+  /// @return { Domain[] -> ValInst[] }
+  IslPtr<isl_map> makeUnknownForDomain(ScopStmt *Stmt) const {
+    return give(isl_map_from_domain(getDomainFor(Stmt).take()));
+  }
+
+  /// Create a domain-to-unknown value mapping.
+  ///
+  /// @param Domain { Domain[] }
+  ///
+  /// @return { Domain[] -> ValInst[] }
+  IslPtr<isl_union_map>
+  makeUnknownForDomain(IslPtr<isl_union_set> Domain) const {
+    return give(isl_union_map_from_domain(Domain.take()));
+  }
+
+  /// Create an isl_id that represents 'unused storage'.
   IslPtr<isl_id> makeUndefId() const {
     auto &LLVMContext = S->getFunction().getContext();
     auto Ty = IntegerType::get(LLVMContext, 1);
@@ -1452,30 +1481,28 @@ protected:
     return give(isl_union_set_from_set(makeUndefSet().take()));
   }
 
+  /// Create an isl_id that represents @p V.
   IslPtr<isl_id> makeValueId(Value *V) const {
     if (!V)
       return makeUnknownId();
     if (isa<UndefValue>(V))
       return makeUndefId();
+
     auto Name = getIslCompatibleName("Val_", V, std::string());
     return give(isl_id_alloc(IslCtx, Name.c_str(), V));
   }
+
+  /// Create the space for an llvm::Value that is available everywhere.
   IslPtr<isl_space> makeValueSpace(Value *V) const {
     auto Result = give(isl_space_set_from_params(ParamSpace.copy()));
     return give(isl_space_set_tuple_id(Result.take(), isl_dim_set,
                                        makeValueId(V).take()));
   }
 
+  /// Create a set with the llvm::Value @p V which is available everywhere.
   IslPtr<isl_set> makeValueSet(Value *V) const {
     auto Space = makeValueSpace(V);
     return give(isl_set_universe(Space.take()));
-  }
-
-  // { UserDomain[] -> ValInst[] }
-  IslPtr<isl_map> makeValInst(Value *Val, IslPtr<isl_set> DefDomain,
-                              ScopStmt *UserStmt, bool IsCertain) {
-    return makeValInst(Val, std::move(DefDomain), UserStmt,
-                       getDomainFor(UserStmt), IsCertain);
   }
 
   // { UserDomain[] -> ValInst[] }
@@ -1485,47 +1512,130 @@ protected:
                        IsCertain);
   }
 
-  // { UserDomain[] -> ValInst[] }
-  IslPtr<isl_map> makeValInst(Value *V, IslPtr<isl_set> DefDomain,
-                              ScopStmt *UserStmt, IslPtr<isl_set> UserDomain,
-                              bool IsCertain) {
-    assert(UserDomain);
+protected:
+  // { Scatter[] -> DomainDef[] }
+  IslPtr<isl_union_map> ScalarReachDefZone;
 
-    if (!V && !UserStmt)
-      return give(isl_map_from_domain(UserDomain.take()));
+  /// Get the reaching definition of a scalar defined in @p Stmt.
+  ///
+  /// Note that this does not depend on the llvm::Instruction, only on the
+  /// statement it is defined in. Therefore the same computation can be reused.
+  ///
+  /// @param Stmt The statement in which a scalar is defined.
+  ///
+  /// @return { Scatter[] -> DomainDef[] }
+  IslPtr<isl_map> getScalarReachingDefinition(ScopStmt *Stmt) {
+    auto Domain = getDomainFor(Stmt);
+    auto DomainSpace = give(isl_set_get_space(Domain.keep()));
+    auto ResultSpace = give(isl_space_map_from_domain_and_range(
+        ScatterSpace.copy(), DomainSpace.take()));
 
-    if (!IsCertain)
-      return give(isl_map_from_domain(UserDomain.take()));
-
-    if (!isa<Instruction>(V)) {
-      // Available anywhere
-      auto ValSet = makeValueSet(V);
-      return give(
-          isl_map_from_domain_and_range(UserDomain.take(), ValSet.take()));
+    auto Result = give(isl_union_map_extract_map(ScalarReachDefZone.keep(),
+                                                 ResultSpace.copy()));
+    if (Result && isl_map_plain_is_empty(Result.keep())) {
+      Result = computeScalarReachingDefinition(Schedule, Domain, false, true);
+      simplify(Result);
+      if (Result)
+        ScalarReachDefZone = give(
+            isl_union_map_add_map(ScalarReachDefZone.take(), Result.copy()));
     }
 
-    // FIXME: Should use transitivity in case of LCSSA (ReachingDefinition for
-    // each %phi)
-    // It doesn't really work well if the LCSSA %phi is intra-stmt, but the
-    // incoming value is extra-phi.
-    // TODO: Actually, in the SCop, we should be able to determine the
-    // predecessor for _every_ PHI.
-    auto NormV = deLCSSA(V);
+    return Result;
+  }
 
-    if (!DefDomain && !isXtraStmtUse(V, UserStmt)) {
-      // assert(V==NormV && "Cannot yet handle the case where NormV is
-      // extra-stmt");
-      // Easy case: the definition is in the using Stmt itself, so use UserDom[]
-      // for the Value's instance.
-      // Not that the non-isIntraStmtUse assumes extra-Stmt use, ie. a use would
-      // use the definition from a previous instance.
+  /// Get the reaching definition of a scalar defined in @p DefDomain.
+  ///
+  /// @param DomainDef { DomainDef[] }
+  ///              The write statements to get the reaching definition for.
+  ///
+  /// @return { Scatter[] -> DomainDef[] }
+  IslPtr<isl_map> getScalarReachingDefinition(IslPtr<isl_set> DomainDef) {
+    auto DomId = give(isl_set_get_tuple_id(DomainDef.keep()));
+    auto *Stmt = static_cast<ScopStmt *>(isl_id_get_user(DomId.keep()));
+
+    auto StmtResult = getScalarReachingDefinition(Stmt);
+    ScalarReachDefZone = give(
+        isl_union_map_add_map(ScalarReachDefZone.take(), StmtResult.copy()));
+
+    return give(isl_map_intersect_range(StmtResult.take(), DomainDef.take()));
+  }
+
+protected:
+  /// Create a mapping from a statement instance to the instance of an
+  /// llvm::Value that can be used in there.
+  ///
+  /// Although LLVM IR used single static assignment, llvm::Values can have
+  /// different contents in loops, when they get redefined in the last
+  /// iteration. This function tries to get the statement instance of the
+  /// previous definition, relative to a user.
+  ///
+  /// Example:
+  /// for (int i = 0; i < N; i += 1) {
+  /// DEF:
+  ///    int v = A[i];
+  /// USE:
+  ///    use(v);
+  ///  }
+  ///
+  /// The value instance used by statement instance USE[i] is DEF[i]. Hence,
+  /// makeValInst would return
+  /// { USE[i] -> DEF[i] : 0 <= i < N }
+  ///
+  ///
+  /// @param V           The value to look get the instance of.
+  /// @param DomainDef  { DomainDef[] }
+  ///                   The domain of the statement that defines @p V. If
+  ///                   nullptr, will be derived automatically. If defined, the
+  ///                   domain gets precedence over trying to use the
+  ///                   llvm::Value instance from the same statement.
+  /// @param UseStmt    The statement that uses @p V. Can be nullptr.
+  /// @param DomainUse  { DomainUse[] }
+  ///                   The domain of @p UseStmt.
+  /// @param IsCertain  Pass true if the definition of @p V is a MUST_WRITE or
+  /// false if the write is conditional.
+  ///
+  /// @return { DomainUse[] -> ValInst[] }
+  IslPtr<isl_map> makeValInst(Value *V, IslPtr<isl_set> DomainDef,
+                              ScopStmt *UseStmt, IslPtr<isl_set> DomainUse,
+                              bool IsCertain = true) {
+    assert(DomainUse && "Must pass a user domain");
+
+    // If the definition/write is conditional, the previous write may "shine
+    // through" on conditions we cannot determine. Again, return the unknown
+    // value.
+    if (!IsCertain)
+      return give(isl_map_from_domain(DomainUse.take()));
+
+    if (V && !isa<Instruction>(V)) {
+      // Non-instructions are available anywhere.
+      auto ValSet = makeValueSet(V);
+      return give(
+          isl_map_from_domain_and_range(DomainUse.take(), ValSet.take()));
+    }
+
+    // Normalize
+    // FIXME: It doesn't really work well if the LCSSA %phi is intra-stmt, but
+    // the incoming value is extra-phi.
+    // TODO: In a SCoP, we should be able to determine the predecessor for
+    // _every_ PHI.
+    auto *NormV = deLCSSA(V);
+
+    // If the definition is in the using Stmt itself, use DomainUse[] for the
+    // Value's instance.
+    // Note that the non-isIntraStmtUse assumes extra-Stmt use, ie. a use would
+    // use the definition from a previous instance.
+    if (!DomainDef && UseStmt && V && !isXtraStmtUse(V, UseStmt)) {
+      // Even if V is within UseStmt, NormV might be somewhere else; return
+      // unknown to avoid problems.
+      if (V != NormV)
+        return makeUnknownForDomain(DomainUse);
 
       // { llvm::Value }
       auto ValSet = makeValueSet(NormV);
 
       // {  UserDomain[] -> llvm::Value }
       auto ValInstSet =
-          give(isl_map_from_domain_and_range(UserDomain.take(), ValSet.take()));
+          give(isl_map_from_domain_and_range(DomainUse.take(), ValSet.take()));
 
       // { UserDomain[] -> [UserDomain[] - >llvm::Value] }
       auto Result =
@@ -1534,44 +1644,45 @@ protected:
       return Result;
     }
 
-    if (!DefDomain) {
-      auto Inst = dyn_cast<Instruction>(NormV);
-      auto ValStmt = S->getStmtFor(Inst);
+    // Try to derive DomainDef if not explicitly specified.
+    if (!DomainDef) {
+      auto *Inst = cast<Instruction>(NormV);
+      auto *ValStmt = S->getStmtFor(Inst);
 
-      if (!ValStmt) {
-        // Cannot associate with an instance; return as if unknown
-        // TODO: Maybe look for successor/predecessor and link to its instance.
-        // { Domain[] -> [] }
-        return give(isl_map_from_domain(UserDomain.take()));
-      }
-
-      // { DefDomain[] -> Scatter[] }
-      DefDomain = getDomainFor(ValStmt);
+      // It is possible that the llvm::Value is in a removed Stmt, in which case
+      // we cannot derive its domain.
+      if (ValStmt)
+        DomainDef = getDomainFor(ValStmt);
     }
 
-    // { Scatter[] -> DefDomain[] }
-    auto ReachDef =
-        computeScalarReachingDefinition(Schedule, DefDomain, false, true);
+    if (DomainDef) {
+      // { Scatter[] -> DefDomain[] }
+      auto ReachDef = getScalarReachingDefinition(DomainDef);
 
-    // { UserDomain[] -> Scatter[] }
-    auto UserSched = getScatterFor(UserDomain);
+      // { DomainUse[] -> Scatter[] }
+      auto UserSched = getScatterFor(DomainUse);
 
-    // { UserDomain[] -> DefDomain[] }
-    auto UsedInstance =
-        give(isl_map_apply_range(UserSched.take(), ReachDef.take()));
+      // { DomainUse[] -> DomainDef[] }
+      auto UsedInstance =
+          give(isl_map_apply_range(UserSched.take(), ReachDef.take()));
 
-    // { llvm::Value }
-    auto ValSet = makeValueSet(NormV);
+      // { llvm::Value }
+      auto ValSet = makeValueSet(NormV);
 
-    // { UserDomain[] -> llvm::Value }
-    auto ValInstSet =
-        give(isl_map_from_domain_and_range(UserDomain.take(), ValSet.take()));
+      // { DomainUse[] -> llvm::Value }
+      auto ValInstSet =
+          give(isl_map_from_domain_and_range(DomainUse.take(), ValSet.take()));
 
-    // { UserDomain[] -> [DefDomain[] -> llvm::Value]  }
-    auto Result =
-        give(isl_map_range_product(UsedInstance.take(), ValInstSet.take()));
-    simplify(Result);
-    return Result;
+      // { DomainUse[] -> [DomainDef[] -> llvm::Value]  }
+      auto Result =
+          give(isl_map_range_product(UsedInstance.take(), ValInstSet.take()));
+      simplify(Result);
+      return Result;
+    }
+
+    // If neither the value not the user if given, we cannot determine the
+    // reaching definition; return value is unknown.
+    return makeUnknownForDomain(DomainUse);
   }
 
 private:
@@ -1609,40 +1720,23 @@ private:
     return Val;
   }
 
-#if 0
-  /// Determine whether an instruction is defined in the same statement instance as in which it is used.
-  ///
-  /// @param Val      The instruction defining a value.
-  /// @param UserStmt The statement using @p Val. The use must not be a PHI, they must handled separately.
-  ///
-  /// @return True iff @p Val is defined in @p UserStmt.
-  bool isIntraStmtUse(Value *Val, ScopStmt *UserStmt) const {
-    assert(UserStmt);
-    auto *Inst = dyn_cast<Instruction>(Val);
-
-	// Non-instructions (eg. literals) are not adding to complexity
-    if (!Inst) {
-		assert(false);
-      return false;
-	}
-
-    auto *DefStmt = S->getStmtFor(Inst);
-
-    // This assumes that there must be a PHI in the same statement if we are
-    // going to use a value from a previous execution of the same statement.
-    return DefStmt == UserStmt;
-  }
-#endif
-
   /// Determine whether an instruction is defined in a different statement
   /// instance as in which it is used.
   ///
+  /// We here assume that a BB/region cannot use a definition in the same
+  /// BB/region, which would be theoretically possible in loops within region
+  /// statements and with disconnected loops:
+  /// BB:
+  ///   ... = add i32 %def, 5
+  ///   %def = ...
+  ///   br label %BB
+  ///
   /// @param Val      The instruction defining a value.
   /// @param UserStmt The statement using @p Val. The use must not be a PHI,
-  /// they must handled separately.
+  ///                 they must handled separately.
   ///
   /// @return True iff a use of @p Val in @p UserStmt introduces a
-  /// flow-dependency.
+  ///         flow-dependency.
   bool isXtraStmtUse(Value *Val, ScopStmt *UserStmt) const {
     assert(UserStmt);
     auto *Inst = dyn_cast<Instruction>(Val);
@@ -1666,14 +1760,14 @@ private:
   ///
   /// What violates our assumptions:
   /// - A load after a write of the same location; we assume that all reads
-  /// occur before the writes.
+  ///   occur before the writes.
   /// - Two writes to the same location; we cannot model the order in which
-  /// these occur.
+  ///   these occur.
   ///
   /// Scalar reads implicitly always occur before other access therefore never
   /// violate the first condition. There is also at most one write to a scalar,
   /// satisfying the second condition.
-  bool isAcceptableStmt(ScopStmt *Stmt) {
+  bool isCompatibleStmt(ScopStmt *Stmt) {
     auto Stores = EmptyUnionMap;
     auto Loads = EmptyUnionMap;
 
@@ -1682,7 +1776,8 @@ private:
       if (!MA->isLatestArrayKind())
         continue;
 
-      auto AccRel = give(isl_union_map_from_map(MA->getAccessRelation()));
+      auto AccRel =
+          give(isl_union_map_from_map(getAccessRelationFor(MA).take()));
 
       if (MA->isRead()) {
         // Reject store after load to same location.
@@ -1693,6 +1788,11 @@ private:
       }
 
       if (MA->isWrite()) {
+        if (!isa<StoreInst>(MA->getAccessInstruction())) {
+          DEBUG(dbgs() << "WRITE that is not a StoreInst not supported\n");
+          return false;
+        }
+
         // In region statements the order is less clear, eg. the load and store
         // might be in a boxed loop.
         if (Stmt->isRegionStmt() &&
@@ -1711,135 +1811,129 @@ private:
   }
 
 protected:
-  // { [Element[] -> Zone[]] -> DomainWrite[] }
-  IslPtr<isl_union_map> WriteReachDefZone;
+  /// Set of all referenced elements.
+  /// { Element[] -> Element[] }
+  IslPtr<isl_union_set> AllElements;
 
-  // { DomainMayWrite[] -> Element[] }
-  IslPtr<isl_union_map> AllMayWrites;
-
-  // { DomainMustWrite[] -> Element[] }
-  IslPtr<isl_union_map> AllMustWrites;
-
-  // { Element[] -> Zone[] }
-  IslPtr<isl_union_map> UniverseZone;
-
-  // { [Element[] -> DomainWrite[]] -> ValInst[] }
-  IslPtr<isl_union_map> AllWriteValInst;
-
-  // { [Element[] -> DomainRead[]] -> ValInst[] }
-  IslPtr<isl_union_map> AllReadValInst;
-
-  // { DomainRead[] -> Element[] }
+  /// Combined access relations of all MK_Array READ accesses.
+  /// { DomainRead[] -> Element[] }
   IslPtr<isl_union_map> AllReads;
 
-  // { DomainWrite[] -> Element[] }
+  /// Combined access relations of all MK_Array, MAY_WRITE accesses.
+  /// { DomainMayWrite[] -> Element[] }
+  IslPtr<isl_union_map> AllMayWrites;
+
+  /// Combined access relations of all MK_Array, MUST_WRITE accesses.
+  /// { DomainMustWrite[] -> Element[] }
+  IslPtr<isl_union_map> AllMustWrites;
+
+  ///  Combined access relations of all MK_Array write accesses (union of
+  ///  AllMayWrites and AllMustWrites).
+  /// { DomainWrite[] -> Element[] }
   IslPtr<isl_union_map> AllWrites;
 
-  // { Element[] -> Element[] }
-  IslPtr<isl_union_map> AllElementsId;
+  /// The value instances written to array elements of all write accesses.
+  /// { [Element[] -> DomainWrite[]] -> ValInst[] }
+  IslPtr<isl_union_map> AllWriteValInst;
 
+  /// All reaching definitions for MK_Array writes.
+  /// { [Element[] -> Zone[]] -> DomainWrite[] }
+  IslPtr<isl_union_map> WriteReachDefZone;
+
+private:
+  void addArrayReadAccess(MemoryAccess *MA) {
+    assert(MA->isLatestArrayKind());
+    assert(MA->isRead());
+    auto *Stmt = MA->getStatement();
+
+    // { DomainRead[] -> Element[] }
+    auto AccRel = getAccessRelationFor(MA);
+    AllReads = give(isl_union_map_add_map(AllReads.take(), AccRel.copy()));
+
+    auto LI = dyn_cast_or_null<LoadInst>(MA->getAccessInstruction());
+    if (LI) {
+      // { DomainRead[] -> ValInst[] }
+      auto LoadValInst = makeValInst(LI, Stmt, Stmt->isBlockStmt());
+
+      // { DomainRead[] -> [Element[] -> DomainRead[]] }
+      auto IncludeElement =
+          give(isl_map_curry(isl_map_domain_map(AccRel.take())));
+
+      // { [Element[] -> DomainRead[]] -> ValInst[] }
+      auto EltLoadValInst =
+          give(isl_map_apply_domain(LoadValInst.take(), IncludeElement.take()));
+    }
+  }
+
+  void addArrayWriteAccess(MemoryAccess *MA) {
+    assert(MA->isLatestArrayKind());
+    assert(MA->isWrite());
+    auto *Stmt = MA->getStatement();
+
+    // { Domain[] -> Element[] }
+    auto AccRel = getAccessRelationFor(MA);
+
+    if (MA->isMustWrite()) {
+      AllMustWrites =
+          give(isl_union_map_add_map(AllMustWrites.take(), AccRel.copy()));
+    }
+    if (MA->isMayWrite()) {
+      AllMayWrites =
+          give(isl_union_map_add_map(AllMayWrites.take(), AccRel.copy()));
+    }
+
+    // { Domain[] -> ValInst[] }
+    auto WriteValInstance =
+        makeValInst(MA->getAccessValue(), Stmt, MA->isMustWrite());
+
+    // { Domain[] -> [Element[] -> Domain[]] }
+    auto IncludeElement =
+        give(isl_map_curry(isl_map_domain_map(AccRel.copy())));
+
+    // { [Element[] -> DomainWrite[]] -> ValInst[] }
+    auto EltWriteValInst = give(
+        isl_map_apply_domain(WriteValInstance.take(), IncludeElement.take()));
+
+    AllWriteValInst = give(
+        isl_union_map_add_map(AllWriteValInst.take(), EltWriteValInst.take()));
+  }
+
+protected:
+  /// Compute the different zones.
+  ///
+  /// @return true iff the computed zones accurately describe the SCoP.
+  /// Otherwise, do not try to use them.
   bool computeCommon() {
     // Check that nothing strange occurs.
     for (auto &Stmt : *S) {
-      if (!isAcceptableStmt(&Stmt))
+      if (!isCompatibleStmt(&Stmt))
         return false;
     }
 
-    // { DomainRead[] -> Element[] }
     AllReads = EmptyUnionMap;
-
-    // { DomainMayWrite[] -> Element[] }
     AllMayWrites = EmptyUnionMap;
-
-    // { DomainMustWrite[] -> Element[] }
     AllMustWrites = EmptyUnionMap;
-
-    // { [Element[] -> DomainWrite[]] -> ValInst[] }
     AllWriteValInst = EmptyUnionMap;
-
-    // { [Element[] -> DomainRead[]] -> ValInst[] }
-    AllReadValInst = EmptyUnionMap;
-
-    // TODO: Identify and ensure non-usability of possible dependency within the
-    // statement.
     for (auto &Stmt : *S) {
       for (auto *MA : Stmt) {
         if (!MA->isLatestArrayKind())
           continue;
 
-        if (MA->isRead()) {
-          // { DomainRead[] -> Element[] }
-          auto AccRel = getAccessRelationFor(MA);
-          AllReads =
-              give(isl_union_map_add_map(AllReads.take(), AccRel.copy()));
+        if (MA->isRead())
+          addArrayReadAccess(MA);
 
-          auto LI = dyn_cast_or_null<LoadInst>(MA->getAccessInstruction());
-          if (LI) { // TODO: Maybe use MA->getAccessValue()
-                    // { DomainRead[] -> ValInst[] }
-            auto LoadValInst = makeValInst(
-                LI, &Stmt,
-                Stmt.isBlockStmt() /* In Region Statements could be a 'MayRead' */);
-
-            // { DomainRead[] -> [Element[] -> DomainRead[]] }
-            auto IncludeElement =
-                give(isl_map_curry(isl_map_domain_map(AccRel.take())));
-
-            // { [Element[] -> DomainRead[]] -> ValInst[] }
-            auto EltLoadValInst = give(isl_map_apply_domain(
-                LoadValInst.take(), IncludeElement.take()));
-
-            AllReadValInst = give(isl_union_map_add_map(AllReadValInst.take(),
-                                                        EltLoadValInst.take()));
-          }
-
-          continue;
-        }
-
-        auto SI = dyn_cast<StoreInst>(MA->getAccessInstruction());
-        if (!SI) {
-          DEBUG(dbgs() << "WRITE that is not a StoreInst not supported\n");
-          return false;
-        }
-
-        // { Domain[] -> Element[] }
-        auto AccRel = getAccessRelationFor(MA);
-
-        if (MA->isMustWrite()) {
-          AllMustWrites =
-              give(isl_union_map_add_map(AllMustWrites.take(), AccRel.copy()));
-        }
-        if (MA->isMayWrite()) {
-          AllMayWrites =
-              give(isl_union_map_add_map(AllMayWrites.take(), AccRel.copy()));
-        }
-
-        // { Domain[] -> ValInst[] }
-        auto WriteValInstance =
-            makeValInst(MA->getAccessValue(), &Stmt, MA->isMustWrite());
-
-        // { Domain[] -> [Element[] -> Domain[]] }
-        auto IncludeElement =
-            give(isl_map_curry(isl_map_domain_map(AccRel.copy())));
-
-        // { [Element[] -> DomainWrite[]] -> ValInst[] }
-        auto EltWriteValInst = give(isl_map_apply_domain(
-            WriteValInstance.take(), IncludeElement.take()));
-
-        AllWriteValInst = give(isl_union_map_add_map(AllWriteValInst.take(),
-                                                     EltWriteValInst.take()));
+        if (MA->isWrite())
+          addArrayWriteAccess(MA);
       }
     }
-
-    // { DomainRead[] -> ValInst[] }
-    AllReadValInst = filterKnownValInst(AllReadValInst);
 
     // { DomainWrite[] -> Element[] }
     AllWrites =
         give(isl_union_map_union(AllMustWrites.copy(), AllMayWrites.copy()));
 
     // { Element[] }
-    auto AllElements = give(isl_union_set_empty(ParamSpace.copy()));
-    foreachElt(AllWrites, [=, &AllElements](IslPtr<isl_map> Write) {
+    AllElements = EmptyUnionSet;
+    foreachElt(AllWrites, [this](IslPtr<isl_map> Write) {
       auto Space = give(isl_map_get_space(Write.keep()));
       auto EltSpace = give(isl_space_range(Space.take()));
       auto EltUniv = give(isl_set_universe(EltSpace.take()));
@@ -1848,174 +1942,152 @@ protected:
     });
 
     // { Element[] -> Element[] }
-    AllElementsId = makeIdentityMap(AllElements, false);
+    auto AllElementsId = makeIdentityMap(AllElements, false);
 
     // { Element[] -> Zone[] }
-    UniverseZone = give(isl_union_map_from_domain_and_range(
+    auto UniverseZone = give(isl_union_map_from_domain_and_range(
         AllElements.copy(),
         isl_union_set_from_set(isl_set_universe(ScatterSpace.copy()))));
 
     // { [Element[] -> Zone[]] -> DomainWrite[] }
     WriteReachDefZone =
         computeReachingDefinition(Schedule, AllWrites, false, true);
-
     simplify(WriteReachDefZone);
+
     return true;
   }
 
 protected:
-  // { [Element[] -> Domain[]] -> Scatter[] }
-  IslPtr<isl_map> getEltDomScatter(MemoryAccess *MA) const {
-    // { Domain[] -> Element[] }
-    auto Acc = getAccessRelationFor(MA);
-
-    // { Domain[] -> Scatter[] }
-    auto Scatter = getScatterFor(MA);
-
-    // { [Element[] -> Domain[]] -> Domain[] }
-    auto EltDomDom = give(isl_map_range_map(isl_map_reverse(Acc.take())));
-
-    // { [Element[] -> Domain[]] -> Scatter[] }
-    return give(isl_map_apply_range(EltDomDom.take(), Scatter.take()));
-  }
-
+  /// Get the schedule for @p Stmt.
+  ///
+  /// The domain of the result will as narrow as possible.
   IslPtr<isl_map> getScatterFor(ScopStmt *Stmt) const {
-    auto Dom = getDomainFor(Stmt);
-    auto Space = give(isl_set_get_space(Dom.keep()));
-    auto Domain = give(isl_union_set_from_set(Dom.take()));
-    // TODO: getSchedule() is already intersected with all domains(?), no need
-    // to do again.
-    auto Sched =
-        give(isl_union_map_intersect_domain(Schedule.copy(), Domain.take()));
-    return singleton(Sched, give(isl_space_map_from_domain_and_range(
-                                Space.take(), ScatterSpace.copy())));
+    auto ResultSpace = give(isl_space_map_from_domain_and_range(
+        Stmt->getDomainSpace(), ScatterSpace.copy()));
+    return give(isl_union_map_extract_map(Schedule.keep(), ResultSpace.take()));
   }
 
-  IslPtr<isl_map> getScatterFor(ScopStmt &Stmt) const {
-    return getScatterFor(&Stmt);
-  }
-
-  // TODO: There is currently no notion of where within a statement an access
-  // occurs. This leads to problem such as the lifetime of a scalar:
-  // Def at [0,0,0]
-  // Use at [0,0,1]
-  // Because a scalar write occurs after everything in the statement, and a read
-  // before, neither [0,0,0] nor [0,0,1] belong to the lifetime. Therefore the
-  // lifetime would be empty, equivalent to not requiring storage at all.
-  // The current workaround is the write belongs to the lifetime. This will
-  // make mapping of the result of LoadInst of the location mapped-to (typical
-  // for reductions) impossible since at timestep [0,0,0] the array element it
-  // reads from still occupies the memory.
-  // Better solutions:
-  // Multiply every scatter by two (or more); adds the odd numbers between two
-  // scatters
-  // - Append another dimensions such that there's something between [0,0,0] and
-  // [0,0,1] (namely, eg. [0,0,0,1])
-  // - Adding a dimension also allow a notation of "before" the statement
-  // [0,0,0,-1] and "after" it [0,0,0,1]
-  // - Might give each instruction its own 'order number'
-  // - Allow rational solutions.
-  // - Treat a zone coordinate [0,0,0] as "right after statement instance
-  // [0,0,0]"/"between instance [0,0,0] and [0,0,1]" (staggered grid); will
-  // require adding/subtraction 1 to convert between before and after; this
-  // works along the line of the current workaround.
+  /// Get the schedule of @p MA's parent statement.
   IslPtr<isl_map> getScatterFor(MemoryAccess *MA) const {
     return getScatterFor(MA->getStatement());
   }
 
+  /// Get the schedule for the statement instances of @p Domain.
   IslPtr<isl_map> getScatterFor(IslPtr<isl_set> Domain) const {
-    auto Space = give(isl_space_map_from_domain_and_range(
+    auto ResultSpace = give(isl_space_map_from_domain_and_range(
         isl_set_get_space(Domain.keep()), ScatterSpace.copy()));
-    auto Sched = give(isl_union_map_extract_map(Schedule.keep(), Space.take()));
-    assert(isMapDomainSubsetOf(Sched, Domain) != isl_bool_false);
-    return give(isl_map_intersect_domain(Sched.take(), Domain.take()));
+    auto UResult = give(isl_union_map_intersect_domain(
+        Schedule.copy(), isl_union_set_from_set(Domain.copy())));
+    auto Result = singleton(std::move(UResult), std::move(ResultSpace));
+    assert(isl_set_is_equal(give(isl_map_domain(Result.copy())).keep(),
+                            Domain.keep()) == isl_bool_true);
+    return Result;
   }
 
+  /// Get the domain of @p Stmt.
   IslPtr<isl_set> getDomainFor(ScopStmt *Stmt) const {
     return give(Stmt->getDomain());
   }
 
+  /// Get the domain @p MA's parent statement.
   IslPtr<isl_set> getDomainFor(MemoryAccess *MA) const {
     return getDomainFor(MA->getStatement());
   }
 
+  /// get the access relation of @p MA.
+  ///
+  /// The domain of the result will as narrow as possible.
   IslPtr<isl_map> getAccessRelationFor(MemoryAccess *MA) const {
-    auto Domain = give(MA->getStatement()->getDomain());
+    auto Domain = getDomainFor(MA);
     auto AccRel = give(MA->getLatestAccessRelation());
     return give(isl_map_intersect_domain(AccRel.take(), Domain.take()));
   }
-  IslPtr<isl_union_map> getSchedule() const { return Schedule; }
-
-  // friend class Knowledge;
 
 public:
   /// Return the SCoP this object is analyzing.
   Scop *getScop() const { return S; }
 };
 
-struct MapReport {
-  MemoryAccess *NormMA;
-  int NumAccesses;
-  IslPtr<isl_map> Target;
-  IslPtr<isl_map> Lifetime;
-  Knowledge Zone;
+/// Class to remember a scalar-to-array element transformation for printing by
+/// opt -analyze.
+class MapReport {
+private:
+  /// The scalar that was mapped.
+  const ScopArrayInfo *SAI;
 
-  MapReport(MemoryAccess *NormMA, int NumAccesses, IslPtr<isl_map> Target,
+  /// The number of accesses that have been transformed.
+  int NumAccesses;
+
+  /// Target mapping for the MK_Value write or MK_PHI read.
+  /// { Domain[] -> Element[] }
+  IslPtr<isl_map> Target;
+
+  /// Lifetime expressed from the MK_Value write or MK_PHI read.
+  /// { Domain[] -> Zone[] }
+  IslPtr<isl_map> Lifetime;
+
+  /// The constants that were checked before the transformation/applied to the
+  /// common knowledge after the transformation.
+  Knowledge Proposed;
+
+public:
+  MapReport(const ScopArrayInfo *SAI, int NumAccesses, IslPtr<isl_map> Target,
             IslPtr<isl_map> Lifetime, Knowledge Zone)
-      : NormMA(NormMA), NumAccesses(NumAccesses), Target(std::move(Target)),
-        Lifetime(std::move(Lifetime)), Zone(std::move(Zone)) {
+      : SAI(SAI), NumAccesses(NumAccesses), Target(std::move(Target)),
+        Lifetime(std::move(Lifetime)), Proposed(std::move(Zone)) {
     DEBUG(print(llvm::dbgs(), 0));
   }
 
-  MapReport(const MapReport &That) = delete;
-  MapReport(MapReport &&That)
-      : NormMA(That.NormMA), NumAccesses(That.NumAccesses), Target(That.Target),
-        Lifetime(That.Lifetime), Zone(std::move(That.Zone)) {
-    That.Target = nullptr;
-    That.Lifetime = nullptr;
-  }
-
-  void print(llvm::raw_ostream &OS, int indent = 0) const {
-    OS.indent(indent) << "Scalar access " << *NormMA << ":\n";
-    OS.indent(indent + 4) << "Accesses:  " << NumAccesses << "\n";
-    OS.indent(indent + 4) << "Target:    " << Target << "\n";
-    OS.indent(indent + 4) << "Lifetime:  " << Lifetime << "\n";
-    OS.indent(indent + 4) << "Zone:\n";
-    Zone.print(OS, indent + 8);
+  /// Print this transformation report to @p OS.
+  void print(llvm::raw_ostream &OS, int Indent = 0) const {
+    OS.indent(Indent) << "Scalar access " << *SAI << ":\n";
+    OS.indent(Indent + 4) << "Accesses:  " << NumAccesses << "\n";
+    OS.indent(Indent + 4) << "Target:    " << Target << "\n";
+    OS.indent(Indent + 4) << "Lifetime:  " << Lifetime << "\n";
+    OS.indent(Indent + 4) << "Zone:\n";
+    Proposed.print(OS, Indent + 8);
   }
 };
 
+/// Implementation of the DeLICM/DePRE transformation.
 class DeLICMImpl : public ZoneAlgorithm {
 private:
+  /// Knowledge before any transformation took place.
   Knowledge OriginalZone;
+
+  /// Current knowledge of the SCoP including all already applied
+  /// transformations.
   Knowledge Zone;
 
+  /// Log of every applied mapping transformations.
   SmallVector<MapReport, 8> MapReports;
 
+  /// The definitions/write MemoryAccess of an MK_Value scalar.
+  ///
+  /// Note that read-only values have no value-defining write access.
+  DenseMap<const ScopArrayInfo *, MemoryAccess *> ValueDefAccs;
+
+  /// List of all uses/read MemoryAccesses for an MK_Value scalar.
+  DenseMap<const ScopArrayInfo *, SmallVector<MemoryAccess *, 4>> ValueUseAccs;
+
+  /// The PHI/read MemoryAccess of an MK_PHI scalar.
+  DenseMap<const ScopArrayInfo *, MemoryAccess *> PHIReadAccs;
+
+  /// List of all incoming values/writes of an MK_PHI scalar.
+  DenseMap<const ScopArrayInfo *, SmallVector<MemoryAccess *, 4>>
+      PHIIncomingAccs;
+
+  /// Determine whether to knowledges are conflicting each other.
+  ///
+  /// @see Knowledge::isConflicting
   bool isConflicting(const Knowledge &Proposed) {
     raw_ostream *OS = nullptr;
     DEBUG(OS = &llvm::dbgs());
     return Knowledge::isConflicting(Zone, Proposed, OS, 4);
   }
 
-  MemoryAccess *getDefAccsFor(const ScopArrayInfo *SAI) {
-    assert(SAI);
-    auto *MA = ValueDefAccs.lookup(SAI);
-    assert(MA);
-    assert(MA->isOriginalValueKind());
-    assert(MA->isWrite());
-    return MA;
-  }
-
-  MemoryAccess *getPHIAccsFor(const ScopArrayInfo *SAI) {
-    assert(SAI);
-    auto *MA = PHIReadAccs.lookup(SAI);
-    assert(MA);
-    assert(MA->isOriginalAnyPHIKind());
-    assert(MA->isRead());
-    return MA;
-  }
-
+  /// Determine whether @p SAI is a scalar that can be mapped to an array
+  /// element.
   bool isMappable(const ScopArrayInfo *SAI) {
     assert(SAI);
 
@@ -2027,11 +2099,14 @@ private:
         return false;
       }
 
-      // Mapping if value is used after scop is not supported.s
+      // Mapping if value is used after scop is not supported. The code
+      // generator would need to reload the scalar after the scop, but it
+      // doesn't have the information to where it is mapped to. Only the
+      // MemoryAccesses have that information, not the ScopArrayInfo.
       auto Inst = MA->getAccessInstruction();
       for (auto User : Inst->users()) {
         if (!isa<Instruction>(User))
-          return false; // Play safe with strange user
+          return false;
         auto UserInst = cast<Instruction>(User);
 
         if (!S->contains(UserInst)) {
@@ -2039,14 +2114,16 @@ private:
           return false;
         }
       }
+
       return true;
     }
 
     if (SAI->isPHIKind()) {
-      auto *MA = getPHIAccsFor(SAI);
+      auto *MA = PHIReadAccs.lookup(SAI);
+	  assert(MA);
 
-      // Mapping if PHI has incoming block from before the block is not
-      // supported.
+      // Mapping of an incoming block from before the SCoP is not supported by
+      // the code generator.
       auto PHI = cast<PHINode>(MA->getAccessInstruction());
       for (auto Incoming : PHI->blocks()) {
         if (!S->contains(Incoming)) {
@@ -2059,58 +2136,55 @@ private:
       return true;
     }
 
-    DEBUG(dbgs() << "    Reject ExitPHI or other non-Value\n");
+    DEBUG(dbgs() << "    Reject ExitPHI or other non-value\n");
     return false;
   }
 
-  // { DomainValueDef[] -> Zone[] }
-  // Get the zone from a scalar's definition to its last use.
-  // TODO: Cache results?
-  // TODO: Values might be escaping to after the scop; need to exclude such
-  // scalars or extend their lifetime as ray
-  /// Compute the lifetime of an MK_Value (from the definition to the last use)
+  /// Compute the lifetime of an MK_Value (from its definition to the last use).
   /// Pass the WRITE MemoryAccess that defines the llvm::Value
-  /// { DomainDef[] -> Zone[] }
-  IslPtr<isl_map> computeValueLifetime(const ScopArrayInfo *WA) {
-    assert(WA->isValueKind());
+  ///
+  /// @param SAI The ScopArrayInfo representing the value's storage.
+  ///
+  /// @return { DomainDef[] -> Zone[] }
+  IslPtr<isl_map> computeValueLifetime(const ScopArrayInfo *SAI) {
+    assert(SAI->isValueKind());
 
     // { DomainRead[] }
-    auto Reads = give(isl_union_set_empty(ParamSpace.copy()));
+    auto Reads = EmptyUnionSet;
 
-    // Find all uses
-    // TODO: Create a map of defs and uses
-
-    for (auto *MA : ValueUseAccs.lookup(WA))
+    // Find all uses.
+    for (auto *MA : ValueUseAccs.lookup(SAI))
       Reads =
           give(isl_union_set_add_set(Reads.take(), getDomainFor(MA).take()));
 
     // { DomainDef[] }
-    auto Writes = getDomainFor(ValueDefAccs.lookup(WA));
+    auto Writes = getDomainFor(ValueDefAccs.lookup(SAI));
 
-    // { DomainDef[] -> Zone[] }
-    auto Lifetime = computeScalarLifetime(Schedule, Writes, Reads, false, false,
-                                          true, false);
-
-    // TODO: This does not consider uses of the scalar after the scop; we
-    // currently bail out if there is such a use.
-    return Lifetime;
+    return computeScalarLifetime(Schedule, Writes, Reads, false, false, true,
+                                 false);
   }
 
-  // { DomainPHIRead[] -> DomainPHIWrite[] }
+  /// For each 'execution' of a PHINode, get the incoming block that was
+  /// executed before.
+  ///
+  /// For each PHI instance we can directly determine which was the incoming
+  /// block, and hence derive which value the PHI will have.
+  ///
+  /// @param SAI The ScopArrayInfo representing the PHI's storage.
+  ///
+  /// @return { DomainPHIRead[] -> DomainPHIWrite[] }
   IslPtr<isl_union_map> computePerPHI(const ScopArrayInfo *SAI) {
     assert(SAI->isPHIKind());
 
     // { DomainPHIWrite[] -> Scatter[] }
-    auto PHIWriteScatter = give(isl_union_map_empty(ParamSpace.copy()));
+    auto PHIWriteScatter = EmptyUnionMap;
 
+    // Collect all incoming block timepoint.
     for (auto *MA : PHIIncomingAccs.lookup(SAI)) {
       auto Scatter = getScatterFor(MA);
       PHIWriteScatter =
           give(isl_union_map_add_map(PHIWriteScatter.take(), Scatter.take()));
     }
-
-    // For each PHIRead instance, find the PHI instance which writes it.
-    // We assume that there must be exactly one!
 
     // { DomainPHIRead[] -> Scatter[] }
     auto PHIReadScatter = getScatterFor(PHIReadAccs.lookup(SAI));
@@ -2128,69 +2202,69 @@ private:
     auto LastPerPHIWrites = give(isl_map_lexmax(PHIWriteTimes.take()));
 
     // { DomainPHIRead[] -> DomainPHIWrite[] }
-    auto PerPHIWrite = give(isl_union_map_apply_range(
+    auto Result = give(isl_union_map_apply_range(
         isl_union_map_from_map(LastPerPHIWrites.take()),
         isl_union_map_reverse(PHIWriteScatter.take())));
-
-    return PerPHIWrite;
+    assert(isl_union_map_is_single_valued(Result.keep()) == isl_bool_true);
+    assert(isl_union_map_is_injective(Result.keep()) == isl_bool_true);
+    return Result;
   }
 
-  // TODO: No need for RefMA
-  /// @param RefMA The MemoryAccess that is sought to be mapped to @p TargetElt
-  /// @param DefMA The definition MemoryAccess MUST_WRITE for the same value
-  /// (unique).
-  bool tryMapValue(const ScopArrayInfo *SAI, MemoryAccess *RefMA,
-                   // { Zone[] -> Element[] }
-                   IslPtr<isl_map> TargetElt) {
+  /// Try to map a MK_Value to a given array element.
+  ///
+  /// @param SAI       Representation of the scalar's memory to map.
+  /// @param TargetElt { Scatter[] -> Element[] }
+  ///                  Suggestion where to map a scalar to when at a timepoint.
+  ///
+  /// @return true if the scalar was successfully mapped.
+  bool tryMapValue(const ScopArrayInfo *SAI, IslPtr<isl_map> TargetElt) {
     assert(SAI->isValueKind());
+
     auto *DefMA = ValueDefAccs.lookup(SAI);
     assert(DefMA->isValueKind());
     assert(DefMA->isMustWrite());
-    assert(RefMA->isValueKind());
-    //    assert(isLatestAccessingSameScalar(DefMA, RefMA));
-    // TODO: Check same(or at least more) byte size
-    // Means it already has been mapped
+    auto *V = DefMA->getAccessValue();
+
+    // Stop if the scalar has already been mapped.
     if (!DefMA->getLatestScopArrayInfo()->isValueKind())
       return false;
-
-    auto V = DefMA->getAccessValue();
 
     // { DomainDef[] -> Scatter[] }
     auto DefSched = getScatterFor(DefMA);
 
-    // Where each write is mapped to
+    // Where each write is mapped to, according to the suggestion.
     // { DomainDef[] -> Element[] }
-    auto DomDefTargetElt = give(isl_map_apply_domain(
+    auto DefTarget = give(isl_map_apply_domain(
         TargetElt.copy(), isl_map_reverse(DefSched.copy())));
-
-    simplify(DomDefTargetElt);
-    DEBUG(dbgs() << "    Mapping: " << DomDefTargetElt << "\n");
+    simplify(DefTarget);
+    DEBUG(dbgs() << "    Def Mapping: " << DefTarget << '\n');
 
     auto OrigDomain = getDomainFor(DefMA);
-    auto MappedDomain = give(isl_map_domain(DomDefTargetElt.copy()));
+    auto MappedDomain = give(isl_map_domain(DefTarget.copy()));
     if (!isl_set_is_subset(OrigDomain.keep(), MappedDomain.keep())) {
-      DEBUG(dbgs().indent(4)
-            << "Reject because mapping does not encompass all instances.\n");
+      DEBUG(
+          dbgs()
+          << "    Reject because mapping does not encompass all instances.\n");
       return false;
     }
 
     // { DomainDef[] -> Zone[] }
+    // TODO: Instead of computing the lifetime separately, use the already
+    // computed scalar reaching definition. The would also produce 'UseTarget'
+    // as a byproduct.
     auto Lifetime = computeValueLifetime(SAI);
-    if (!Lifetime)
-      return false;
-
     simplify(Lifetime);
-    DEBUG(dbgs() << "    Lifetime: " << Lifetime << "\n");
+    DEBUG(dbgs() << "    Lifetime: " << Lifetime << '\n');
 
-    // { DefDomain[] -> [Element[] -> Zone[]] }
+    // { DomainDef[] -> [Element[] -> Zone[]] }
     auto EltLifetimeTranslator =
-        give(isl_map_range_product(DomDefTargetElt.copy(), Lifetime.copy()));
+        give(isl_map_range_product(DefTarget.copy(), Lifetime.copy()));
 
-    // { DefDomain[] -> [Element[] -> Scatter[]] }
+    // { DomainDef[] -> [Element[] -> Scatter[]] }
     auto WrittenTranslator =
-        give(isl_map_range_product(DomDefTargetElt.copy(), DefSched.take()));
+        give(isl_map_range_product(DefTarget.copy(), DefSched.take()));
 
-    // { DefDomain[] -> ValInst[] }
+    // { DomainDef[] -> ValInst[] }
     auto ValInst = makeValInst(V, DefMA->getStatement(), true);
 
     // { [Element[] -> Zone[]] -> ValInst[] }
@@ -2201,35 +2275,46 @@ private:
     auto EltWriteAction =
         give(isl_map_apply_domain(ValInst.copy(), WrittenTranslator.take()));
 
-    Knowledge Proposed(EltLifetime, false, EltWriteAction);
-
+    Knowledge Proposed(std::move(EltLifetime), false,
+                       std::move(EltWriteAction));
     if (isConflicting(Proposed))
       return false;
 
-    // OK to map
-    mapValue(SAI, DomDefTargetElt, Lifetime, std::move(Proposed));
+    mapValue(SAI, std::move(DefTarget), std::move(Lifetime),
+             std::move(Proposed));
     return true;
   }
 
+  /// After a scalar has been mapped, update the global knowledge.
   void applyLifetime(Knowledge Proposed) {
     Zone.merge_inplace(std::move(Proposed));
   }
 
-  void mapValue(const ScopArrayInfo *SAI,
-                // { DomainDef[] -> Element[] }
-                IslPtr<isl_map> Mapping,
-                // { DomainDef[] -> Zone[] }
+  /// Map a MK_Value scalar to an array element.
+  ///
+  /// Callers must have ensured that the mapping is valid and not conflicting.
+  ///
+  /// @param SAI       The ScopArrayInfo representing the scalar's memory to
+  /// map.
+  /// @param DefTarget { DomainDef[] -> Element[] }
+  ///                  The array element to map the scalar to.
+  /// @param Lifetime  { DomainDef[] -> Zone[] }
+  ///                  The lifetime of each llvm::Value definition for
+  ///                  reporting.
+  /// @param Proposed  Mapping constraints for reporting.
+  void mapValue(const ScopArrayInfo *SAI, IslPtr<isl_map> DefTarget,
                 IslPtr<isl_map> Lifetime, Knowledge Proposed) {
     auto *WA = ValueDefAccs.lookup(SAI);
-    // TODO: This must already have been computed before: reuse
+    assert(WA);
+
     // { Scatter[] -> DomainDef[] }
-    auto ReachDef = computeScalarReachingDefinition(Schedule, getDomainFor(WA),
-                                                    false, true);
-    assert(ReachDef && "Operations count exceeded?");
+    // TODO: Currently we derive the 'UseTarget' mapping here; this could be
+    // also a byproduct of determining the lifetime.
+    auto ReachDef = getScalarReachingDefinition(WA->getStatement());
 
     // { Scatter[] -> Element[] }
     auto TargetZone =
-        give(isl_map_apply_range(ReachDef.take(), Mapping.copy()));
+        give(isl_map_apply_range(ReachDef.take(), DefTarget.copy()));
     simplify(TargetZone);
     int NumMappedAccessed = 1;
 
@@ -2240,24 +2325,25 @@ private:
       // { Domain[] -> Element[] }
       auto NewAccRel =
           give(isl_map_apply_range(Sched.take(), TargetZone.copy()));
-
       simplify(NewAccRel);
+
       MA->setNewAccessRelation(NewAccRel.take());
       NumMappedAccessed += 1;
     }
 
-    WA->setNewAccessRelation(Mapping.copy());
-
+    WA->setNewAccessRelation(DefTarget.copy());
     applyLifetime(Proposed);
 
     MappedValueScalars++;
-    MapReports.emplace_back(WA, NumMappedAccessed, Mapping, Lifetime,
+    MapReports.emplace_back(SAI, NumMappedAccessed, DefTarget, Lifetime,
                             std::move(Proposed));
   }
 
+  /// Get the all the statement instances of any statement for which there is at
+  /// least one instance in @p RelevantDomain.
   IslPtr<isl_union_set>
   wholeStmtDomain(NonowningIslPtr<isl_union_set> RelevantDomain) {
-    auto Universe = give(isl_union_set_empty(ParamSpace.copy()));
+    auto Universe = EmptyUnionSet;
     foreachElt(RelevantDomain, [&Universe](IslPtr<isl_set> Dom) {
       auto Space = give(isl_set_get_space(Dom.keep()));
       auto DomUniv = give(isl_set_universe(Space.take()));
@@ -2267,21 +2353,28 @@ private:
                                         isl_union_map_domain(Schedule.copy())));
   }
 
+  /// Try to find a 'natural' extension of a mapped to elements outside its
+  /// domain.
+  ///
+  /// @see ::expandMapping
   IslPtr<isl_union_map> expandMapping(IslPtr<isl_union_map> Relevant) {
     auto RelevantDomain = give(isl_union_map_domain(Relevant.copy()));
     auto Universe = wholeStmtDomain(RelevantDomain);
     return ::expandMapping(Relevant, Universe);
   }
 
-  // { PHIWriteDomain[] -> ValInst[] }
+  /// Express the incoming values of a PHI for each incoming statement in an
+  /// isl_union_map.
+  ///
+  /// @param SAI The PHI scalar represented by a ScopArrayInfo.
+  ///
+  /// @return { PHIWriteDomain[] -> ValInst[] }
   IslPtr<isl_union_map> determinePHIWrittenValues(const ScopArrayInfo *SAI) {
-    auto *PHIRead = this->PHIReadAccs.lookup(SAI);
     auto Result = EmptyUnionMap;
-   
-   
 
+    // Collect the incoming values.
     for (auto *MA : PHIIncomingAccs.lookup(SAI)) {
-      // { PHIWriteDomain[] -> ValInst[] }
+      // { DomainWrite[] -> ValInst[] }
       IslPtr<isl_map> ValInst;
       auto *WriteStmt = MA->getStatement();
 
@@ -2297,114 +2390,110 @@ private:
         // the PHI itself.
         // We currently model it as unknown value, but modeling as the PHIInst
         // itself could be OK, too.
-        ValInst = give(isl_map_from_domain(getDomainFor(WriteStmt).take()));
+        ValInst = makeUnknownForDomain(WriteStmt);
       }
 
       Result = give(isl_union_map_add_map(Result.take(), ValInst.take()));
     }
 
-    assert(isl_union_map_is_single_valued(Result.keep()));
+    assert(isl_union_map_is_single_valued(Result.keep()) == isl_bool_error &&
+           "Cannot have multiple incoming values for same incoming statement");
     return Result;
   }
 
-  bool tryMapPHI(const ScopArrayInfo *SAI,
-                 // { Zone[] -> Element[] }
-                 IslPtr<isl_map> Target) {
-    auto PHIRead = this->PHIReadAccs.lookup(SAI);
+  /// Try to map a MK_PHI scalar to a given array element.
+  ///
+  /// @param SAI       Representation of the scalar's memory to map.
+  /// @param TargetElt { Scatter[] -> Element[] }
+  ///                  Suggestion where to map the scalar to when at a
+  ///                  timepoint.
+  ///
+  /// @return true if the PHI scalar has been mapped.
+  bool tryMapPHI(const ScopArrayInfo *SAI, IslPtr<isl_map> TargetElt) {
+    auto *PHIRead = PHIReadAccs.lookup(SAI);
     assert(PHIRead->isPHIKind());
     assert(PHIRead->isRead());
-    // TODO: Check same(or at least more) byte size
-    // Means it already has been mapped
+
+    // Skip if already been mapped.
     if (!PHIRead->getLatestScopArrayInfo()->isPHIKind())
       return false;
 
-    // { DomainPHIRead[] -> Scatter[] }
+    // { DomainRead[] -> Scatter[] }
     auto PHISched = getScatterFor(PHIRead);
 
-    // { DomainPHIRead[] -> Element[] }
-    auto PHITarget = give(isl_map_apply_range(PHISched.copy(), Target.copy()));
-
+    // { DomainRead[] -> Element[] }
+    auto PHITarget =
+        give(isl_map_apply_range(PHISched.copy(), TargetElt.copy()));
     simplify(PHITarget);
-    DEBUG(dbgs() << "    Mapping: " << PHITarget << "\n");
+    DEBUG(dbgs() << "    Mapping: " << PHITarget << '\n');
 
     auto OrigDomain = getDomainFor(PHIRead);
     auto MappedDomain = give(isl_map_domain(PHITarget.copy()));
     // TODO: use expandMapping() as well? Are there any non-relevant PHIReads?
     // Can we get a lifetime?
     if (!isl_set_is_subset(OrigDomain.keep(), MappedDomain.keep())) {
-      DEBUG(dbgs().indent(4)
-            << "Reject because mapping does not encompass all instances.\n");
+      DEBUG(
+          dbgs()
+          << "    Reject because mapping does not encompass all instances.\n");
       return false;
     }
 
-    // { DomainPHIRead[] -> DomainPHIWrite[] }
+    // { DomainRead[] -> DomainWrite[] }
     auto PerPHIWrites = computePerPHI(SAI);
-    assert(isl_union_map_is_single_valued(PerPHIWrites.keep()));
-    assert(isl_union_map_is_injective(PerPHIWrites.keep()));
 
-    // { DomainPHIWrite[] -> Element[] }
+    // { DomainWrite[] -> Element[] }
     auto RelevantWritesTarget =
         give(isl_union_map_reverse(isl_union_map_apply_domain(
             PerPHIWrites.copy(), isl_union_map_from_map(PHITarget.copy()))));
+
     simplify(RelevantWritesTarget);
     auto ExpandedTargetWrites = expandMapping(RelevantWritesTarget);
-    simplify(ExpandedTargetWrites);
 
-    // { DomainPHIWrite[] }
+    // { DomainWrite[] }
     auto ExpandedWritesDom =
         give(isl_union_map_domain(ExpandedTargetWrites.copy()));
     auto UniverseWritesDom = give(isl_union_set_empty(ParamSpace.copy()));
-    //        wholeStmtDomain(isl_union_set_copy(ExpandedWritesDom));
 
-    for (auto *MA : PHIIncomingAccs.lookup(SAI)) {
+    for (auto *MA : PHIIncomingAccs.lookup(SAI))
       UniverseWritesDom = give(isl_union_set_add_set(UniverseWritesDom.take(),
                                                      getDomainFor(MA).take()));
-    }
 
     if (!isl_union_set_is_subset(UniverseWritesDom.keep(),
                                  ExpandedWritesDom.keep())) {
       DEBUG(dbgs() << "    Reject because did not find PHI write mapping for "
                       "all instances.\n");
       DEBUG(dbgs() << "      Relevant mapping:     " << RelevantWritesTarget
-                   << "\n");
+                   << '\n');
       DEBUG(dbgs() << "      Extrapolated mapping: " << ExpandedTargetWrites
-                   << "\n");
-      DEBUG(dbgs() << "      Missing instances: "
+                   << '\n');
+      DEBUG(dbgs() << "      Missing instances:    "
                    << give(isl_union_set_subtract(UniverseWritesDom.copy(),
                                                   ExpandedWritesDom.copy()))
-                   << "\n");
+                   << '\n');
       return false;
     }
 
-    //  { DomainPHIRead[] -> Scatter[] }
+    //  { DomainRead[] -> Scatter[] }
     auto PerPHIWriteScatter = give(isl_map_from_union_map(
         isl_union_map_apply_range(PerPHIWrites.copy(), Schedule.copy())));
 
-    // { DomainPHIRead[] -> Zone[] }
+    // { DomainRead[] -> Zone[] }
     auto Lifetime = betweenScatter(PerPHIWriteScatter, PHISched, false, true);
-
-    // { DomainPHIWrite[] -> Zone[] }
-    auto WriteLifetime = give(isl_union_map_apply_domain(
-        isl_union_map_from_map(Lifetime.copy()), PerPHIWrites.copy()));
-
-    // { DomainPHIWrite[] -> ValInst[] }
-    auto WrittenValue = determinePHIWrittenValues(SAI);
-
-    // { DomainPHIWrite[] -> [Element[] -> Scatter[]] }
-    auto WrittenTranslator = give(isl_union_map_range_product(
-        ExpandedTargetWrites.copy(), Schedule.copy()));
-
     simplify(Lifetime);
     DEBUG(dbgs() << "    Lifetime: " << Lifetime << "\n");
 
-    // { Element[] -> Zone[] }
-    auto EltLifetime =
-        give(isl_map_apply_domain(Lifetime.copy(), PHITarget.copy()));
+    // { DomainWrite[] -> Zone[] }
+    auto WriteLifetime = give(isl_union_map_apply_domain(
+        isl_union_map_from_map(Lifetime.copy()), PerPHIWrites.copy()));
 
-    simplify(EltLifetime);
-    DEBUG(dbgs() << "    Occupancy: " << EltLifetime << "\n");
+    // { DomainWrite[] -> ValInst[] }
+    auto WrittenValue = determinePHIWrittenValues(SAI);
 
-    // { DomainPHIWrite[] -> [Element[], Zone[]] }
+    // { DomainWrite[] -> [Element[] -> Scatter[]] }
+    auto WrittenTranslator = give(isl_union_map_range_product(
+        ExpandedTargetWrites.copy(), Schedule.copy()));
+
+    // { DomainWrite[] -> [Element[], Zone[]] }
     auto LifetimeTranslator = give(isl_union_map_range_product(
         ExpandedTargetWrites.copy(), WriteLifetime.take()));
 
@@ -2417,7 +2506,6 @@ private:
         WrittenValue.copy(), WrittenTranslator.take()));
 
     Knowledge Proposed(EltLifetimeInst, false, EltWritten);
-
     if (isConflicting(Proposed))
       return false;
 
@@ -2426,39 +2514,60 @@ private:
     return true;
   }
 
-  void mapPHI(const ScopArrayInfo *SAI,
-              // { DomainPHIRead[] -> Element[] }
-              IslPtr<isl_map> ReadMapping,
-              // { DomainPHIWrite[] -> Element[] }
-              IslPtr<isl_union_map> WriteMapping,
-              // { DomainPHIRead[] -> Zone[] }
-              IslPtr<isl_map> Lifetime, Knowledge Proposed) {
-    auto *PHIRead = this->PHIReadAccs.lookup(SAI);
+  /// Map an MK_PHI scalar to an array element.
+  ///
+  /// Callers must have ensured that the mapping is valid and not conflicting
+  /// with the common knowledge.
+  ///
+  /// @param SAI         The ScopArrayInfo representing the scalar's memory to
+  /// map.
+  /// @param ReadTarget  { DomainRead[] -> Element[] }
+  ///                    The array element to map the scalar to.
+  /// @param WriteTarget { DomainWrite[] -> Element[] }
+  ///                    New access target for each PHI incoming write.
+  /// @param Lifetime    { DomainRead[] -> Zone[] }
+  ///                    The lifetime of each PHI for reporting.
+  /// @param Proposed    Mapping constraints for reporting.
+  void mapPHI(const ScopArrayInfo *SAI, IslPtr<isl_map> ReadTarget,
+              IslPtr<isl_union_map> WriteTarget, IslPtr<isl_map> Lifetime,
+              Knowledge Proposed) {
 
     // { Element[] }
     auto ElementSpace =
-        give(isl_space_range(isl_map_get_space(ReadMapping.keep())));
+        give(isl_space_range(isl_map_get_space(ReadTarget.keep())));
 
+    // Redirect the PHI incoming writes.
     int NumMappedAccessed = 1;
-
     for (auto *MA : PHIIncomingAccs.lookup(SAI)) {
       auto DomSpace = give(MA->getStatement()->getDomainSpace());
       auto WriteTargetSpace = give(isl_space_map_from_domain_and_range(
           DomSpace.take(), ElementSpace.copy()));
-      auto NewAccRel = give(isl_union_map_extract_map(WriteMapping.keep(),
+      auto NewAccRel = give(isl_union_map_extract_map(WriteTarget.keep(),
                                                       WriteTargetSpace.take()));
 
       MA->setNewAccessRelation(NewAccRel.take());
       NumMappedAccessed += 1;
     }
 
-    PHIRead->setNewAccessRelation(ReadMapping.copy());
+    // Redirect the PHI read.
+    auto *PHIRead = PHIReadAccs.lookup(SAI);
+    PHIRead->setNewAccessRelation(ReadTarget.copy());
 
     MappedPHIScalars++;
-    MapReports.emplace_back(PHIRead, NumMappedAccessed, std::move(ReadMapping),
+    MapReports.emplace_back(SAI, NumMappedAccessed, std::move(ReadTarget),
                             std::move(Lifetime), std::move(Proposed));
   }
 
+  /// Search and map scalars to memory overwritten by @p TargetStoreMA.
+  ///
+  /// Start trying mapping of scalars that are used in the same statement as the
+  /// store. For every successful mapping, try to also map scalars of the
+  /// statements where those are written. Repeat, until no more mapping
+  /// opportunity is found.
+  ///
+  /// There is currently no preference in which order scalars are being tried.
+  /// Ideally, we would direct it towards a load instruction of the same array
+  /// element.
   void collapseScalarsToStore(MemoryAccess *TargetStoreMA) {
     assert(TargetStoreMA->isLatestArrayKind());
     assert(TargetStoreMA->isMustWrite());
@@ -2472,20 +2581,24 @@ private:
     auto TargetAccRel = getAccessRelationFor(TargetStoreMA);
 
     // { Zone[] -> DomTarget[] }
+    // For each point in time, find the next target store instance.
     auto Target =
         computeScalarReachingOverwrite(Schedule, TargetDom, false, true);
 
     // { Zone[] -> Element[] }
-    auto EltTarget = give(
-        isl_map_apply_range(Target.take(), TargetAccRel.take())); // TODO: gist
+    // Use the target store's write location as a suggestion to map scalars to.
+    auto EltTarget =
+        give(isl_map_apply_range(Target.take(), TargetAccRel.take()));
     simplify(EltTarget);
-    DEBUG(dbgs() << "    Target mapping is " << EltTarget << "\n");
+    DEBUG(dbgs() << "    Target mapping is " << EltTarget << '\n');
 
-    // TODO: Mark LoadInst of same element and its derivatives as preferable to
-    // map.
-
+    // Stack of elements no yet processed.
     SmallVector<MemoryAccess *, 16> Worklist;
 
+    // Set of scalars already tested.
+    SmallPtrSet<const ScopArrayInfo *, 16> Closed;
+
+    // Lambda to add all scalar reads to the work list.
     auto ProcessAllIncoming = [&](ScopStmt *Stmt) {
       for (auto *MA : *Stmt) {
         if (!MA->isLatestScalarKind())
@@ -2497,6 +2610,8 @@ private:
       }
     };
 
+    // Add initial scalar. Either the value written by the store, or all inputs
+    // of its statement.
     auto WrittenVal = TargetStoreMA->getAccessValue();
     if (auto InputAcc = getInputAccessOf(WrittenVal, TargetStmt))
       Worklist.push_back(InputAcc);
@@ -2512,13 +2627,16 @@ private:
     while (!Worklist.empty()) {
       auto *MA = Worklist.pop_back_val();
 
-      if (MA->isLatestArrayKind())
-        continue;
-
       auto *SAI = MA->getScopArrayInfo();
-      assert(SAI);
-      DEBUG(dbgs() << "\n    Trying to map " << MA << " (SAI: " << SAI
+      if (Closed.count(SAI))
+        continue;
+      Closed.insert(SAI);
+      DEBUG(dbgs() << "\n    Trying to map " << *MA << " (SAI: " << SAI
                    << ")\n");
+
+      // Skip non-mappable scalars.
+      if (!isMappable(SAI))
+        continue;
 
       auto MASize = DL.getTypeAllocSize(MA->getAccessValue()->getType());
       if (MASize > StoreSize) {
@@ -2526,17 +2644,17 @@ private:
         continue;
       }
 
-      if (!isMappable(SAI))
-        continue;
-
-      if (SAI->isValueKind() && tryMapValue(SAI, MA, EltTarget)) {
+      // Try to map MK_Value scalars.
+      if (SAI->isValueKind() && tryMapValue(SAI, EltTarget)) {
         ProcessAllIncoming(MA->getStatement());
+
         AnyMapped = true;
         continue;
       }
 
+      // Try to map MK_PHI scalars.
       if (SAI->isPHIKind() && tryMapPHI(SAI, EltTarget)) {
-
+        // Add inputs of all incoming statements to the worklist.
         for (auto *PHIWrite : PHIIncomingAccs.lookup(SAI))
           ProcessAllIncoming(PHIWrite->getStatement());
 
@@ -2549,55 +2667,45 @@ private:
       TargetsMapped++;
   }
 
-  void printBefore(llvm::raw_ostream &OS, int indent = 0) {
-    OS.indent(indent) << "Original zone:\n";
-    OriginalZone.print(OS, indent + 4);
+  /// Print the knowledge before any transformation has been applied to @p OS.
+  void printBefore(llvm::raw_ostream &OS, int Indent = 0) {
+    OS.indent(Indent) << "Original knowledge:\n";
+    OriginalZone.print(OS, Indent + 4);
   }
 
-  void printMappedScalars(llvm::raw_ostream &OS, int indent = 0) {
-    OS.indent(indent) << "Mapped scalars {\n";
-    for (auto &Report : MapReports) {
-      Report.print(OS, indent + 4);
-    }
-    OS.indent(indent) << "}\n";
+  /// Print the report about all executions transformations to @p OS.
+  void printMappedScalars(llvm::raw_ostream &OS, int Indent = 0) {
+    OS.indent(Indent) << "Mapped scalars {\n";
+    for (auto &Report : MapReports)
+      Report.print(OS, Indent + 4);
+    OS.indent(Indent) << "}\n";
   }
 
-  void printAfter(llvm::raw_ostream &OS, int indent = 0) {
-    OS.indent(indent) << "After zone:\n";
-    Zone.print(OS, indent + 4);
+  /// Print the knowledge from after transformations have been applied to @p OS.
+  void printAfter(llvm::raw_ostream &OS, int Indent = 0) {
+    OS.indent(Indent) << "After knowledge:\n";
+    Zone.print(OS, Indent + 4);
   }
 
-  void printAccesses(llvm::raw_ostream &OS, int indent = 0) {
-    OS.indent(indent) << "After Statements {\n";
+  /// Print the current state of all MemoryAccesses to @p.
+  void printAccesses(llvm::raw_ostream &OS, int Indent = 0) {
+    OS.indent(Indent) << "After Statements {\n";
     for (auto &Stmt : *S) {
-      OS.indent(indent + 4) << Stmt.getBaseName() << "\n";
+      OS.indent(Indent + 4) << Stmt.getBaseName() << "\n";
       for (auto *MA : Stmt)
-        MA->print(OS); // No indent parameters
+        MA->print(OS);
     }
-    OS.indent(indent) << "}\n";
+    OS.indent(Indent) << "}\n";
   }
 
-#if 0
-    DenseMap<Value *, MemoryAccess *> ValueDefs;
-  DenseMap<Value *, MemoryAccess *> PHIReads;
-#endif
-
-  DenseMap<const ScopArrayInfo *, MemoryAccess *> ValueDefAccs;
-  DenseMap<const ScopArrayInfo *, SmallVector<MemoryAccess *, 4>> ValueUseAccs;
-  DenseMap<const ScopArrayInfo *, MemoryAccess *> PHIReadAccs;
-  DenseMap<const ScopArrayInfo *, SmallVector<MemoryAccess *, 4>>
-      PHIIncomingAccs;
-
-  // Find the MemoryAccess that defines an MK_Value/reads and MK_PHI.
-  // MK_ExitPHIs are never mapped.
+  /// Find the MemoryAccesses that access the ScopArrayInfo-represented memory.
   void findScalarAccesses() {
     for (auto &Stmt : *S) {
       for (auto *MA : Stmt) {
-
         if (MA->isOriginalValueKind() && MA->isWrite()) {
           auto *SAI = MA->getScopArrayInfo();
           assert(!ValueDefAccs.count(SAI) &&
-                 "There must be at most one definition per MK_Value scalar");
+                 "There can be at most one definition per MK_Value scalar");
           ValueDefAccs[SAI] = MA;
         }
 
@@ -2606,9 +2714,9 @@ private:
 
         if (MA->isOriginalAnyPHIKind() && MA->isRead()) {
           auto *SAI = MA->getScopArrayInfo();
-          assert(!PHIReadAccs.count(SAI) &&
-                 "There must be exactly one read by "
-                 "PHI (that's where the PHINode is)");
+          assert(!PHIReadAccs.count(SAI) && "There must be exactly one read "
+                                            "per PHI (that's where the PHINode "
+                                            "is)");
           PHIReadAccs[SAI] = MA;
         }
 
@@ -2634,9 +2742,14 @@ private:
     auto UnusedUndef = give(isl_union_map_from_domain_and_range(
         UnusedZone.copy(), makeUndefUSet().take()));
 
+    // { Element[] -> Zone[] }
+    auto UniverseZone = give(isl_union_map_from_domain_and_range(
+        AllElements.copy(),
+        isl_union_set_from_set(isl_set_universe(ScatterSpace.copy()))));
+
     // { [Element[] -> Zone[]] -> [Element[] -> DomainWrite[]] }
     auto EltReachdDef = give(isl_union_map_range_product(
-        isl_union_map_domain_map(UniverseZone.copy()),
+        isl_union_map_domain_map(UniverseZone.take()),
         WriteReachDefZone.copy()));
 
     // { [Element[] -> Zone[]] -> ValInst[] }
@@ -2657,13 +2770,17 @@ private:
     return EltLifetime;
   }
 
-  /// Compute when an array element is written to.
+  /// Determine when an array element is written to, and which value instance is
+  /// written.
   ///
   /// @return { [Element[] -> Scatter[]] -> ValInst[] }
   IslPtr<isl_union_map> computeWritten() const {
+    // { Element[] -> Element[] }
+    auto AllElementsId = makeIdentityMap(AllElements, false);
+
     // { [Element[] -> DomainWrite[]] -> [Element[] -> Scatter[]] }
     auto EltWriteTranslator =
-        give(isl_union_map_product(AllElementsId.copy(), Schedule.copy()));
+        give(isl_union_map_product(AllElementsId.take(), Schedule.copy()));
 
     // { [Element[] -> Scatter[]] -> ValInst[] }
     auto EltWritten = give(isl_union_map_apply_domain(
@@ -2734,6 +2851,7 @@ public:
     }
   }
 
+  /// Dump the internal information about a performed DeLICM to @p OS.
   void print(llvm::raw_ostream &OS, int indent = 0) {
     printBefore(OS, indent);
     printMappedScalars(OS, indent);
@@ -2764,9 +2882,6 @@ private:
 
     DEBUG(dbgs() << "Collapsing scalars to unused array elements...\n");
     ZoneComputer->greedyCollapse();
-
-    DEBUG(dbgs() << "Simplifying...\n");
-    S.simplifySCoP(true);
 
     DEBUG(dbgs() << "\nFinal Scop:\n");
     DEBUG(S.print(dbgs()));

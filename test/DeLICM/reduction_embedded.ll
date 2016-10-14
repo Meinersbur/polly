@@ -96,7 +96,7 @@ return:
 ; CHECK-NEXT:     Lifetime: { [MemRef_A[i0] -> [i1{{\]\]}} -> Undef[] : 0 <= i0 <= 1 and i1 <= 14 + 15i0; [MemRef_A[i0] -> [i1{{\]\]}} -> [Stmt_reduction_for[i0, 4] -> Val_phi[{{\]\]}} : 0 <= i0 <= 1 and i1 >= 15 + 15i0 } + Unknown
 ; CHECK-NEXT:     Written : { [MemRef_A[i0] -> [14 + 15i0{{\]\]}} -> [Stmt_reduction_for[i0, 4] -> Val_phi[{{\]\]}} : 0 <= i0 <= 1 }
 ; CHECK:      Mapped scalars {
-; CHECK-NEXT:     Scalar access Stmt_reduction_for MK_Value Define MemRef_phi as %phi [new: { Stmt_reduction_for[i0, i1] -> MemRef_A[i0] : 0 <= i0 <= 1 and 0 <= i1 <= 4 }]:
+; CHECK-NEXT:     Scalar access ScopArrayInfo:
 ; CHECK-NEXT:         Accesses:  3
 ; CHECK-NEXT:         Target:    { Stmt_reduction_for[i0, i1] -> MemRef_A[i0] : 0 <= i0 <= 1 and 0 <= i1 <= 4 }
 ; CHECK-NEXT:         Lifetime:  { Stmt_reduction_for[i0, i1] -> [2 + 15i0 + 3i1] : 0 <= i0 <= 1 and 0 <= i1 <= 3; Stmt_reduction_for[1, 4] -> [29]; Stmt_reduction_for[0, 4] -> [14] }
