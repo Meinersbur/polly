@@ -944,16 +944,15 @@ public:
 
   /// Print the content of this object to @p OS.
   void print(llvm::raw_ostream &OS, unsigned Indent = 0) const {
-    if (!isUsable()) {
-      OS.indent(Indent) << "Invalid knowledge\n";
-      return;
-    }
-
-    if (isImplicitLifetimeUnknown())
+    if (isUsable()) {
+		    if (isImplicitLifetimeUnknown())
       OS.indent(Indent) << "Lifetime: " << Lifetime << " + Unknown\n";
     else
       OS.indent(Indent) << "Lifetime: " << Lifetime << " + Undef\n";
     OS.indent(Indent) << "Written : " << Written << '\n';
+	} else {
+      OS.indent(Indent) << "Invalid knowledge\n";
+    }
   }
 
   /// Dump the object content stderr. Meant to be called in a debugger.
@@ -1527,10 +1526,11 @@ protected:
                        IsCertain);
   }
 
-protected:
-  // { Scatter[] -> DomainDef[] }
-  IslPtr<isl_union_map> ScalarReachDefZone;
+private:
+ /// Cached reaching definitions for each ScopStmt.
+  DenseMap<ScopStmt*,IslPtr<isl_map>> ScalarReachDefZone;
 
+protected:
   /// Get the reaching definition of a scalar defined in @p Stmt.
   ///
   /// Note that this does not depend on the llvm::Instruction, only on the
@@ -1540,21 +1540,15 @@ protected:
   ///
   /// @return { Scatter[] -> DomainDef[] }
   IslPtr<isl_map> getScalarReachingDefinition(ScopStmt *Stmt) {
-    auto Domain = getDomainFor(Stmt);
-    auto DomainSpace = give(isl_set_get_space(Domain.keep()));
-    auto ResultSpace = give(isl_space_map_from_domain_and_range(
-        ScatterSpace.copy(), DomainSpace.take()));
+	  auto &Result = ScalarReachDefZone[Stmt];
+	  if (Result)
+		  return Result;
 
-    auto Result = give(isl_union_map_extract_map(ScalarReachDefZone.keep(),
-                                                 ResultSpace.copy()));
-    if (Result && isl_map_plain_is_empty(Result.keep())) {
+    auto Domain = getDomainFor(Stmt);
       Result = computeScalarReachingDefinition(Schedule, Domain, false, true);
       simplify(Result);
-      if (Result)
-        ScalarReachDefZone = give(
-            isl_union_map_add_map(ScalarReachDefZone.take(), Result.copy()));
-    }
 
+	  assert(Result);
     return Result;
   }
 
@@ -1569,8 +1563,6 @@ protected:
     auto *Stmt = static_cast<ScopStmt *>(isl_id_get_user(DomId.keep()));
 
     auto StmtResult = getScalarReachingDefinition(Stmt);
-    ScalarReachDefZone = give(
-        isl_union_map_add_map(ScalarReachDefZone.take(), StmtResult.copy()));
 
     return give(isl_map_intersect_range(StmtResult.take(), DomainDef.take()));
   }
@@ -2064,11 +2056,10 @@ public:
   /// Print this transformation report to @p OS.
   void print(llvm::raw_ostream &OS, int Indent = 0) const {
     OS.indent(Indent) << "Mapping of " << *SAI << " {\n";
-    OS.indent(Indent + 4) << "Scalar access " << *SAI << ":\n";
     if (PrimaryAcc)
-      OS.indent(Indent + 4) << "Primary:  " << *PrimaryAcc << "\n";
+      OS.indent(Indent + 4) << "Primary:   " << *PrimaryAcc << "\n";
     for (auto *MA : SecondaryAccs)
-      OS.indent(Indent + 4) << "Secondary:  " << *MA << "\n";
+      OS.indent(Indent + 4) << "Secondary: " << *MA << "\n";
     OS.indent(Indent + 4) << "Target:    " << Target << "\n";
     OS.indent(Indent + 4) << "Lifetime:  " << Lifetime << "\n";
     OS.indent(Indent + 4) << "Zone:\n";
@@ -2697,8 +2688,9 @@ private:
 
   /// Print the knowledge before any transformation has been applied to @p OS.
   void printBefore(llvm::raw_ostream &OS, int Indent = 0) {
-    OS.indent(Indent) << "Original knowledge:\n";
+    OS.indent(Indent) << "Original knowledge {\n";
     OriginalZone.print(OS, Indent + 4);
+	OS.indent(Indent) << "}\n";
   }
 
   /// Print the report about all executions transformations to @p OS.
@@ -2711,13 +2703,14 @@ private:
 
   /// Print the knowledge from after transformations have been applied to @p OS.
   void printAfter(llvm::raw_ostream &OS, int Indent = 0) {
-    OS.indent(Indent) << "After knowledge:\n";
+    OS.indent(Indent) << "After knowledge {\n";
     Zone.print(OS, Indent + 4);
+		OS.indent(Indent) << "}\n";
   }
 
   /// Print the current state of all MemoryAccesses to @p.
   void printAccesses(llvm::raw_ostream &OS, int Indent = 0) {
-    OS.indent(Indent) << "After Statements {\n";
+    OS.indent(Indent) << "After accesses {\n";
     for (auto &Stmt : *S) {
       OS.indent(Indent + 4) << Stmt.getBaseName() << "\n";
       for (auto *MA : Stmt)

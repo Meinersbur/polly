@@ -87,15 +87,17 @@ for.end.6:                                        ; preds = %for.cond
 ; CHECK: }
 
 
-; NOLICM:      Original zone:
+; NOLICM:      Original knowledge {
 ; NOLICM-NEXT:     Lifetime: [n] -> { [MemRef_A[0] -> [i1, i2, i3{{\]\]}} -> [Stmt_for_end[4] -> Val_x_addr_1_lcssa[{{\]\]}} : i1 >= 5; [MemRef_A[0] -> [4, i2, i3{{\]\]}} -> [Stmt_for_end[4] -> Val_x_addr_1_lcssa[{{\]\]}} : i2 >= 3; [MemRef_A[0] -> [4, 2, i3{{\]\]}} -> [Stmt_for_end[4] -> Val_x_addr_1_lcssa[{{\]\]}} : i3 > 0; [MemRef_A[0] -> [i1, i2, i3{{\]\]}} -> Undef[] : i1 <= 4 and (i1 <= 3 or (i1 >= 0 and i2 <= 1)); [MemRef_A[0] -> [i1, 2, i3{{\]\]}} -> Undef[] : 0 <= i1 <= 4 and i3 <= 0 } + Unknown
 ; NOLICM-NEXT:     Written : [n] -> { [MemRef_A[0] -> [i1, 2, 0{{\]\]}} -> [Stmt_for_end[i1] -> Val_x_addr_1_lcssa[{{\]\]}} : 0 <= i1 <= 4 }
+; NOLICM-NEXT: }
 ; NOLICM:      Mapped scalars {
 ; NOLICM-NEXT: }
-; NOLICM:      After zone:
+; NOLICM:      After knowledge {
 ; NOLICM-NEXT:     Lifetime: [n] -> { [MemRef_A[0] -> [i1, i2, i3{{\]\]}} -> [Stmt_for_end[4] -> Val_x_addr_1_lcssa[{{\]\]}} : i1 >= 5; [MemRef_A[0] -> [4, i2, i3{{\]\]}} -> [Stmt_for_end[4] -> Val_x_addr_1_lcssa[{{\]\]}} : i2 >= 3; [MemRef_A[0] -> [4, 2, i3{{\]\]}} -> [Stmt_for_end[4] -> Val_x_addr_1_lcssa[{{\]\]}} : i3 > 0; [MemRef_A[0] -> [i1, i2, i3{{\]\]}} -> Undef[] : i1 <= 4 and (i1 <= 3 or (i1 >= 0 and i2 <= 1)); [MemRef_A[0] -> [i1, 2, i3{{\]\]}} -> Undef[] : 0 <= i1 <= 4 and i3 <= 0 } + Unknown
 ; NOLICM-NEXT:     Written : [n] -> { [MemRef_A[0] -> [i1, 2, 0{{\]\]}} -> [Stmt_for_end[i1] -> Val_x_addr_1_lcssa[{{\]\]}} : 0 <= i1 <= 4 }
-; NOLICM:      After Statements {
+; NOLICM-NEXT: }
+; NOLICM:      After accesses {
 ; NOLICM-NEXT:     Stmt_for_cond_1_preheader
 ; NOLICM-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 1]
 ; NOLICM-NEXT:                 [n] -> { Stmt_for_cond_1_preheader[i0] -> MemRef_x_addr_04__phi[] };
@@ -117,15 +119,17 @@ for.end.6:                                        ; preds = %for.cond
 ; NOLICM-NEXT:                 [n] -> { Stmt_for_end[i0] -> MemRef_A[0] };
 ; NOLICM-NEXT: }
 
-; LICM:      Original zone:
+; LICM:      Original knowledge {
 ; LICM-NEXT:     Lifetime: [n] -> {  } + Unknown
 ; LICM-NEXT:     Written : [n] -> {  }
+; LICM-NEXT: }
 ; LICM:      Mapped scalars {
 ; LICM-NEXT: }
-; LICM:      After zone:
+; LICM:      After knowledge {
 ; LICM-NEXT:     Lifetime: [n] -> {  } + Unknown
 ; LICM-NEXT:     Written : [n] -> {  }
-; LICM:      After Statements {
+; LICM-NEXT: }
+; LICM:      After accesses {
 ; LICM-NEXT:     Stmt_for_cond_1_preheader
 ; LICM-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 1]
 ; LICM-NEXT:                 [n] -> { Stmt_for_cond_1_preheader[i0] -> MemRef_x_addr_04__phi[] };

@@ -46,15 +46,17 @@ return:
 }
 
 
-; CHECK:      Original zone:
+; CHECK:      Original knowledge {
 ; CHECK-NEXT:     Lifetime: [n, m] -> { [MemRef_A[i0] -> [i1, i2{{\]\]}} -> [Stmt_body[i0, -1 + m] -> Val_add[{{\]\]}} : m > 0 and 0 <= i0 < n and i1 > i0; [MemRef_A[i0] -> [i0, i2{{\]\]}} -> [Stmt_body[i0, -1 + m] -> Val_add[{{\]\]}} : m > 0 and 0 <= i0 < n and i2 > m; [MemRef_A[i0] -> [i0, i2{{\]\]}} -> [Stmt_body[i0, -1 + i2] -> Val_add[{{\]\]}} : 0 <= i0 < n and 0 < i2 <= m } + Unknown
 ; CHECK-NEXT:     Written : [n, m] -> { [MemRef_A[i0] -> [i0, i2{{\]\]}} -> [Stmt_body[i0, i2] -> Val_add[{{\]\]}} : 0 <= i0 < n and 0 <= i2 < m }
+; CHECK-NEXT: }
 ; CHECK:      Mapped scalars {
 ; CHECK-NEXT: }
-; CHECK:      After zone:
+; CHECK:      After knowledge {
 ; CHECK-NEXT:     Lifetime: [n, m] -> { [MemRef_A[i0] -> [i1, i2{{\]\]}} -> [Stmt_body[i0, -1 + m] -> Val_add[{{\]\]}} : m > 0 and 0 <= i0 < n and i1 > i0; [MemRef_A[i0] -> [i0, i2{{\]\]}} -> [Stmt_body[i0, -1 + m] -> Val_add[{{\]\]}} : m > 0 and 0 <= i0 < n and i2 > m; [MemRef_A[i0] -> [i0, i2{{\]\]}} -> [Stmt_body[i0, -1 + i2] -> Val_add[{{\]\]}} : 0 <= i0 < n and 0 < i2 <= m } + Unknown
 ; CHECK-NEXT:     Written : [n, m] -> { [MemRef_A[i0] -> [i0, i2{{\]\]}} -> [Stmt_body[i0, i2] -> Val_add[{{\]\]}} : 0 <= i0 < n and 0 <= i2 < m }
-; CHECK:      After Statements {
+; CHECK-NEXT: }
+; CHECK:      After accesses {
 ; CHECK-NEXT:     Stmt_body
 ; CHECK-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 0]
 ; CHECK-NEXT:                 [n, m] -> { Stmt_body[i0, i1] -> MemRef_A[i0] };

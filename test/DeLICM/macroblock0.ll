@@ -136,15 +136,15 @@ attributes #0 = { nounwind uwtable "disable-tail-calls"="false" "less-precise-fp
 !0 = !{!"clang version 4.0.0 (trunk 277335)"}
 
 
-; CHECK:      Original zone:
-; CHECK-NEXT:     Lifetime: null + Unknown
-; CHECK-NEXT:     Written : null
+; CHECK:      Original knowledge {
+; CHECK-NEXT:     Invalid knowledge
+; CHECK-NEXT: }
 ; CHECK:      Mapped scalars {
 ; CHECK-NEXT: }
-; CHECK:      After zone:
-; CHECK-NEXT:     Lifetime: null + Unknown
-; CHECK-NEXT:     Written : null
-; CHECK:      After Statements {
+; CHECK:      After knowledge {
+; CHECK-NEXT:     Invalid knowledge
+; CHECK-NEXT: }
+; CHECK:      After accesses {
 ; CHECK-NEXT:     Stmt_for_cond2067_preheader
 ; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 0]
 ; CHECK-NEXT:                 [indvars_iv53, p_1, switch_downshift] -> { Stmt_for_cond2067_preheader[i0] -> MemRef_img[602 + 16indvars_iv53 + 16i0] };

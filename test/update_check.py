@@ -184,36 +184,36 @@ def classyfier1(lines):
                 if line == '}':
                     break
                 line = i.__next__()
-        elif line.startswith( 'Known zone:'):
-            yield {'KnownZone'}
-        elif line == 'Mapped knowns {':
+        elif line.lstrip().startswith('Original knowledge {'):
             while True:
-                yield  {'MappedKnowns'}
-                if line == '}':
+                yield  {'OriginalKnowledge'}
+                if line.lstrip().startswith('}'):
                     break
                 line = i.__next__()
-        elif line.startswith( 'Original zone:'):
-            yield {'OriginalZone'}
-            line = i.__next__()
-            yield {'OriginalZone','OriginalZoneLifetime','Lifetime'}
-            line = i.__next__()
-            yield {'OriginalZone','OriginalZoneWritten','Written'}
-        elif line.startswith( 'After zone:'):
-            yield {'AfterZone'}
-            line = i.__next__()
-            yield {'AfterZone','AfterZoneLifetime','Lifetime'}
-            line = i.__next__()
-            yield {'AfterZone','AfterZoneWritten','Written'}
-        elif line == 'Mapped scalars {':
+        elif line.lstrip().startswith('Mapped scalars {'):
+            yield  {'MappedScalars'}
             while True:
-                yield  {'MappedScalars'}
-                if line == '}':
+                line = i.__next__()
+                if line.lstrip().startswith('}'):
+                    yield  {'MappedScalars'}
+                    break
+                if line.lstrip().startswith( 'Mapping of '):
+                    yield  {'MappedScalars','MappingOf'}
+                    while True:
+                        line = i.__next__()
+                        yield  {'MappedScalars','MappingOf'}
+                        if line.lstrip().startswith('}'):
+                            break
+        elif line.lstrip().startswith('After knowledge {'):
+            while True:
+                yield  {'AfterKnowledge'}
+                if line.lstrip().startswith('}'):
                     break
                 line = i.__next__()
-        elif line == 'After Statements {':
+        elif line.lstrip().startswith('After accesses {'):
             while True:
-                yield  {'AfterStatements'}
-                if line == '}':
+                yield  {'AfterAccesses'}
+                if line.lstrip().startswith('}'):
                     break
                 line = i.__next__()
         else:
@@ -302,9 +302,7 @@ def update_autorule(filename,outfile,known):
     if len(tail)==0:
         success=False
     elif cat[:-1] == ('DeLICM',):
-        update_check_rule(filename, outfile=outfile, known=known, CheckInclude={'ScheduleAfterFlattening','OriginalZone','MappedScalars','Cleanups','AfterZone','AfterStatements'})
-    elif cat[:-1] == ('Known',):
-        update_check_rule(filename, outfile=outfile, known=known, CheckInclude={'ScheduleAfterFlattening','KnownZone','MappedKnowns','AfterStatements'})
+        update_check_rule(filename, outfile=outfile, known=known, CheckInclude={'ScheduleAfterFlattening','OriginalKnowledge','MappedScalars','AfterKnowledge','AfterAccesses'})
     else:
         success=False
 
