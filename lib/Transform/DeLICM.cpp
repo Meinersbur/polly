@@ -887,7 +887,7 @@ private:
     // Default-initialized object
     if (!Lifetime && !Written)
       return;
-
+#if 0
 	auto Test = give(isl_union_map_read_from_str( Lifetime.getCtx(),  
 	"[p_0, p_1, b8] -> { [MemRef_img[i0] -> [i1, i2, i3]] -> Val_[] : "
 #if 0
@@ -899,19 +899,25 @@ private:
 
 #if 0
 		"(exists (e0 = floor((b8)/2), e1 = floor((-44 + i0)/16): 2e0 = b8 and b8 <= -2 and i0 >= 44 + 64b8 and i0 <= 163 + 64b8 and i1 >= 6 and 16e1 >= -59 + i0 and 16e1 <= -52 + i0)) or (exists (e0 = floor((b8)/2), e1 = floor((-44 + i0)/16): 2e0 = b8 and b8 >= 0 and i0 >= 116 + 64b8 and i0 <= 163 + 64b8 and i1 >= 6 and 16e1 >= -59 + i0 and 16e1 <= -52 + i0)) or "
-
-		"(exists (e0 = floor((b8)/2), e1 = floor((-44 + i0)/16): 2e0 = b8 and b8 >= 0 and i0 >= 44 + 64b8 and i0 <= 107 + 64b8 and i1 >= 6 and 16e1 >= -59 + i0 and 16e1 <= -52 + i0)) or (exists (e0 = floor((-1 + b8)/2), e1 = floor((-100 + i0)/16): 2e0 = -1 + b8 and b8 < 0 and i0 >= 172 + 64b8 and i0 <= 219 + 64b8 and i1 >= 6 and 16e1 >= -115 + i0 and 16e1 <= -108 + i0)) or "
-		"(exists (e0 = floor((-1 + b8)/2), e1 = floor((-100 + i0)/16): 2e0 = -1 + b8 and b8 < 0 and i0 >= 100 + 64b8 and i0 <= 163 + 64b8 and i1 >= 6 and 16e1 >= -115 + i0 and 16e1 <= -108 + i0)) or (exists (e0 = floor((-1 + b8)/2), e1 = floor((-100 + i0)/16): 2e0 = -1 + b8 and b8 > 0 and i0 >= -12 + 64b8 and i0 <= 107 + 64b8 and i1 >= 6 and 16e1 >= -115 + i0 and 16e1 <= -108 + i0)) or "
-		"(exists (e0 = floor((b8)/2): i1 = 5 and 2e0 = b8 and b8 <= -2 and i0 >= 165 + 64b8 and i0 <= 171 + 64b8 and i2 >= 8)) or (exists (e0 = floor((b8)/2): i1 = 5 and 2e0 = b8 and b8 >= 0 and i0 >= 164 + 64b8 and i0 <= 171 + 64b8 and i2 >= 8)) or (exists (e0 = floor((-1 + b8)/2): i1 = 5 and 2e0 = -1 + b8 and b8 < 0 and i0 >= 220 + 64b8 and i0 <= 227 + 64b8 and i2 >= 8)) or "
-		"(exists (e0 = floor((-1 + b8)/2): i1 = 5 and 2e0 = -1 + b8 and b8 > 0 and i0 >= 109 + 64b8 and i0 <= 115 + 64b8 and i2 >= 8)) or (exists (e0 = floor((b8)/2): i1 = 5 and 2e0 = b8 and b8 <= -2 and i2 > 0 and i2 <= 7 and 16i2 >= -43 - 64b8 + i0 and 16i2 <= -37 - 64b8 + i0)) or "
 #endif
-		"(exists (e0 = floor((b8)/2): i1 = 5 and 2e0 = b8 and b8 >= 0 and i2 > 0 and i2 <= 7 and 16i2 >= -43 - 64b8 + i0 and 16i2 <= -36 - 64b8 + i0)) or "
-		"(exists (e0 = floor((-1 + b8)/2): i1 = 5 and 2e0 = -1 + b8 and b8 < 0 and i2 > 0 and i2 <= 7 and 16i2 >= -99 - 64b8 + i0 and 16i2 <= -92 - 64b8 + i0)) or (exists (e0 = floor((-1 + b8)/2): i1 = 5 and 2e0 = -1 + b8 and b8 > 0 and i2 > 0 and i2 <= 7 and 16i2 >= 13 - 64b8 + i0 and 16i2 <= 19 - 64b8 + i0)) or (exists (e0 = floor((b8)/2): i1 = 5 and 2e0 = b8 and b8 <= -2 and i2 >= 0 and i2 <= 7 and 16i2 >= -59 - 64b8 + i0 and 16i2 <= -52 - 64b8 + i0 and i3 >= -51 - 64b8 + i0 - 16i2)) or "
-		"(exists (e0 = floor((-1 + b8)/2): i1 = 5 and 2e0 = -1 + b8 and b8 > 0 and i2 >= 0 and i2 <= 7 and 16i2 >= -3 - 64b8 + i0 and 16i2 <= 4 - 64b8 + i0 and i3 >= 5 - 64b8 + i0 - 16i2)) or (exists (e0 = floor((b8)/2), e1 = floor((-44 + i0)/16): i1 = 5 and 2e0 = b8 and b8 <= -2 and i0 >= 44 + 64b8 and i0 <= 164 + 64b8 and 16i2 >= -36 - 64b8 + i0 and 16e1 >= -59 + i0 and 16e1 <= -52 + i0)) or "
+"(exists (e0 = floor((b8)/2), e1 = floor((-44 + i0)/16): 2e0 = b8 and b8 >= 0 and i0 >= 44 + 64b8 and i0 <= 107 + 64b8 and i1 >= 6 and 16e1 >= -59 + i0 and 16e1 <= -52 + i0)) or (exists (e0 = floor((-1 + b8)/2), e1 = floor((-100 + i0)/16): 2e0 = -1 + b8 and b8 < 0 and i0 >= 172 + 64b8 and i0 <= 219 + 64b8 and i1 >= 6 and 16e1 >= -115 + i0 and 16e1 <= -108 + i0)) or "
+"(exists (e0 = floor((-1 + b8)/2), e1 = floor((-100 + i0)/16): 2e0 = -1 + b8 and b8 < 0 and i0 >= 100 + 64b8 and i0 <= 163 + 64b8 and i1 >= 6 and 16e1 >= -115 + i0 and 16e1 <= -108 + i0)) or (exists (e0 = floor((-1 + b8)/2), e1 = floor((-100 + i0)/16): 2e0 = -1 + b8 and b8 > 0 and i0 >= -12 + 64b8 and i0 <= 107 + 64b8 and i1 >= 6 and 16e1 >= -115 + i0 and 16e1 <= -108 + i0)) or "
+"(exists (e0 = floor((b8)/2): i1 = 5 and 2e0 = b8 and b8 <= -2 and i0 >= 165 + 64b8 and i0 <= 171 + 64b8 and i2 >= 8)) or (exists (e0 = floor((b8)/2): i1 = 5 and 2e0 = b8 and b8 >= 0 and i0 >= 164 + 64b8 and i0 <= 171 + 64b8 and i2 >= 8)) or (exists (e0 = floor((-1 + b8)/2): i1 = 5 and 2e0 = -1 + b8 and b8 < 0 and i0 >= 220 + 64b8 and i0 <= 227 + 64b8 and i2 >= 8)) or "
+"(exists (e0 = floor((-1 + b8)/2): i1 = 5 and 2e0 = -1 + b8 and b8 > 0 and i0 >= 109 + 64b8 and i0 <= 115 + 64b8 and i2 >= 8)) or (exists (e0 = floor((b8)/2): i1 = 5 and 2e0 = b8 and b8 <= -2 and i2 > 0 and i2 <= 7 and 16i2 >= -43 - 64b8 + i0 and 16i2 <= -37 - 64b8 + i0)) or "
+
+		//"(exists (e0 = floor((b8)/2): i1 = 5 and 2e0 = b8 and b8 >= 0 and i2 > 0 and i2 <= 7 and 16i2 >= -43 - 64b8 + i0 and 16i2 <= -36 - 64b8 + i0)) or "
+"(exists (e0 = floor((-1 + b8)/2): i1 = 5 and 2e0 = -1 + b8 and b8 < 0 and i2 > 0 and i2 <= 7 and 16i2 >= -99 - 64b8 + i0 and 16i2 <= -92 - 64b8 + i0)) or "
+		"(exists (e0 = floor((-1 + b8)/2): i1 = 5 and 2e0 = -1 + b8 and b8 > 0 and i2 > 0 and i2 <= 7 and 16i2 >= 13 - 64b8 + i0 and 16i2 <= 19 - 64b8 + i0)) or "
+"(exists (e0 = floor((b8)/2): i1 = 5 and 2e0 = b8 and b8 <= -2 and i2 >= 0 and i2 <= 7 and 16i2 >= -59 - 64b8 + i0 and 16i2 <= -52 - 64b8 + i0 and i3 >= -51 - 64b8 + i0 - 16i2)) or "
+		"(exists (e0 = floor((-1 + b8)/2): i1 = 5 and 2e0 = -1 + b8 and b8 > 0 and i2 >= 0 and i2 <= 7 and 16i2 >= -3 - 64b8 + i0 and 16i2 <= 4 - 64b8 + i0 and i3 >= 5 - 64b8 + i0 - 16i2)) or "
+		"(exists (e0 = floor((b8)/2), e1 = floor((-44 + i0)/16): i1 = 5 and 2e0 = b8 and b8 <= -2 and i0 >= 44 + 64b8 and i0 <= 164 + 64b8 and 16i2 >= -36 - 64b8 + i0 and 16e1 >= -59 + i0 and 16e1 <= -52 + i0)) or "
 		"(exists (e0 = floor((b8)/2), e1 = floor((-44 + i0)/16): i1 = 5 and 2e0 = b8 and b8 >= 0 and i0 >= 116 + 64b8 and i0 <= 163 + 64b8 and i2 >= 8 and 16e1 >= -59 + i0 and 16e1 <= -52 + i0)) or "
+		
 		"(exists (e0 = floor((b8)/2), e1 = floor((-44 + i0)/16): i1 = 5 and 2e0 = b8 and b8 >= 0 and i0 >= 44 + 64b8 and i0 <= 108 + 64b8 and 16i2 >= 20 - 64b8 + i0 and 16e1 >= -59 + i0 and 16e1 <= -52 + i0)) or "
-		"(exists (e0 = floor((-1 + b8)/2), e1 = floor((-100 + i0)/16): i1 = 5 and 2e0 = -1 + b8 and b8 < 0 and i0 >= 172 + 64b8 and i0 <= 219 + 64b8 and i2 >= 8 and 16e1 >= -115 + i0 and 16e1 <= -108 + i0)) or (exists (e0 = floor((-1 + b8)/2), e1 = floor((-100 + i0)/16): i1 = 5 and 2e0 = -1 + b8 and b8 < 0 and i0 >= 100 + 64b8 and i0 <= 164 + 64b8 and 16i2 >= -36 - 64b8 + i0 and 16e1 >= -115 + i0 and 16e1 <= -108 + i0)) or "
-		"(exists (e0 = floor((-1 + b8)/2), e1 = floor((-100 + i0)/16): i1 = 5 and 2e0 = -1 + b8 and b8 > 0 and i0 >= -12 + 64b8 and i0 <= 108 + 64b8 and 16i2 >= 20 - 64b8 + i0 and 16e1 >= -115 + i0 and 16e1 <= -108 + i0)) or (exists (e0 = floor((b8)/2), e1 = floor((-44 + i0)/16): i1 = 5 and 2e0 = b8 and b8 >= 0 and i0 >= 44 + 64b8 and i2 <= 7 and 16i2 >= -35 - 64b8 + i0 and 16i2 <= 12 - 64b8 + i0 and 16e1 >= -59 + i0 and 16e1 <= -52 + i0)) or "
+		"(exists (e0 = floor((-1 + b8)/2), e1 = floor((-100 + i0)/16): i1 = 5 and 2e0 = -1 + b8 and b8 < 0 and i0 >= 172 + 64b8 and i0 <= 219 + 64b8 and i2 >= 8 and 16e1 >= -115 + i0 and 16e1 <= -108 + i0)) or "
+		"(exists (e0 = floor((-1 + b8)/2), e1 = floor((-100 + i0)/16): i1 = 5 and 2e0 = -1 + b8 and b8 < 0 and i0 >= 100 + 64b8 and i0 <= 164 + 64b8 and 16i2 >= -36 - 64b8 + i0 and 16e1 >= -115 + i0 and 16e1 <= -108 + i0)) or "
+		"(exists (e0 = floor((-1 + b8)/2), e1 = floor((-100 + i0)/16): i1 = 5 and 2e0 = -1 + b8 and b8 > 0 and i0 >= -12 + 64b8 and i0 <= 108 + 64b8 and 16i2 >= 20 - 64b8 + i0 and 16e1 >= -115 + i0 and 16e1 <= -108 + i0)) or "
+		"(exists (e0 = floor((b8)/2), e1 = floor((-44 + i0)/16): i1 = 5 and 2e0 = b8 and b8 >= 0 and i0 >= 44 + 64b8 and i2 <= 7 and 16i2 >= -35 - 64b8 + i0 and 16i2 <= 12 - 64b8 + i0 and 16e1 >= -59 + i0 and 16e1 <= -52 + i0)) or "
 		"(exists (e0 = floor((-1 + b8)/2), e1 = floor((-100 + i0)/16): i1 = 5 and 2e0 = -1 + b8 and b8 < 0 and i0 >= 100 + 64b8 and i2 <= 7 and 16i2 >= -91 - 64b8 + i0 and 16i2 <= -44 - 64b8 + i0 and 16e1 >= -115 + i0 and 16e1 <= -108 + i0)) or "
 
 		"(exists (e0 = floor((b8)/2), e1 = floor((-51 + 104b8 + i0 + 96i2 + 111i3)/112): i1 = 5 and 2e0 = b8 and b8 >= 0 and i2 >= 0 and i2 <= 7 and 16i2 >= -59 - 64b8 + i0 and 16i2 <= -52 - 64b8 + i0 and i3 >= -51 - 64b8 + i0 - 16i2 and 112e1 >= -162 + 104b8 + i0 + 96i2 + 111i3 and 112e1 >= 60 + 104b8 + i0 + 96i2 and 112e1 <= -51 + 104b8 + i0 + 96i2 + 111i3)); "
@@ -963,10 +969,11 @@ private:
 	Test.dump();
 	auto R = isl_union_map_is_single_valued(Test.keep()) ; 
 	Test.dump();
+#endif
 
     assert(Lifetime);
     assert(Written);
-	Lifetime.dump();
+	//Lifetime.dump();
     assert(isl_union_map_is_single_valued(Lifetime.keep()) == isl_bool_true);
   }
 
