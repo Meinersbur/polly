@@ -945,12 +945,12 @@ public:
   /// Print the content of this object to @p OS.
   void print(llvm::raw_ostream &OS, unsigned Indent = 0) const {
     if (isUsable()) {
-		    if (isImplicitLifetimeUnknown())
-      OS.indent(Indent) << "Lifetime: " << Lifetime << " + Unknown\n";
-    else
-      OS.indent(Indent) << "Lifetime: " << Lifetime << " + Undef\n";
-    OS.indent(Indent) << "Written : " << Written << '\n';
-	} else {
+      if (isImplicitLifetimeUnknown())
+        OS.indent(Indent) << "Lifetime: " << Lifetime << " + Unknown\n";
+      else
+        OS.indent(Indent) << "Lifetime: " << Lifetime << " + Undef\n";
+      OS.indent(Indent) << "Written : " << Written << '\n';
+    } else {
       OS.indent(Indent) << "Invalid knowledge\n";
     }
   }
@@ -1527,8 +1527,8 @@ protected:
   }
 
 private:
- /// Cached reaching definitions for each ScopStmt.
-  DenseMap<ScopStmt*,IslPtr<isl_map>> ScalarReachDefZone;
+  /// Cached reaching definitions for each ScopStmt.
+  DenseMap<ScopStmt *, IslPtr<isl_map>> ScalarReachDefZone;
 
 protected:
   /// Get the reaching definition of a scalar defined in @p Stmt.
@@ -1540,15 +1540,15 @@ protected:
   ///
   /// @return { Scatter[] -> DomainDef[] }
   IslPtr<isl_map> getScalarReachingDefinition(ScopStmt *Stmt) {
-	  auto &Result = ScalarReachDefZone[Stmt];
-	  if (Result)
-		  return Result;
+    auto &Result = ScalarReachDefZone[Stmt];
+    if (Result)
+      return Result;
 
     auto Domain = getDomainFor(Stmt);
-      Result = computeScalarReachingDefinition(Schedule, Domain, false, true);
-      simplify(Result);
+    Result = computeScalarReachingDefinition(Schedule, Domain, false, true);
+    simplify(Result);
 
-	  assert(Result);
+    assert(Result);
     return Result;
   }
 
@@ -2690,7 +2690,7 @@ private:
   void printBefore(llvm::raw_ostream &OS, int Indent = 0) {
     OS.indent(Indent) << "Original knowledge {\n";
     OriginalZone.print(OS, Indent + 4);
-	OS.indent(Indent) << "}\n";
+    OS.indent(Indent) << "}\n";
   }
 
   /// Print the report about all executions transformations to @p OS.
@@ -2705,7 +2705,7 @@ private:
   void printAfter(llvm::raw_ostream &OS, int Indent = 0) {
     OS.indent(Indent) << "After knowledge {\n";
     Zone.print(OS, Indent + 4);
-		OS.indent(Indent) << "}\n";
+    OS.indent(Indent) << "}\n";
   }
 
   /// Print the current state of all MemoryAccesses to @p.

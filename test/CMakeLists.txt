@@ -77,7 +77,7 @@ if (NOT DEFINED LLVM_MAIN_SRC_DIR)
                   --param build_config=${CMAKE_CFG_INTDIR}
                   -sv ${POLLY_TEST_EXTRA_ARGS}
                   ${CMAKE_CURRENT_BINARY_DIR}
-                  DEPENDS ${POLLY_TEST_DEPS}
+                  DEPENDS ${POLLY_TEST_DEPS} polly-isl-test
                   COMMENT "Running Polly regression/unit tests")
     set_target_properties(check-polly-tests PROPERTIES FOLDER "Polly")
     add_dependencies(check-polly check-polly-tests)
@@ -134,7 +134,7 @@ else (NOT DEFINED LLVM_MAIN_SRC_DIR)
     ${CMAKE_CURRENT_BINARY_DIR}
     PARAMS polly_site_config=${CMAKE_CURRENT_BINARY_DIR}/lit.site.cfg
            polly_unit_site_config=${CMAKE_CURRENT_BINARY_DIR}/Unit/lit.site.cfg
-    DEPENDS ${POLLY_TEST_DEPS}
+    DEPENDS ${POLLY_TEST_DEPS} polly-isl-test
     )
   set_target_properties(check-polly-tests PROPERTIES FOLDER "Polly")
   add_dependencies(check-polly check-polly-tests)
