@@ -210,12 +210,6 @@ def classyfier1(lines):
                 if line == '}':
                     break
                 line = i.__next__()
-        elif line == 'Cleanups {':
-            while True:
-                yield  {'Cleanups'}
-                if line == '}':
-                    break
-                line = i.__next__()
         elif line == 'After Statements {':
             while True:
                 yield  {'AfterStatements'}
