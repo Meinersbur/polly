@@ -2120,7 +2120,7 @@ private:
 
     if (SAI->isPHIKind()) {
       auto *MA = PHIReadAccs.lookup(SAI);
-	  assert(MA);
+      assert(MA);
 
       // Mapping of an incoming block from before the SCoP is not supported by
       // the code generator.
