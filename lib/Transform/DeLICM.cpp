@@ -973,7 +973,9 @@ private:
 
     assert(Lifetime);
     assert(Written);
-	//Lifetime.dump();
+	Lifetime.dump();
+	auto S = isl_union_map_is_single_valued(Lifetime.keep());
+	Lifetime.dump();
     assert(isl_union_map_is_single_valued(Lifetime.keep()) == isl_bool_true);
   }
 
