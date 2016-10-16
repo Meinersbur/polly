@@ -77,7 +77,7 @@ if (NOT DEFINED LLVM_MAIN_SRC_DIR)
                   --param build_config=${CMAKE_CFG_INTDIR}
                   -sv ${POLLY_TEST_EXTRA_ARGS}
                   ${CMAKE_CURRENT_BINARY_DIR}
-                  DEPENDS ${POLLY_TEST_DEPS} polly-isl-test
+                  DEPENDS ${POLLY_TEST_DEPS}
                   COMMENT "Running Polly regression/unit tests")
     set_target_properties(check-polly-tests PROPERTIES FOLDER "Polly")
     add_dependencies(check-polly check-polly-tests)
@@ -134,7 +134,7 @@ else (NOT DEFINED LLVM_MAIN_SRC_DIR)
     ${CMAKE_CURRENT_BINARY_DIR}
     PARAMS polly_site_config=${CMAKE_CURRENT_BINARY_DIR}/lit.site.cfg
            polly_unit_site_config=${CMAKE_CURRENT_BINARY_DIR}/Unit/lit.site.cfg
-    DEPENDS ${POLLY_TEST_DEPS} polly-isl-test
+    DEPENDS ${POLLY_TEST_DEPS}
     )
   set_target_properties(check-polly-tests PROPERTIES FOLDER "Polly")
   add_dependencies(check-polly check-polly-tests)
@@ -165,18 +165,18 @@ else (NOT DEFINED LLVM_MAIN_SRC_DIR)
     )
   set_target_properties(check-polly-isl PROPERTIES FOLDER "Polly")
 
-endif (NOT DEFINED LLVM_MAIN_SRC_DIR)
-
-# Run polly-check-format as part of polly-check only if we are compiling with
+  # Run polly-check-format as part of polly-check only if we are compiling with
   # clang, so clang-format is available.
-# if (TARGET clang-format) would be preferable, but this target is only added
-# after Polly, i.e. there is no such target yet at this point. The CMake cache
-# entry LLVM_TOOL_CLANG_BUILD will only be defined after clang has been
-# configured at least once, i.e. format will be checked only after a rerun of
-# CMake's configure.
-if (LLVM_TOOL_CLANG_BUILD)
-  add_dependencies(check-polly polly-check-format)
-endif ()
+  # if (TARGET clang-format) would be preferable, but this target is only added
+  # after Polly, i.e. there is no such target yet at this point. The CMake cache
+  # entry LLVM_TOOL_CLANG_BUILD will only be defined after clang has been
+  # configured at least once, i.e. format will be checked only after a rerun of
+  # CMake's configure.
+  if (LLVM_TOOL_CLANG_BUILD)
+    add_dependencies(check-polly polly-check-format)
+  endif ()
+
+endif (NOT DEFINED LLVM_MAIN_SRC_DIR)
 
 configure_file(
   ${CMAKE_CURRENT_SOURCE_DIR}/update_check.py
