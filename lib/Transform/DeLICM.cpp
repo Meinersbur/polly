@@ -32,7 +32,7 @@
 // upper bound. Examples:
 //
 // * The set { [i] : 1 <= i <= 3 } represents the zone ]0,3[ (which contains the
-//   integer points 1 and 2)
+//   integer points 1 and 2, but not 0 or 3)
 //
 // * { [1] } represents the zone ]0,1[
 //
@@ -1980,11 +1980,16 @@ protected:
   }
 
   /// Get the schedule for the statement instances of @p Domain.
+  IslPtr<isl_union_map> getScatterFor(IslPtr<isl_union_set> Domain) const {
+    return give(isl_union_map_intersect_domain(Schedule.copy(), Domain.take()));
+  }
+
+  /// Get the schedule for the statement instances of @p Domain.
   IslPtr<isl_map> getScatterFor(IslPtr<isl_set> Domain) const {
     auto ResultSpace = give(isl_space_map_from_domain_and_range(
         isl_set_get_space(Domain.keep()), ScatterSpace.copy()));
-    auto UResult = give(isl_union_map_intersect_domain(
-        Schedule.copy(), isl_union_set_from_set(Domain.copy())));
+    auto UDomain = give(isl_union_set_from_set(Domain.copy()));
+    auto UResult = getScatterFor(std::move(UDomain));
     auto Result = singleton(std::move(UResult), std::move(ResultSpace));
     assert(isl_set_is_equal(give(isl_map_domain(Result.copy())).keep(),
                             Domain.keep()) == isl_bool_true);
@@ -2176,11 +2181,36 @@ private:
       Reads =
           give(isl_union_set_add_set(Reads.take(), getDomainFor(MA).take()));
 
-    // { DomainDef[] }
-    auto Writes = getDomainFor(ValueDefAccs.lookup(SAI));
+    // { DomainRead[] -> Scatter[] }
+    auto ReadSchedule = getScatterFor(Reads);
 
-    return computeScalarLifetime(Schedule, Writes, Reads, false, false, true,
-                                 false);
+    // { ScatterRead[] }
+    auto ReadScatters =
+        singleton(give(isl_union_map_range(ReadSchedule.take())), ScatterSpace);
+
+    auto *DefMA = ValueDefAccs.lookup(SAI);
+    assert(DefMA);
+
+    // { DomainDef[] }
+    auto Writes = getDomainFor(DefMA);
+
+    // { DomainDef[] -> Scatter[] }
+    auto WriteScatter = getScatterFor(Writes);
+
+    // { Scatter[] -> DomainDef[] }
+    auto ReachDef = getScalarReachingDefinition(DefMA->getStatement());
+
+    // { DomainDef[] -> Scatter[] }
+    auto UseScatter = give(isl_map_intersect_range(
+        isl_map_reverse(ReachDef.take()), ReadScatters.take()));
+
+    // { DomainDef[] -> Zone[] }
+    auto Lifetime = betweenScatter(WriteScatter, UseScatter, false, true);
+
+    return Lifetime;
+
+    // return computeScalarLifetime(Schedule, Writes, Reads, false, false, true,
+    // false);
   }
 
   /// For each 'execution' of a PHINode, get the incoming block that was
@@ -2261,9 +2291,8 @@ private:
     auto OrigDomain = getDomainFor(DefMA);
     auto MappedDomain = give(isl_map_domain(DefTarget.copy()));
     if (!isl_set_is_subset(OrigDomain.keep(), MappedDomain.keep())) {
-      DEBUG(
-          dbgs()
-          << "    Reject because mapping does not encompass all instances.\n");
+      DEBUG(dbgs()
+            << "    Reject because mapping does not encompass all instances\n");
       return false;
     }
 
@@ -2448,12 +2477,9 @@ private:
 
     auto OrigDomain = getDomainFor(PHIRead);
     auto MappedDomain = give(isl_map_domain(PHITarget.copy()));
-    // TODO: use expandMapping() as well? Are there any non-relevant PHIReads?
-    // Can we get a lifetime?
     if (!isl_set_is_subset(OrigDomain.keep(), MappedDomain.keep())) {
-      DEBUG(
-          dbgs()
-          << "    Reject because mapping does not encompass all instances.\n");
+      DEBUG(dbgs()
+            << "    Reject because mapping does not encompass all instances\n");
       return false;
     }
 
@@ -2480,7 +2506,7 @@ private:
     if (!isl_union_set_is_subset(UniverseWritesDom.keep(),
                                  ExpandedWritesDom.keep())) {
       DEBUG(dbgs() << "    Reject because did not find PHI write mapping for "
-                      "all instances.\n");
+                      "all instances\n");
       DEBUG(dbgs() << "      Relevant mapping:     " << RelevantWritesTarget
                    << '\n');
       DEBUG(dbgs() << "      Extrapolated mapping: " << ExpandedTargetWrites
