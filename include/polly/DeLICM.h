@@ -28,6 +28,9 @@ class Pass;
 namespace polly {
 class Scop;
 
+/// Create a new DeLICM pass instance.
+llvm::Pass *createDeLICMPass();
+
 /// Compute the reaching definition statement for each definition of an array
 /// element.
 ///
@@ -255,8 +258,6 @@ bool isConflicting(IslPtr<isl_union_map> ExistingLifetime,
                    IslPtr<isl_union_map> ProposedLifetime,
                    bool ProposedImplicitLifetimeIsUnknown,
                    IslPtr<isl_union_map> ProposedWrites);
-
-llvm::Pass *createDeLICMPass();
 } // namespace polly
 
 namespace llvm {

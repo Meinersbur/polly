@@ -111,17 +111,7 @@
 #include "polly/Options.h"
 #include "polly/ScopInfo.h"
 #include "polly/ScopPass.h"
-#include "polly/Support/GICHelper.h"
 #include "llvm/ADT/Statistic.h"
-#include "isl/aff.h"
-#include "isl/aff_type.h"
-#include "isl/map.h"
-#include "isl/options.h"
-#include "isl/printer.h"
-#include "isl/union_map.h"
-#include "isl/union_set.h"
-#include <algorithm>
-#include <tuple>
 #define DEBUG_TYPE "polly-delicm"
 
 using namespace polly;
@@ -775,11 +765,11 @@ IslPtr<isl_union_map> filterKnownValInst(NonowningIslPtr<isl_union_map> UMap) {
 ///
 /// There are two uses for the Knowledge class:
 /// 1) To represent the knowledge of the current state of ScopInfo. The Undef
-/// state means that an element is currently unused: there is no read of it
-/// before the next overwrite. Also called 'existing'.
+///    state means that an element is currently unused: there is no read of it
+///    before the next overwrite. Also called 'existing'.
 /// 2) To represent the requirements for mapping a scalar to array elements. The
-/// undef state means that there is no change/requirement. Also called
-/// 'proposed'.
+///    undef state means that there is no change/requirement. Also called
+///    'proposed'.
 ///
 /// In addition to the these states at unit zones, Knowledge need to know when
 /// values are written. This is because written values may have no lifetime (one
@@ -1086,540 +1076,85 @@ public:
     return false;
   }
 };
-} // anonymous namespace
 
 void Knowledge::dump() const { print(llvm::errs()); }
 
-IslPtr<isl_union_map>
-polly::computeReachingDefinition(IslPtr<isl_union_map> Schedule,
-                                 IslPtr<isl_union_map> Writes, bool InclDef,
-                                 bool InclRedef) {
-  // { Scatter[] }
-  auto ScatterSpace = getScatterSpace(Schedule);
-
-  // { Element[] -> ScatterWrite[] }
-  auto DefSched =
-      give(isl_union_map_apply_domain(Schedule.copy(), Writes.take()));
-
-  // { ScatterRead[] -> ScatterWrite[] }
-  auto Before = give(InclRedef ? isl_map_lex_gt(ScatterSpace.take())
-                               : isl_map_lex_ge(ScatterSpace.take()));
-
-  // { ScatterWrite[] -> [ScatterRead[] -> ScatterWrite[]] }
-  auto BeforeMap = give(isl_map_reverse(isl_map_range_map(Before.take())));
-
-  // { Element[] -> [ScatterUse[] -> ScatterWrite[]] }
-  auto DefSchedBefore =
-      give(isl_union_map_apply_domain(isl_union_map_from_map(BeforeMap.take()),
-                                      isl_union_map_reverse(DefSched.copy())));
-
-  // For each element, at every point in time, map to the times of previous
-  // definitions.
-  // { [Element[] -> ScatterRead[]] -> ScatterWrite[] }
-  auto ReachableDefs = give(isl_union_map_uncurry(DefSchedBefore.take()));
-  auto LastReachableDef = give(isl_union_map_lexmax(ReachableDefs.copy()));
-
-  // { [Element[] -> ScatterWrite[]] -> ScatterWrite[] }
-  auto SelfUse = give(isl_union_map_range_map(DefSched.take()));
-
-  if (InclDef && InclRedef) {
-    // Add the Def itself to the solution.
-    LastReachableDef =
-        give(isl_union_map_union(LastReachableDef.take(), SelfUse.take()));
-    LastReachableDef = give(isl_union_map_coalesce(LastReachableDef.take()));
-  } else if (!InclDef && !InclRedef) {
-    // Remove Def itself from the solution.
-    LastReachableDef =
-        give(isl_union_map_subtract(LastReachableDef.take(), SelfUse.take()));
-  }
-
-  // { [Element[] -> ScatterRead[]] -> Domain[] }
-  return give(isl_union_map_apply_range(
-      LastReachableDef.take(), isl_union_map_reverse(Schedule.take())));
-}
-
-IslPtr<isl_union_map>
-polly::computeArrayLifetime(IslPtr<isl_union_map> Schedule,
-                            IslPtr<isl_union_map> Writes,
-                            IslPtr<isl_union_map> Reads, bool ReadEltInSameInst,
-                            bool InclWrite, bool InclLastRead, bool ExitReads) {
-  IslPtr<isl_union_map> ExitRays;
-  if (ExitReads) {
-    // Add all writes that are never overwritten as rays.
-
-    // { Element[] }
-    auto WriteElements = give(isl_union_map_range(Writes.copy()));
-
-    // { DomainWrite[] -> Scatter[] }
-    auto WriteSched = give(isl_union_map_intersect_domain(
-        Schedule.copy(), isl_union_map_domain(Writes.copy())));
-
-    // { Element[] -> Scatter[] }
-    auto WriteActions = give(isl_union_map_apply_range(
-        isl_union_map_reverse(Writes.copy()), Schedule.copy()));
-    auto LastWrites = give(isl_union_map_lexmax(WriteActions.take()));
-
-    // { [Element[] -> Scatter[]] -> Zone[] }
-    auto AfterLastWrite = afterScatter(
-        give(isl_union_map_range_map(LastWrites.take())), !InclWrite);
-
-    // { [Element[] -> DomainWrite[]] -> Zone[] }
-    ExitRays = give(isl_union_map_apply_domain(
-        AfterLastWrite.take(),
-        isl_union_map_product(makeIdentityMap(WriteElements, false).take(),
-                              isl_union_map_reverse(WriteSched.take()))));
-  }
-
-  // { [Element[] -> DomainWrite[] -> Scatter[] }
-  auto Defs = give(isl_union_map_apply_range(
-      isl_union_map_range_map(isl_union_map_reverse(Writes.copy())),
-      Schedule.copy()));
-
-  // { [Element[] -> Zone[]] -> DomainWrite[] }
-  auto ReachDef = computeReachingDefinition(Schedule, Writes, ReadEltInSameInst,
-                                            !ReadEltInSameInst);
-
-  // { Element[] -> Scatter[] }
-  auto ReadActions =
-      give(isl_union_map_apply_domain(Schedule.take(), Reads.take()));
-
-  // { [Element[] -> Scatter[]] -> DomainWrite[] }
-  auto WhatIsItReading = give(isl_union_map_intersect_domain(
-      ReachDef.take(), isl_union_map_wrap(ReadActions.take())));
-
-  // { [Element[] -> DomainWrite[]] -> Scatter[] }
-  auto Uses = give(isl_union_map_reverse(
-      isl_union_map_curry(reverseDomain(WhatIsItReading).take())));
-
-  // { [Element[] -> DomainWrite[]] ->  Scatter[] }
-  auto Result = betweenScatter(Defs, Uses, InclWrite, InclLastRead);
-
-  if (ExitRays)
-    Result = give(isl_union_map_union(Result.take(), ExitRays.take()));
-
-  return Result;
-}
-
-IslPtr<isl_union_map>
-polly::computeReachingOverwrite(IslPtr<isl_union_map> Schedule,
-                                IslPtr<isl_union_map> Writes,
-                                bool InclPrevWrite, bool IncludeOverwrite) {
-  assert(isl_union_map_is_bijective(Schedule.keep()));
-
-  // { Scatter[] }
-  auto ScatterSpace = getScatterSpace(Schedule);
-
-  // { Element[] -> ScatterWrite[] }
-  auto WriteAction =
-      give(isl_union_map_apply_domain(Schedule.copy(), Writes.take()));
-
-  // { ScatterWrite[] -> Element[] }
-  auto WriteActionRev = give(isl_union_map_reverse(WriteAction.copy()));
-
-  // { ScatterRead[] -> ScatterWrite[] }
-  auto After = give(InclPrevWrite ? isl_map_lex_lt(ScatterSpace.take())
-                                  : isl_map_lex_le(ScatterSpace.take()));
-
-  // { ScatterWrite[] -> [ScatterRead[] -> ScatterWrite[]] }
-  auto BeforeMap = give(isl_map_reverse(isl_map_range_map(After.take())));
-
-  // { Element[] -> [ScatterRead[] -> ScatterWrite[]] }
-  auto DefSchedBefore = give(isl_union_map_apply_domain(
-      isl_union_map_from_map(BeforeMap.take()), WriteActionRev.take()));
-
-  // For each element, at every point in time, map to the times of previous
-  // definitions.
-  // { [Element[] -> ScatterRead[]] -> ScatterWrite[] }
-  auto ReachableDefs = give(isl_union_map_uncurry(DefSchedBefore.take()));
-  auto LastReachableDef = give(isl_union_map_lexmin(ReachableDefs.take()));
-
-  if (InclPrevWrite && IncludeOverwrite) {
-    // Add the def itself to the solution
-
-    // { [Element[] -> ScatterWrite[]] -> ScatterWrite[] }
-    auto SelfUse = give(isl_union_map_range_map(WriteAction.take()));
-    LastReachableDef =
-        give(isl_union_map_union(LastReachableDef.take(), SelfUse.take()));
-    LastReachableDef = give(isl_union_map_coalesce(LastReachableDef.take()));
-  } else if (!InclPrevWrite && !IncludeOverwrite) {
-    // Remove def itself from the solution
-
-    // { [Element[] -> ScatterWrite[]] -> ScatterWrite[] }
-    auto SelfUse = give(isl_union_map_range_map(WriteAction.take()));
-    LastReachableDef =
-        give(isl_union_map_subtract(LastReachableDef.take(), SelfUse.take()));
-  }
-
-  // { [Element[] -> ScatterRead[]] -> Domain[] }
-  auto LastReachableDefDomain = give(isl_union_map_apply_range(
-      LastReachableDef.take(), isl_union_map_reverse(Schedule.take())));
-
-  return LastReachableDefDomain;
-}
-
-IslPtr<isl_union_map> polly::computeArrayUnused(IslPtr<isl_union_map> Schedule,
-                                                IslPtr<isl_union_map> Writes,
-                                                IslPtr<isl_union_map> Reads,
-                                                bool ReadEltInSameInst,
-                                                bool IncludeLastRead,
-                                                bool IncludeWrite) {
-
-  // { Element[] -> Scatter[] }
-  auto ReadActions =
-      give(isl_union_map_apply_domain(Schedule.copy(), Reads.take()));
-  auto WriteActions =
-      give(isl_union_map_apply_domain(Schedule.copy(), Writes.copy()));
-
-  // { [Element[] -> Scatter[] }
-  auto AfterReads = afterScatter(ReadActions, ReadEltInSameInst);
-  auto WritesBeforeAnyReads =
-      give(isl_union_map_subtract(WriteActions.take(), AfterReads.take()));
-  auto BeforeWritesBeforeAnyReads =
-      beforeScatter(WritesBeforeAnyReads, !IncludeWrite);
-
-  // { [Element[] -> DomainWrite[]] -> Scatter[] }
-  auto EltDomWrites = give(isl_union_map_apply_range(
-      isl_union_map_range_map(isl_union_map_reverse(Writes.copy())),
-      Schedule.copy()));
-
-  // { [Element[] -> Scatter[]] -> DomainWrite[] }
-  auto ReachingOverwrite = computeReachingOverwrite(
-      Schedule, Writes, ReadEltInSameInst, !ReadEltInSameInst);
-
-  // { [Element[] -> Scatter[]] -> DomainWrite[] }
-  auto ReadsOverwritten = give(isl_union_map_intersect_domain(
-      ReachingOverwrite.take(), isl_union_map_wrap(ReadActions.take())));
-
-  // { [Element[] -> DomainWrite[]] -> Scatter[] }
-  auto ReadsOverwrittenRotated = give(isl_union_map_reverse(
-      isl_union_map_curry(reverseDomain(ReadsOverwritten).take())));
-  auto LastOverwrittenRead =
-      give(isl_union_map_lexmax(ReadsOverwrittenRotated.take()));
-
-  // { [Element[] -> DomainWrite[]] -> Scatter[] }
-  auto BetweenLastReadOverwrite = betweenScatter(
-      LastOverwrittenRead, EltDomWrites, IncludeLastRead, IncludeWrite);
-
-  return give(isl_union_map_union(
-      BeforeWritesBeforeAnyReads.take(),
-      isl_union_map_domain_factor_domain(BetweenLastReadOverwrite.take())));
-}
-
-bool polly::isConflicting(IslPtr<isl_union_map> ExistingLifetime,
-                          bool ExistingImplicitLifetimeIsUnknown,
-                          IslPtr<isl_union_map> ExistingWritten,
-                          IslPtr<isl_union_map> ProposedLifetime,
-                          bool ProposedImplicitLifetimeIsUnknown,
-                          IslPtr<isl_union_map> ProposedWritten) {
-  Knowledge Existing(std::move(ExistingLifetime),
-                     ExistingImplicitLifetimeIsUnknown,
-                     std::move(ExistingWritten));
-  Knowledge Proposed(std::move(ProposedLifetime),
-                     ProposedImplicitLifetimeIsUnknown,
-                     std::move(ProposedWritten));
-
-  return Knowledge::isConflicting(Existing, Proposed);
-}
-
-namespace {
-
 /// Base class for algorithms based on zones, like DeLICM.
 class ZoneAlgorithm {
+private:
+  /// Cached reaching definitions for each ScopStmt.
+  ///
+  /// Use getScalarReachingDefinition() to get its contents.
+  DenseMap<ScopStmt *, IslPtr<isl_map>> ScalarReachDefZone;
+
 protected:
-  Scop *S;
+  /// The isl_ctx used for all computations.
   isl_ctx *IslCtx;
 
-  IslPtr<isl_union_map> Schedule;
+  /// The analyzed Scop.
+  Scop *S;
+
+  /// Parameter space that does not need realignment.
   IslPtr<isl_space> ParamSpace;
+
+  /// Space the schedule maps to.
   IslPtr<isl_space> ScatterSpace;
 
+  /// Cached version of the schedule and domains.
+  IslPtr<isl_union_map> Schedule;
+
+  /// As many isl_union_maps are initialized empty, this can be used to increase
+  /// only a reference a counter, instead of creating an entirely new
+  /// isl_union_map.
   IslPtr<isl_union_map> EmptyUnionMap;
+
+  /// As many isl_union_sets are initialized empty, this can be used to increase
+  /// only a reference a counter, instead of creating an entirely new
+  /// isl_union_set.
   IslPtr<isl_union_set> EmptyUnionSet;
+
+  /// Set of all referenced elements.
+  /// { Element[] -> Element[] }
+  IslPtr<isl_union_set> AllElements;
+
+  /// Combined access relations of all MK_Array READ accesses.
+  /// { DomainRead[] -> Element[] }
+  IslPtr<isl_union_map> AllReads;
+
+  /// Combined access relations of all MK_Array, MAY_WRITE accesses.
+  /// { DomainMayWrite[] -> Element[] }
+  IslPtr<isl_union_map> AllMayWrites;
+
+  /// Combined access relations of all MK_Array, MUST_WRITE accesses.
+  /// { DomainMustWrite[] -> Element[] }
+  IslPtr<isl_union_map> AllMustWrites;
+
+  ///  Combined access relations of all MK_Array write accesses (union of
+  ///  AllMayWrites and AllMustWrites).
+  /// { DomainWrite[] -> Element[] }
+  IslPtr<isl_union_map> AllWrites;
+
+  /// The value instances written to array elements of all write accesses.
+  /// { [Element[] -> DomainWrite[]] -> ValInst[] }
+  IslPtr<isl_union_map> AllWriteValInst;
+
+  /// All reaching definitions for MK_Array writes.
+  /// { [Element[] -> Zone[]] -> DomainWrite[] }
+  IslPtr<isl_union_map> WriteReachDefZone;
 
   /// Prepare the object before computing the zones of @p S.
   ZoneAlgorithm(Scop *S)
-      : S(S), IslCtx(S->getIslCtx()), Schedule(give(S->getSchedule())),
-        ParamSpace(give(isl_union_map_get_space(Schedule.keep()))) {
+      : IslCtx(S->getIslCtx()), S(S), Schedule(give(S->getSchedule())) {
 
     auto Domains = give(S->getDomains());
-    ParamSpace = give(isl_space_align_params(
-        ParamSpace.take(), isl_union_set_get_space(Domains.keep())));
+
     Schedule =
         give(isl_union_map_intersect_domain(Schedule.take(), Domains.take()));
+    ParamSpace = give(isl_union_map_get_space(Schedule.keep()));
     ScatterSpace = getScatterSpace(Schedule);
 
     EmptyUnionMap = give(isl_union_map_empty(ParamSpace.copy()));
     EmptyUnionSet = give(isl_union_set_empty(ParamSpace.copy()));
-  }
-
-  /// Create an isl_id that means 'don't know the value'.
-  IslPtr<isl_id> makeUnknownId() const { return nullptr; }
-
-  /// Create an isl_space for unknown values.
-  IslPtr<isl_space> makeUnknownSpace() const {
-    return give(isl_space_set_from_params(ParamSpace.copy()));
-  }
-
-  /// Create a set with an unknown value in it.
-  IslPtr<isl_set> makeUnknownSet() const {
-    auto Space = makeUnknownSpace();
-    return give(isl_set_universe(Space.take()));
-  }
-
-  /// Create a union set with an unknown value in it.
-  IslPtr<isl_union_set> makeUnknownUSet() const {
-    return give(isl_union_set_from_set(makeUnknownSet().take()));
-  }
-
-  /// Create a domain-to-unknown value mapping.
-  ///
-  /// @param Domain { Domain[] }
-  ///
-  /// @return { Domain[] -> ValInst[] }
-  IslPtr<isl_map> makeUnknownForDomain(IslPtr<isl_set> Domain) const {
-    return give(isl_map_from_domain(Domain.take()));
-  }
-
-  /// Create a statement-to-unknown value mapping.
-  ///
-  /// @param Stmt The statement whose instances are mapped to unknown.
-  ///
-  /// @return { Domain[] -> ValInst[] }
-  IslPtr<isl_map> makeUnknownForDomain(ScopStmt *Stmt) const {
-    return give(isl_map_from_domain(getDomainFor(Stmt).take()));
-  }
-
-  /// Create a domain-to-unknown value mapping.
-  ///
-  /// @param Domain { Domain[] }
-  ///
-  /// @return { Domain[] -> ValInst[] }
-  IslPtr<isl_union_map>
-  makeUnknownForDomain(IslPtr<isl_union_set> Domain) const {
-    return give(isl_union_map_from_domain(Domain.take()));
-  }
-
-  /// Create an isl_id that represents 'unused storage'.
-  IslPtr<isl_id> makeUndefId() const {
-    auto &LLVMContext = S->getFunction().getContext();
-    auto Ty = IntegerType::get(LLVMContext, 1);
-    auto Val = UndefValue::get(Ty);
-    return give(isl_id_alloc(IslCtx, "Undef", Val));
-  }
-
-  /// Create an isl_space for an undefined value.
-  IslPtr<isl_space> makeUndefSpace() const {
-    auto Result = give(isl_space_set_from_params(ParamSpace.copy()));
-    return give(isl_space_set_tuple_id(Result.take(), isl_dim_set,
-                                       makeUndefId().take()));
-  }
-
-  /// Create a set with an undefined value in it.
-  IslPtr<isl_set> makeUndefSet() const {
-    auto Space = makeUndefSpace();
-    return give(isl_set_universe(Space.take()));
-  }
-
-  /// Create a union set with an undefined value in it.
-  IslPtr<isl_union_set> makeUndefUSet() const {
-    return give(isl_union_set_from_set(makeUndefSet().take()));
-  }
-
-  /// Create an isl_id that represents @p V.
-  IslPtr<isl_id> makeValueId(Value *V) const {
-    if (!V)
-      return makeUnknownId();
-    if (isa<UndefValue>(V))
-      return makeUndefId();
-
-    auto Name = getIslCompatibleName("Val_", V, std::string());
-    return give(isl_id_alloc(IslCtx, Name.c_str(), V));
-  }
-
-  /// Create the space for an llvm::Value that is available everywhere.
-  IslPtr<isl_space> makeValueSpace(Value *V) const {
-    auto Result = give(isl_space_set_from_params(ParamSpace.copy()));
-    return give(isl_space_set_tuple_id(Result.take(), isl_dim_set,
-                                       makeValueId(V).take()));
-  }
-
-  /// Create a set with the llvm::Value @p V which is available everywhere.
-  IslPtr<isl_set> makeValueSet(Value *V) const {
-    auto Space = makeValueSpace(V);
-    return give(isl_set_universe(Space.take()));
-  }
-
-  // { UserDomain[] -> ValInst[] }
-  IslPtr<isl_map> makeValInst(Value *Val, ScopStmt *UserStmt,
-                              bool IsCertain = true) {
-    return makeValInst(Val, nullptr, UserStmt, getDomainFor(UserStmt),
-                       IsCertain);
-  }
-
-private:
-  /// Cached reaching definitions for each ScopStmt.
-  DenseMap<ScopStmt *, IslPtr<isl_map>> ScalarReachDefZone;
-
-protected:
-  /// Get the reaching definition of a scalar defined in @p Stmt.
-  ///
-  /// Note that this does not depend on the llvm::Instruction, only on the
-  /// statement it is defined in. Therefore the same computation can be reused.
-  ///
-  /// @param Stmt The statement in which a scalar is defined.
-  ///
-  /// @return { Scatter[] -> DomainDef[] }
-  IslPtr<isl_map> getScalarReachingDefinition(ScopStmt *Stmt) {
-    auto &Result = ScalarReachDefZone[Stmt];
-    if (Result)
-      return Result;
-
-    auto Domain = getDomainFor(Stmt);
-    Result = computeScalarReachingDefinition(Schedule, Domain, false, true);
-    simplify(Result);
-
-    assert(Result);
-    return Result;
-  }
-
-  /// Get the reaching definition of a scalar defined in @p DefDomain.
-  ///
-  /// @param DomainDef { DomainDef[] }
-  ///              The write statements to get the reaching definition for.
-  ///
-  /// @return { Scatter[] -> DomainDef[] }
-  IslPtr<isl_map> getScalarReachingDefinition(IslPtr<isl_set> DomainDef) {
-    auto DomId = give(isl_set_get_tuple_id(DomainDef.keep()));
-    auto *Stmt = static_cast<ScopStmt *>(isl_id_get_user(DomId.keep()));
-
-    auto StmtResult = getScalarReachingDefinition(Stmt);
-
-    return give(isl_map_intersect_range(StmtResult.take(), DomainDef.take()));
-  }
-
-protected:
-  /// Create a mapping from a statement instance to the instance of an
-  /// llvm::Value that can be used in there.
-  ///
-  /// Although LLVM IR used single static assignment, llvm::Values can have
-  /// different contents in loops, when they get redefined in the last
-  /// iteration. This function tries to get the statement instance of the
-  /// previous definition, relative to a user.
-  ///
-  /// Example:
-  /// for (int i = 0; i < N; i += 1) {
-  /// DEF:
-  ///    int v = A[i];
-  /// USE:
-  ///    use(v);
-  ///  }
-  ///
-  /// The value instance used by statement instance USE[i] is DEF[i]. Hence,
-  /// makeValInst would return
-  /// { USE[i] -> DEF[i] : 0 <= i < N }
-  ///
-  ///
-  /// @param V           The value to look get the instance of.
-  /// @param DomainDef  { DomainDef[] }
-  ///                   The domain of the statement that defines @p V. If
-  ///                   nullptr, will be derived automatically. If defined, the
-  ///                   domain gets precedence over trying to use the
-  ///                   llvm::Value instance from the same statement.
-  /// @param UseStmt    The statement that uses @p V. Can be nullptr.
-  /// @param DomainUse  { DomainUse[] }
-  ///                   The domain of @p UseStmt.
-  /// @param IsCertain  Pass true if the definition of @p V is a MUST_WRITE or
-  /// false if the write is conditional.
-  ///
-  /// @return { DomainUse[] -> ValInst[] }
-  IslPtr<isl_map> makeValInst(Value *V, IslPtr<isl_set> DomainDef,
-                              ScopStmt *UseStmt, IslPtr<isl_set> DomainUse,
-                              bool IsCertain = true) {
-    assert(DomainUse && "Must pass a user domain");
-
-    // If the definition/write is conditional, the previous write may "shine
-    // through" on conditions we cannot determine. Again, return the unknown
-    // value.
-    if (!IsCertain)
-      return give(isl_map_from_domain(DomainUse.take()));
-
-    if (V && !isa<Instruction>(V)) {
-      // Non-instructions are available anywhere.
-      auto ValSet = makeValueSet(V);
-      return give(
-          isl_map_from_domain_and_range(DomainUse.take(), ValSet.take()));
-    }
-
-    // Normalize
-    // FIXME: It doesn't really work well if the LCSSA %phi is intra-stmt, but
-    // the incoming value is extra-phi.
-    // TODO: In a SCoP, we should be able to determine the predecessor for
-    // _every_ PHI.
-    auto *NormV = deLCSSA(V);
-
-    // If the definition is in the using Stmt itself, use DomainUse[] for the
-    // Value's instance.
-    // Note that the non-isIntraStmtUse assumes extra-Stmt use, ie. a use would
-    // use the definition from a previous instance.
-    if (!DomainDef && UseStmt && V && !isXtraStmtUse(V, UseStmt)) {
-      // Even if V is within UseStmt, NormV might be somewhere else; return
-      // unknown to avoid problems.
-      if (V != NormV)
-        return makeUnknownForDomain(DomainUse);
-
-      // { llvm::Value }
-      auto ValSet = makeValueSet(NormV);
-
-      // {  UserDomain[] -> llvm::Value }
-      auto ValInstSet =
-          give(isl_map_from_domain_and_range(DomainUse.take(), ValSet.take()));
-
-      // { UserDomain[] -> [UserDomain[] - >llvm::Value] }
-      auto Result =
-          give(isl_map_reverse(isl_map_domain_map(ValInstSet.take())));
-      simplify(Result);
-      return Result;
-    }
-
-    // Try to derive DomainDef if not explicitly specified.
-    if (!DomainDef) {
-      auto *Inst = cast<Instruction>(NormV);
-      auto *ValStmt = S->getStmtFor(Inst);
-
-      // It is possible that the llvm::Value is in a removed Stmt, in which case
-      // we cannot derive its domain.
-      if (ValStmt)
-        DomainDef = getDomainFor(ValStmt);
-    }
-
-    if (DomainDef) {
-      // { Scatter[] -> DefDomain[] }
-      auto ReachDef = getScalarReachingDefinition(DomainDef);
-
-      // { DomainUse[] -> Scatter[] }
-      auto UserSched = getScatterFor(DomainUse);
-
-      // { DomainUse[] -> DomainDef[] }
-      auto UsedInstance =
-          give(isl_map_apply_range(UserSched.take(), ReachDef.take()));
-
-      // { llvm::Value }
-      auto ValSet = makeValueSet(NormV);
-
-      // { DomainUse[] -> llvm::Value }
-      auto ValInstSet =
-          give(isl_map_from_domain_and_range(DomainUse.take(), ValSet.take()));
-
-      // { DomainUse[] -> [DomainDef[] -> llvm::Value]  }
-      auto Result =
-          give(isl_map_range_product(UsedInstance.take(), ValInstSet.take()));
-      simplify(Result);
-      return Result;
-    }
-
-    // If neither the value not the user if given, we cannot determine the
-    // reaching definition; return value is unknown.
-    return makeUnknownForDomain(DomainUse);
   }
 
 private:
@@ -1747,37 +1282,6 @@ private:
     return true;
   }
 
-protected:
-  /// Set of all referenced elements.
-  /// { Element[] -> Element[] }
-  IslPtr<isl_union_set> AllElements;
-
-  /// Combined access relations of all MK_Array READ accesses.
-  /// { DomainRead[] -> Element[] }
-  IslPtr<isl_union_map> AllReads;
-
-  /// Combined access relations of all MK_Array, MAY_WRITE accesses.
-  /// { DomainMayWrite[] -> Element[] }
-  IslPtr<isl_union_map> AllMayWrites;
-
-  /// Combined access relations of all MK_Array, MUST_WRITE accesses.
-  /// { DomainMustWrite[] -> Element[] }
-  IslPtr<isl_union_map> AllMustWrites;
-
-  ///  Combined access relations of all MK_Array write accesses (union of
-  ///  AllMayWrites and AllMustWrites).
-  /// { DomainWrite[] -> Element[] }
-  IslPtr<isl_union_map> AllWrites;
-
-  /// The value instances written to array elements of all write accesses.
-  /// { [Element[] -> DomainWrite[]] -> ValInst[] }
-  IslPtr<isl_union_map> AllWriteValInst;
-
-  /// All reaching definitions for MK_Array writes.
-  /// { [Element[] -> Zone[]] -> DomainWrite[] }
-  IslPtr<isl_union_map> WriteReachDefZone;
-
-private:
   void addArrayReadAccess(MemoryAccess *MA) {
     assert(MA->isLatestArrayKind());
     assert(MA->isRead());
@@ -1836,6 +1340,320 @@ private:
   }
 
 protected:
+  /// Get the schedule for @p Stmt.
+  ///
+  /// The domain of the result will as narrow as possible.
+  IslPtr<isl_map> getScatterFor(ScopStmt *Stmt) const {
+    auto ResultSpace = give(isl_space_map_from_domain_and_range(
+        Stmt->getDomainSpace(), ScatterSpace.copy()));
+    return give(isl_union_map_extract_map(Schedule.keep(), ResultSpace.take()));
+  }
+
+  /// Get the schedule of @p MA's parent statement.
+  IslPtr<isl_map> getScatterFor(MemoryAccess *MA) const {
+    return getScatterFor(MA->getStatement());
+  }
+
+  /// Get the schedule for the statement instances of @p Domain.
+  IslPtr<isl_union_map> getScatterFor(IslPtr<isl_union_set> Domain) const {
+    return give(isl_union_map_intersect_domain(Schedule.copy(), Domain.take()));
+  }
+
+  /// Get the schedule for the statement instances of @p Domain.
+  IslPtr<isl_map> getScatterFor(IslPtr<isl_set> Domain) const {
+    auto ResultSpace = give(isl_space_map_from_domain_and_range(
+        isl_set_get_space(Domain.keep()), ScatterSpace.copy()));
+    auto UDomain = give(isl_union_set_from_set(Domain.copy()));
+    auto UResult = getScatterFor(std::move(UDomain));
+    auto Result = singleton(std::move(UResult), std::move(ResultSpace));
+    assert(isl_set_is_equal(give(isl_map_domain(Result.copy())).keep(),
+                            Domain.keep()) == isl_bool_true);
+    return Result;
+  }
+
+  /// Get the domain of @p Stmt.
+  IslPtr<isl_set> getDomainFor(ScopStmt *Stmt) const {
+    return give(Stmt->getDomain());
+  }
+
+  /// Get the domain @p MA's parent statement.
+  IslPtr<isl_set> getDomainFor(MemoryAccess *MA) const {
+    return getDomainFor(MA->getStatement());
+  }
+
+  /// get the access relation of @p MA.
+  ///
+  /// The domain of the result will as narrow as possible.
+  IslPtr<isl_map> getAccessRelationFor(MemoryAccess *MA) const {
+    auto Domain = getDomainFor(MA);
+    auto AccRel = give(MA->getLatestAccessRelation());
+    return give(isl_map_intersect_domain(AccRel.take(), Domain.take()));
+  }
+
+  /// Get the reaching definition of a scalar defined in @p Stmt.
+  ///
+  /// Note that this does not depend on the llvm::Instruction, only on the
+  /// statement it is defined in. Therefore the same computation can be reused.
+  ///
+  /// @param Stmt The statement in which a scalar is defined.
+  ///
+  /// @return { Scatter[] -> DomainDef[] }
+  IslPtr<isl_map> getScalarReachingDefinition(ScopStmt *Stmt) {
+    auto &Result = ScalarReachDefZone[Stmt];
+    if (Result)
+      return Result;
+
+    auto Domain = getDomainFor(Stmt);
+    Result = computeScalarReachingDefinition(Schedule, Domain, false, true);
+    simplify(Result);
+
+    assert(Result);
+    return Result;
+  }
+
+  /// Get the reaching definition of a scalar defined in @p DefDomain.
+  ///
+  /// @param DomainDef { DomainDef[] }
+  ///              The write statements to get the reaching definition for.
+  ///
+  /// @return { Scatter[] -> DomainDef[] }
+  IslPtr<isl_map> getScalarReachingDefinition(IslPtr<isl_set> DomainDef) {
+    auto DomId = give(isl_set_get_tuple_id(DomainDef.keep()));
+    auto *Stmt = static_cast<ScopStmt *>(isl_id_get_user(DomId.keep()));
+
+    auto StmtResult = getScalarReachingDefinition(Stmt);
+
+    return give(isl_map_intersect_range(StmtResult.take(), DomainDef.take()));
+  }
+
+  /// Create an isl_id that means 'don't know the value'.
+  IslPtr<isl_id> makeUnknownId() const { return nullptr; }
+
+  /// Create an isl_space for unknown values.
+  IslPtr<isl_space> makeUnknownSpace() const {
+    return give(isl_space_set_from_params(ParamSpace.copy()));
+  }
+
+  /// Create a set with an unknown value in it.
+  IslPtr<isl_set> makeUnknownSet() const {
+    auto Space = makeUnknownSpace();
+    return give(isl_set_universe(Space.take()));
+  }
+
+  /// Create a union set with an unknown value in it.
+  IslPtr<isl_union_set> makeUnknownUSet() const {
+    return give(isl_union_set_from_set(makeUnknownSet().take()));
+  }
+
+  /// Create a domain-to-unknown value mapping.
+  ///
+  /// @param Domain { Domain[] }
+  ///
+  /// @return { Domain[] -> ValInst[] }
+  IslPtr<isl_map> makeUnknownForDomain(IslPtr<isl_set> Domain) const {
+    return give(isl_map_from_domain(Domain.take()));
+  }
+
+  /// Create a statement-to-unknown value mapping.
+  ///
+  /// @param Stmt The statement whose instances are mapped to unknown.
+  ///
+  /// @return { Domain[] -> ValInst[] }
+  IslPtr<isl_map> makeUnknownForDomain(ScopStmt *Stmt) const {
+    return give(isl_map_from_domain(getDomainFor(Stmt).take()));
+  }
+
+  /// Create a domain-to-unknown value mapping.
+  ///
+  /// @param Domain { Domain[] }
+  ///
+  /// @return { Domain[] -> ValInst[] }
+  IslPtr<isl_union_map>
+  makeUnknownForDomain(IslPtr<isl_union_set> Domain) const {
+    return give(isl_union_map_from_domain(Domain.take()));
+  }
+
+  /// Create an isl_id that represents 'unused storage'.
+  IslPtr<isl_id> makeUndefId() const {
+    auto &LLVMContext = S->getFunction().getContext();
+    auto Ty = IntegerType::get(LLVMContext, 1);
+    auto Val = UndefValue::get(Ty);
+    return give(isl_id_alloc(IslCtx, "Undef", Val));
+  }
+
+  /// Create an isl_space for an undefined value.
+  IslPtr<isl_space> makeUndefSpace() const {
+    auto Result = give(isl_space_set_from_params(ParamSpace.copy()));
+    return give(isl_space_set_tuple_id(Result.take(), isl_dim_set,
+                                       makeUndefId().take()));
+  }
+
+  /// Create a set with an undefined value in it.
+  IslPtr<isl_set> makeUndefSet() const {
+    auto Space = makeUndefSpace();
+    return give(isl_set_universe(Space.take()));
+  }
+
+  /// Create a union set with an undefined value in it.
+  IslPtr<isl_union_set> makeUndefUSet() const {
+    return give(isl_union_set_from_set(makeUndefSet().take()));
+  }
+
+  /// Create an isl_id that represents @p V.
+  IslPtr<isl_id> makeValueId(Value *V) const {
+    if (!V)
+      return makeUnknownId();
+    if (isa<UndefValue>(V))
+      return makeUndefId();
+
+    auto Name = getIslCompatibleName("Val_", V, std::string());
+    return give(isl_id_alloc(IslCtx, Name.c_str(), V));
+  }
+
+  /// Create the space for an llvm::Value that is available everywhere.
+  IslPtr<isl_space> makeValueSpace(Value *V) const {
+    auto Result = give(isl_space_set_from_params(ParamSpace.copy()));
+    return give(isl_space_set_tuple_id(Result.take(), isl_dim_set,
+                                       makeValueId(V).take()));
+  }
+
+  /// Create a set with the llvm::Value @p V which is available everywhere.
+  IslPtr<isl_set> makeValueSet(Value *V) const {
+    auto Space = makeValueSpace(V);
+    return give(isl_set_universe(Space.take()));
+  }
+
+  // { UserDomain[] -> ValInst[] }
+  IslPtr<isl_map> makeValInst(Value *Val, ScopStmt *UserStmt,
+                              bool IsCertain = true) {
+    return makeValInst(Val, nullptr, UserStmt, getDomainFor(UserStmt),
+                       IsCertain);
+  }
+
+  /// Create a mapping from a statement instance to the instance of an
+  /// llvm::Value that can be used in there.
+  ///
+  /// Although LLVM IR used single static assignment, llvm::Values can have
+  /// different contents in loops, when they get redefined in the last
+  /// iteration. This function tries to get the statement instance of the
+  /// previous definition, relative to a user.
+  ///
+  /// Example:
+  /// for (int i = 0; i < N; i += 1) {
+  /// DEF:
+  ///    int v = A[i];
+  /// USE:
+  ///    use(v);
+  ///  }
+  ///
+  /// The value instance used by statement instance USE[i] is DEF[i]. Hence,
+  /// makeValInst would return
+  /// { USE[i] -> DEF[i] : 0 <= i < N }
+  ///
+  ///
+  /// @param V           The value to look get the instance of.
+  /// @param DomainDef  { DomainDef[] }
+  ///                   The domain of the statement that defines @p V. If
+  ///                   nullptr, will be derived automatically. If defined, the
+  ///                   domain gets precedence over trying to use the
+  ///                   llvm::Value instance from the same statement.
+  /// @param UseStmt    The statement that uses @p V. Can be nullptr.
+  /// @param DomainUse  { DomainUse[] }
+  ///                   The domain of @p UseStmt.
+  /// @param IsCertain  Pass true if the definition of @p V is a MUST_WRITE or
+  /// false if the write is conditional.
+  ///
+  /// @return { DomainUse[] -> ValInst[] }
+  IslPtr<isl_map> makeValInst(Value *V, IslPtr<isl_set> DomainDef,
+                              ScopStmt *UseStmt, IslPtr<isl_set> DomainUse,
+                              bool IsCertain = true) {
+    assert(DomainUse && "Must pass a user domain");
+
+    // If the definition/write is conditional, the previous write may "shine
+    // through" on conditions we cannot determine. Again, return the unknown
+    // value.
+    if (!IsCertain)
+      return give(isl_map_from_domain(DomainUse.take()));
+
+    if (V && !isa<Instruction>(V)) {
+      // Non-instructions are available anywhere.
+      auto ValSet = makeValueSet(V);
+      return give(
+          isl_map_from_domain_and_range(DomainUse.take(), ValSet.take()));
+    }
+
+    // Normalize
+    // FIXME: It doesn't really work well if the LCSSA %phi is intra-stmt, but
+    // the incoming value is extra-phi.
+    // TODO: In a SCoP, we should be able to determine the predecessor for
+    // _every_ PHI.
+    auto *NormV = deLCSSA(V);
+
+    // If the definition is in the using Stmt itself, use DomainUse[] for the
+    // Value's instance.
+    // Note that the non-isIntraStmtUse assumes extra-Stmt use, ie. a use would
+    // use the definition from a previous instance.
+    if (!DomainDef && UseStmt && V && !isXtraStmtUse(V, UseStmt)) {
+      // Even if V is within UseStmt, NormV might be somewhere else; return
+      // unknown to avoid problems.
+      if (V != NormV)
+        return makeUnknownForDomain(DomainUse);
+
+      // { llvm::Value }
+      auto ValSet = makeValueSet(NormV);
+
+      // {  UserDomain[] -> llvm::Value }
+      auto ValInstSet =
+          give(isl_map_from_domain_and_range(DomainUse.take(), ValSet.take()));
+
+      // { UserDomain[] -> [UserDomain[] - >llvm::Value] }
+      auto Result =
+          give(isl_map_reverse(isl_map_domain_map(ValInstSet.take())));
+      simplify(Result);
+      return Result;
+    }
+
+    // Try to derive DomainDef if not explicitly specified.
+    if (!DomainDef) {
+      auto *Inst = cast<Instruction>(NormV);
+      auto *ValStmt = S->getStmtFor(Inst);
+
+      // It is possible that the llvm::Value is in a removed Stmt, in which case
+      // we cannot derive its domain.
+      if (ValStmt)
+        DomainDef = getDomainFor(ValStmt);
+    }
+
+    if (DomainDef) {
+      // { Scatter[] -> DefDomain[] }
+      auto ReachDef = getScalarReachingDefinition(DomainDef);
+
+      // { DomainUse[] -> Scatter[] }
+      auto UserSched = getScatterFor(DomainUse);
+
+      // { DomainUse[] -> DomainDef[] }
+      auto UsedInstance =
+          give(isl_map_apply_range(UserSched.take(), ReachDef.take()));
+
+      // { llvm::Value }
+      auto ValSet = makeValueSet(NormV);
+
+      // { DomainUse[] -> llvm::Value }
+      auto ValInstSet =
+          give(isl_map_from_domain_and_range(DomainUse.take(), ValSet.take()));
+
+      // { DomainUse[] -> [DomainDef[] -> llvm::Value]  }
+      auto Result =
+          give(isl_map_range_product(UsedInstance.take(), ValInstSet.take()));
+      simplify(Result);
+      return Result;
+    }
+
+    // If neither the value not the user if given, we cannot determine the
+    // reaching definition; return value is unknown.
+    return makeUnknownForDomain(DomainUse);
+  }
+
   /// Compute the different zones.
   ///
   /// @return true iff the computed zones accurately describe the SCoP.
@@ -1892,57 +1710,6 @@ protected:
     simplify(WriteReachDefZone);
 
     return true;
-  }
-
-protected:
-  /// Get the schedule for @p Stmt.
-  ///
-  /// The domain of the result will as narrow as possible.
-  IslPtr<isl_map> getScatterFor(ScopStmt *Stmt) const {
-    auto ResultSpace = give(isl_space_map_from_domain_and_range(
-        Stmt->getDomainSpace(), ScatterSpace.copy()));
-    return give(isl_union_map_extract_map(Schedule.keep(), ResultSpace.take()));
-  }
-
-  /// Get the schedule of @p MA's parent statement.
-  IslPtr<isl_map> getScatterFor(MemoryAccess *MA) const {
-    return getScatterFor(MA->getStatement());
-  }
-
-  /// Get the schedule for the statement instances of @p Domain.
-  IslPtr<isl_union_map> getScatterFor(IslPtr<isl_union_set> Domain) const {
-    return give(isl_union_map_intersect_domain(Schedule.copy(), Domain.take()));
-  }
-
-  /// Get the schedule for the statement instances of @p Domain.
-  IslPtr<isl_map> getScatterFor(IslPtr<isl_set> Domain) const {
-    auto ResultSpace = give(isl_space_map_from_domain_and_range(
-        isl_set_get_space(Domain.keep()), ScatterSpace.copy()));
-    auto UDomain = give(isl_union_set_from_set(Domain.copy()));
-    auto UResult = getScatterFor(std::move(UDomain));
-    auto Result = singleton(std::move(UResult), std::move(ResultSpace));
-    assert(isl_set_is_equal(give(isl_map_domain(Result.copy())).keep(),
-                            Domain.keep()) == isl_bool_true);
-    return Result;
-  }
-
-  /// Get the domain of @p Stmt.
-  IslPtr<isl_set> getDomainFor(ScopStmt *Stmt) const {
-    return give(Stmt->getDomain());
-  }
-
-  /// Get the domain @p MA's parent statement.
-  IslPtr<isl_set> getDomainFor(MemoryAccess *MA) const {
-    return getDomainFor(MA->getStatement());
-  }
-
-  /// get the access relation of @p MA.
-  ///
-  /// The domain of the result will as narrow as possible.
-  IslPtr<isl_map> getAccessRelationFor(MemoryAccess *MA) const {
-    auto Domain = getDomainFor(MA);
-    auto AccRel = give(MA->getLatestAccessRelation());
-    return give(isl_map_intersect_domain(AccRel.take(), Domain.take()));
   }
 
 public:
@@ -2615,7 +2382,7 @@ private:
 
       auto MASize = DL.getTypeAllocSize(MA->getAccessValue()->getType());
       if (MASize > StoreSize) {
-        DEBUG(dbgs() << "    Reject because storage size is insufficient.\n");
+        DEBUG(dbgs() << "    Reject because storage size is insufficient\n");
         continue;
       }
 
@@ -2881,6 +2648,7 @@ public:
     AU.addRequiredTransitive<ScopInfoRegionPass>();
     AU.setPreservesAll();
   }
+
   virtual bool runOnScop(Scop &S) override {
     // Free resources for previous scop's computation, if not yet done.
     releaseMemory();
@@ -2904,6 +2672,8 @@ public:
 
     // It is important to release the isl_ctx last, to ensure it is not free'd
     // before any other ISL object held.
+    // Other passes may still own references to this isl_ctx, so it is not
+    // free'd immediately.
     IslCtx.reset();
   }
 };
@@ -2917,3 +2687,233 @@ INITIALIZE_PASS_BEGIN(DeLICM, "polly-delicm", "Polly - DeLICM/DePRE", false,
                       false)
 INITIALIZE_PASS_END(DeLICM, "polly-delicm", "Polly - DeLICM/DePRE", false,
                     false)
+
+IslPtr<isl_union_map>
+polly::computeReachingDefinition(IslPtr<isl_union_map> Schedule,
+                                 IslPtr<isl_union_map> Writes, bool InclDef,
+                                 bool InclRedef) {
+  // { Scatter[] }
+  auto ScatterSpace = getScatterSpace(Schedule);
+
+  // { Element[] -> ScatterWrite[] }
+  auto DefSched =
+      give(isl_union_map_apply_domain(Schedule.copy(), Writes.take()));
+
+  // { ScatterRead[] -> ScatterWrite[] }
+  auto Before = give(InclRedef ? isl_map_lex_gt(ScatterSpace.take())
+                               : isl_map_lex_ge(ScatterSpace.take()));
+
+  // { ScatterWrite[] -> [ScatterRead[] -> ScatterWrite[]] }
+  auto BeforeMap = give(isl_map_reverse(isl_map_range_map(Before.take())));
+
+  // { Element[] -> [ScatterUse[] -> ScatterWrite[]] }
+  auto DefSchedBefore =
+      give(isl_union_map_apply_domain(isl_union_map_from_map(BeforeMap.take()),
+                                      isl_union_map_reverse(DefSched.copy())));
+
+  // For each element, at every point in time, map to the times of previous
+  // definitions.
+  // { [Element[] -> ScatterRead[]] -> ScatterWrite[] }
+  auto ReachableDefs = give(isl_union_map_uncurry(DefSchedBefore.take()));
+  auto LastReachableDef = give(isl_union_map_lexmax(ReachableDefs.copy()));
+
+  // { [Element[] -> ScatterWrite[]] -> ScatterWrite[] }
+  auto SelfUse = give(isl_union_map_range_map(DefSched.take()));
+
+  if (InclDef && InclRedef) {
+    // Add the Def itself to the solution.
+    LastReachableDef =
+        give(isl_union_map_union(LastReachableDef.take(), SelfUse.take()));
+    LastReachableDef = give(isl_union_map_coalesce(LastReachableDef.take()));
+  } else if (!InclDef && !InclRedef) {
+    // Remove Def itself from the solution.
+    LastReachableDef =
+        give(isl_union_map_subtract(LastReachableDef.take(), SelfUse.take()));
+  }
+
+  // { [Element[] -> ScatterRead[]] -> Domain[] }
+  return give(isl_union_map_apply_range(
+      LastReachableDef.take(), isl_union_map_reverse(Schedule.take())));
+}
+
+IslPtr<isl_union_map>
+polly::computeArrayLifetime(IslPtr<isl_union_map> Schedule,
+                            IslPtr<isl_union_map> Writes,
+                            IslPtr<isl_union_map> Reads, bool ReadEltInSameInst,
+                            bool InclWrite, bool InclLastRead, bool ExitReads) {
+  IslPtr<isl_union_map> ExitRays;
+  if (ExitReads) {
+    // Add all writes that are never overwritten as rays.
+
+    // { Element[] }
+    auto WriteElements = give(isl_union_map_range(Writes.copy()));
+
+    // { DomainWrite[] -> Scatter[] }
+    auto WriteSched = give(isl_union_map_intersect_domain(
+        Schedule.copy(), isl_union_map_domain(Writes.copy())));
+
+    // { Element[] -> Scatter[] }
+    auto WriteActions = give(isl_union_map_apply_range(
+        isl_union_map_reverse(Writes.copy()), Schedule.copy()));
+    auto LastWrites = give(isl_union_map_lexmax(WriteActions.take()));
+
+    // { [Element[] -> Scatter[]] -> Zone[] }
+    auto AfterLastWrite = afterScatter(
+        give(isl_union_map_range_map(LastWrites.take())), !InclWrite);
+
+    // { [Element[] -> DomainWrite[]] -> Zone[] }
+    ExitRays = give(isl_union_map_apply_domain(
+        AfterLastWrite.take(),
+        isl_union_map_product(makeIdentityMap(WriteElements, false).take(),
+                              isl_union_map_reverse(WriteSched.take()))));
+  }
+
+  // { [Element[] -> DomainWrite[] -> Scatter[] }
+  auto Defs = give(isl_union_map_apply_range(
+      isl_union_map_range_map(isl_union_map_reverse(Writes.copy())),
+      Schedule.copy()));
+
+  // { [Element[] -> Zone[]] -> DomainWrite[] }
+  auto ReachDef = computeReachingDefinition(Schedule, Writes, ReadEltInSameInst,
+                                            !ReadEltInSameInst);
+
+  // { Element[] -> Scatter[] }
+  auto ReadActions =
+      give(isl_union_map_apply_domain(Schedule.take(), Reads.take()));
+
+  // { [Element[] -> Scatter[]] -> DomainWrite[] }
+  auto WhatIsItReading = give(isl_union_map_intersect_domain(
+      ReachDef.take(), isl_union_map_wrap(ReadActions.take())));
+
+  // { [Element[] -> DomainWrite[]] -> Scatter[] }
+  auto Uses = give(isl_union_map_reverse(
+      isl_union_map_curry(reverseDomain(WhatIsItReading).take())));
+
+  // { [Element[] -> DomainWrite[]] ->  Scatter[] }
+  auto Result = betweenScatter(Defs, Uses, InclWrite, InclLastRead);
+
+  if (ExitRays)
+    Result = give(isl_union_map_union(Result.take(), ExitRays.take()));
+
+  return Result;
+}
+
+IslPtr<isl_union_map>
+polly::computeReachingOverwrite(IslPtr<isl_union_map> Schedule,
+                                IslPtr<isl_union_map> Writes,
+                                bool InclPrevWrite, bool IncludeOverwrite) {
+  assert(isl_union_map_is_bijective(Schedule.keep()) != isl_bool_false);
+
+  // { Scatter[] }
+  auto ScatterSpace = getScatterSpace(Schedule);
+
+  // { Element[] -> ScatterWrite[] }
+  auto WriteAction =
+      give(isl_union_map_apply_domain(Schedule.copy(), Writes.take()));
+
+  // { ScatterWrite[] -> Element[] }
+  auto WriteActionRev = give(isl_union_map_reverse(WriteAction.copy()));
+
+  // { ScatterRead[] -> ScatterWrite[] }
+  auto After = give(InclPrevWrite ? isl_map_lex_lt(ScatterSpace.take())
+                                  : isl_map_lex_le(ScatterSpace.take()));
+
+  // { ScatterWrite[] -> [ScatterRead[] -> ScatterWrite[]] }
+  auto BeforeMap = give(isl_map_reverse(isl_map_range_map(After.take())));
+
+  // { Element[] -> [ScatterRead[] -> ScatterWrite[]] }
+  auto DefSchedBefore = give(isl_union_map_apply_domain(
+      isl_union_map_from_map(BeforeMap.take()), WriteActionRev.take()));
+
+  // For each element, at every point in time, map to the times of previous
+  // definitions.
+  // { [Element[] -> ScatterRead[]] -> ScatterWrite[] }
+  auto ReachableDefs = give(isl_union_map_uncurry(DefSchedBefore.take()));
+  auto LastReachableDef = give(isl_union_map_lexmin(ReachableDefs.take()));
+
+  if (InclPrevWrite && IncludeOverwrite) {
+    // Add the def itself to the solution
+
+    // { [Element[] -> ScatterWrite[]] -> ScatterWrite[] }
+    auto SelfUse = give(isl_union_map_range_map(WriteAction.take()));
+    LastReachableDef =
+        give(isl_union_map_union(LastReachableDef.take(), SelfUse.take()));
+    LastReachableDef = give(isl_union_map_coalesce(LastReachableDef.take()));
+  } else if (!InclPrevWrite && !IncludeOverwrite) {
+    // Remove def itself from the solution
+
+    // { [Element[] -> ScatterWrite[]] -> ScatterWrite[] }
+    auto SelfUse = give(isl_union_map_range_map(WriteAction.take()));
+    LastReachableDef =
+        give(isl_union_map_subtract(LastReachableDef.take(), SelfUse.take()));
+  }
+
+  // { [Element[] -> ScatterRead[]] -> Domain[] }
+  auto LastReachableDefDomain = give(isl_union_map_apply_range(
+      LastReachableDef.take(), isl_union_map_reverse(Schedule.take())));
+
+  return LastReachableDefDomain;
+}
+
+IslPtr<isl_union_map> polly::computeArrayUnused(IslPtr<isl_union_map> Schedule,
+                                                IslPtr<isl_union_map> Writes,
+                                                IslPtr<isl_union_map> Reads,
+                                                bool ReadEltInSameInst,
+                                                bool IncludeLastRead,
+                                                bool IncludeWrite) {
+  // { Element[] -> Scatter[] }
+  auto ReadActions =
+      give(isl_union_map_apply_domain(Schedule.copy(), Reads.take()));
+  auto WriteActions =
+      give(isl_union_map_apply_domain(Schedule.copy(), Writes.copy()));
+
+  // { [Element[] -> Scatter[] }
+  auto AfterReads = afterScatter(ReadActions, ReadEltInSameInst);
+  auto WritesBeforeAnyReads =
+      give(isl_union_map_subtract(WriteActions.take(), AfterReads.take()));
+  auto BeforeWritesBeforeAnyReads =
+      beforeScatter(WritesBeforeAnyReads, !IncludeWrite);
+
+  // { [Element[] -> DomainWrite[]] -> Scatter[] }
+  auto EltDomWrites = give(isl_union_map_apply_range(
+      isl_union_map_range_map(isl_union_map_reverse(Writes.copy())),
+      Schedule.copy()));
+
+  // { [Element[] -> Scatter[]] -> DomainWrite[] }
+  auto ReachingOverwrite = computeReachingOverwrite(
+      Schedule, Writes, ReadEltInSameInst, !ReadEltInSameInst);
+
+  // { [Element[] -> Scatter[]] -> DomainWrite[] }
+  auto ReadsOverwritten = give(isl_union_map_intersect_domain(
+      ReachingOverwrite.take(), isl_union_map_wrap(ReadActions.take())));
+
+  // { [Element[] -> DomainWrite[]] -> Scatter[] }
+  auto ReadsOverwrittenRotated = give(isl_union_map_reverse(
+      isl_union_map_curry(reverseDomain(ReadsOverwritten).take())));
+  auto LastOverwrittenRead =
+      give(isl_union_map_lexmax(ReadsOverwrittenRotated.take()));
+
+  // { [Element[] -> DomainWrite[]] -> Scatter[] }
+  auto BetweenLastReadOverwrite = betweenScatter(
+      LastOverwrittenRead, EltDomWrites, IncludeLastRead, IncludeWrite);
+
+  return give(isl_union_map_union(
+      BeforeWritesBeforeAnyReads.take(),
+      isl_union_map_domain_factor_domain(BetweenLastReadOverwrite.take())));
+}
+
+bool polly::isConflicting(IslPtr<isl_union_map> ExistingLifetime,
+                          bool ExistingImplicitLifetimeIsUnknown,
+                          IslPtr<isl_union_map> ExistingWritten,
+                          IslPtr<isl_union_map> ProposedLifetime,
+                          bool ProposedImplicitLifetimeIsUnknown,
+                          IslPtr<isl_union_map> ProposedWritten) {
+  Knowledge Existing(std::move(ExistingLifetime),
+                     ExistingImplicitLifetimeIsUnknown,
+                     std::move(ExistingWritten));
+  Knowledge Proposed(std::move(ProposedLifetime),
+                     ProposedImplicitLifetimeIsUnknown,
+                     std::move(ProposedWritten));
+
+  return Knowledge::isConflicting(Existing, Proposed);
+}
