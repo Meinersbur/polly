@@ -1127,14 +1127,15 @@ bool MemoryAccess::isStrideOne(__isl_take const isl_map *Schedule) const {
 
 void MemoryAccess::setNewAccessRelation(__isl_take isl_map *NewAccess) {
   assert(NewAccess);
-  auto *OriginalDomainSpace = getStatement()->getDomainSpace();
 
 #ifndef NDEBUG
   // Check domain space compatibility.
   auto *NewSpace = isl_map_get_space(NewAccess);
   auto *NewDomainSpace = isl_space_domain(isl_space_copy(NewSpace));
+  auto *OriginalDomainSpace = getStatement()->getDomainSpace();
   assert(isl_space_has_equal_tuples(OriginalDomainSpace, NewDomainSpace));
   isl_space_free(NewDomainSpace);
+  isl_space_free(OriginalDomainSpace);
 
   // Check whether there is an access for every statement instance.
   auto *StmtDomain = getStatement()->getDomain();
@@ -1164,7 +1165,7 @@ void MemoryAccess::setNewAccessRelation(__isl_take isl_map *NewAccess) {
 #endif
 
   isl_map_free(NewAccessRelation);
-  NewAccessRelation = isl_map_align_params(NewAccess, OriginalDomainSpace);
+  NewAccessRelation = NewAccess;
 }
 
 //===----------------------------------------------------------------------===//

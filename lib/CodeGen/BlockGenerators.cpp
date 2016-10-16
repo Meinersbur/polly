@@ -467,7 +467,7 @@ void BlockGenerator::generateScalarLoads(
             DT.dominates(cast<Instruction>(Address)->getParent(),
                          Builder.GetInsertBlock())) &&
            "Domination violation");
-    BBMap[MA->getAccessValue()] =
+    BBMap[MA->getBaseAddr()] =
         Builder.CreateLoad(Address, Address->getName() + ".reload");
   }
 }
