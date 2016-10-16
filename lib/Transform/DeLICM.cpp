@@ -599,76 +599,6 @@ IslPtr<isl_union_map> shiftDim(IslPtr<isl_union_map> UMap, isl_dim_type Type,
   return Result;
 }
 
-/// Compute the lifetime of a scalar.
-///
-/// In contrast to computeArrayLifetime, only considers just one variable
-/// instead of multiple arrays. Hence, the element is not required for input and
-/// is not part of the output.
-///
-/// @param Schedule          { Domain[] -> Scatter[] }
-/// @param Writes            { DomainWrite[] }
-/// @param Reads             { DomainRead[] }
-/// @param ReadEltInSameInst A read at the same timepoint as a write will read
-/// that value instead of the previous's.
-/// @param InclWrite         Include the write itself to the lifetime.
-/// @param InclLastRead      Include the last write to the lifetime.
-/// @param ExitReads         Extend the last definition to infinity.
-///
-/// @return { DomainWrite[] -> Zone[] }
-///         The scalar's lifetime.
-///
-/// @see computeArrayLifetime
-IslPtr<isl_union_map> computeScalarLifetime(IslPtr<isl_union_map> Schedule,
-                                            IslPtr<isl_union_set> Writes,
-                                            IslPtr<isl_union_set> Reads,
-                                            bool ReadEltInSameInst,
-                                            bool InclWrite, bool InclLastRead,
-                                            bool ExitReads) {
-
-  // { DomainWrite[] -> Element[] }
-  auto WritesElt = give(isl_union_map_from_domain(Writes.take()));
-
-  // { DomainRead[] -> Element[] }
-  auto ReadsElt = give(isl_union_map_from_domain(Reads.take()));
-
-  // { [Element[] -> DomainWrite[]] -> Scatter[] }
-  auto Result =
-      computeArrayLifetime(Schedule, WritesElt, ReadsElt, ReadEltInSameInst,
-                           InclWrite, InclLastRead, ExitReads);
-
-  return give(isl_union_map_domain_factor_range(Result.take()));
-}
-
-/// Compute the lifetime of a scalar with a single definition.
-///
-/// Because there is only one defining statement, takes only an isl_map for
-/// writes and only returns an isl_map.
-///
-/// @param Schedule          { Domain[] -> Scatter[] }
-/// @param Writes            { DomainWrite[] }
-/// @param Reads             { DomainRead[] }
-/// @param ReadEltInSameInst A read at the same timepoint as a write will read
-///                          that value instead of the previous's.
-/// @param InclWrite         Include the write itself to the lifetime.
-/// @param InclLastRead      Include the last write to the lifetime.
-/// @param ExitReads         Extend the last definition to infinity.
-///
-/// @return { DomainWrite[] -> Zone[] }
-///         The scalar's lifetime.
-///
-/// @see computeArrayLifetime
-IslPtr<isl_map> computeScalarLifetime(IslPtr<isl_union_map> Schedule,
-                                      IslPtr<isl_set> Writes,
-                                      IslPtr<isl_union_set> Reads,
-                                      bool ReadEltInSameInst, bool InclWrite,
-                                      bool InclLastRead, bool ExitsReads) {
-  return give(isl_map_from_union_map(
-      computeScalarLifetime(
-          Schedule, give(isl_union_set_from_set(Writes.take())), Reads,
-          ReadEltInSameInst, InclWrite, InclLastRead, ExitsReads)
-          .take()));
-}
-
 /// Simplify a map inplace.
 void simplify(IslPtr<isl_map> &Map) {
   Map = give(isl_map_compute_divs(Map.take()));
@@ -2946,6 +2876,7 @@ private:
 public:
   static char ID;
   explicit DeLICM() : ScopPass(ID) {}
+
   virtual void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequiredTransitive<ScopInfoRegionPass>();
     AU.setPreservesAll();

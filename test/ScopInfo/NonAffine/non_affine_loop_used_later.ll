@@ -1,10 +1,12 @@
 ; RUN: opt %loadPolly -polly-scops \
+; RUN      -polly-unprofitable-scalar-accs=true \
 ; RUN:     -polly-allow-nonaffine -polly-allow-nonaffine-branches \
 ; RUN:     -polly-allow-nonaffine-loops -analyze < %s | FileCheck %s
 ; RUN: opt %loadPolly -polly-scops -polly-allow-nonaffine \
+; RUN      -polly-unprofitable-scalar-accs=true \
 ; RUN:     -polly-process-unprofitable=false \
 ; RUN:     -polly-allow-nonaffine-branches -polly-allow-nonaffine-loops \
-; RUN:     -analyze < %s | FileCheck %s --check-prefix=PROFIT
+; RUN:     -analyze < %s | FileCheck %s
 ;
 ; Verify that we over approximate the read acces of A[j] in the last statement as j is
 ; computed in a non-affine loop we do not model.
