@@ -2092,21 +2092,8 @@ STATIC int      s_ucmp(mp_int a, mp_int b)
 
 STATIC int      s_vcmp(mp_int a, mp_small v)
 {
-if (v==LONG_MIN) {
-	  mpz_t vtmp;
-	   mpz_t z;
-  mp_digit vdig[MP_VALUE_DIGITS(v)];
-    s_ufake(&vtmp, LONG_MAX, vdig);
-	mp_int_init(&z);
-	mp_int_add_value(&vtmp, 1, &z);
-  int result = s_ucmp(a, &z);
-  mp_int_clear(&z);
-  return result;
-} else {
-  assert(v!=LONG_MIN);
   mp_usmall uv = (mp_usmall) (v < 0) ? -v : v;
   return s_uvcmp(a, uv);
-}
 }
 
 STATIC int      s_uvcmp(mp_int a, mp_usmall uv)

@@ -16,7 +16,7 @@ function(add_polly_unittest test_name)
 
     set_property(TARGET ${test_name} PROPERTY FOLDER "Polly")
   endif()
-  target_link_libraries(${test_name} Polly LLVMCore LLVMSupport LLVMScalarOpts LLVMipo)
+  target_link_libraries(${test_name} Polly LLVMCore LLVMSupport LLVMipo)
 endfunction()
 
 add_subdirectory(Isl)

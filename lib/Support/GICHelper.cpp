@@ -209,6 +209,7 @@ std::string polly::getIslCompatibleName(const std::string &Prefix,
   }
 
 namespace polly {
+DEFINE_ISLPTR(id)
 DEFINE_ISLPTR(val)
 DEFINE_ISLPTR(space)
 DEFINE_ISLPTR(basic_map)

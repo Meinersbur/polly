@@ -1030,7 +1030,7 @@ public:
   /// Print the MemoryAccess.
   ///
   /// @param OS The output stream the MemoryAccess is printed to.
-  /// @param Oneline Prints a more dense representation without line-breaks.
+  /// @param Oneline Print a more dense representation without line-breaks.
   void print(raw_ostream &OS, bool Oneline = false) const;
 
   /// Print the MemoryAccess to stderr.
@@ -1369,11 +1369,6 @@ public:
   /// Note that scalar accesses that are caused by MA will
   /// be eliminated too.
   void removeMemoryAccess(MemoryAccess *MA);
-
-  /// Remove @p MA from this statement.
-  ///
-  /// In contrast to removeMemoryAccess(), no other access will be eliminated.
-  void removeSingleMemoryAccess(MemoryAccess *MA);
 
   typedef MemoryAccessVec::iterator iterator;
   typedef MemoryAccessVec::const_iterator const_iterator;
