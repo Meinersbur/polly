@@ -4183,13 +4183,7 @@ static struct isl_sol *basic_map_partial_lexopt_base_sol(
 	struct isl_context *context;
 
 	if (dom->n_div) {
-		isl_basic_set *dom2 = isl_basic_set_order_divs(isl_basic_set_copy(dom));
-		dom = isl_basic_map_sort_divs(dom);
-		if (!isl_basic_set_is_equal(dom,dom2)) {
-			printf("Secret bug\n!");
-			exit(1);
-		}
-		isl_basic_set_free(dom2);
+		dom = isl_basic_set_order_divs(dom);
 		bmap = align_context_divs(bmap, dom);
 	}
 	sol = init(bmap, dom, !!empty, max);

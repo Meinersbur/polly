@@ -345,7 +345,9 @@ public:
   /// Print a readable representation to @p OS.
   ///
   /// @param SizeAsPwAff Print the size as isl_pw_aff
-  void print(raw_ostream &OS, bool SizeAsPwAff = false) const;
+  /// @param Oneline Print a more dense representation without line breaks.
+  void print(raw_ostream &OS, bool SizeAsPwAff = false,
+             bool Oneline = false) const;
 
   /// Access the ScopArrayInfo associated with an access function.
   static const ScopArrayInfo *
@@ -1028,7 +1030,8 @@ public:
   /// Print the MemoryAccess.
   ///
   /// @param OS The output stream the MemoryAccess is printed to.
-  void print(raw_ostream &OS) const;
+  /// @param Oneline Prints a more dense representation without line-breaks.
+  void print(raw_ostream &OS, bool Oneline = false) const;
 
   /// Print the MemoryAccess to stderr.
   void dump() const;
@@ -1037,9 +1040,9 @@ public:
 llvm::raw_ostream &operator<<(llvm::raw_ostream &OS,
                               MemoryAccess::ReductionType RT);
 
-llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, const ScopArrayInfo &SAI);
+llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, const ScopArrayInfo *SAI);
 
-llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, const MemoryAccess &MA);
+llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, const MemoryAccess *MA);
 
 /// Ordered list type to hold accesses.
 using MemoryAccessList = std::forward_list<MemoryAccess *>;

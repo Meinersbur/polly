@@ -281,8 +281,28 @@ __isl_give isl_id *ScopArrayInfo::getBasePtrId() const {
 
 void ScopArrayInfo::dump() const { print(errs()); }
 
-void ScopArrayInfo::print(raw_ostream &OS, bool SizeAsPwAff) const {
-  OS.indent(8) << *getElementType() << " " << getName();
+void ScopArrayInfo::print(raw_ostream &OS, bool SizeAsPwAff,
+                          bool Oneline) const {
+  if (!Oneline)
+    OS.indent(8);
+  OS << *getElementType() << " " << getName();
+
+  if (Oneline) {
+    switch (getKind()) {
+    case MK_Array:
+      break;
+    case MK_Value:
+      OS << " MK_Value";
+      return;
+    case MK_PHI:
+      OS << " MK_PHI";
+      return;
+    case MK_ExitPHI:
+      OS << " MK_Array";
+      return;
+    }
+  }
+
   unsigned u = 0;
   if (getNumberOfDimensions() > 0 && !getDimensionSize(0)) {
     OS << "[*]";
@@ -301,6 +321,9 @@ void ScopArrayInfo::print(raw_ostream &OS, bool SizeAsPwAff) const {
 
     OS << "]";
   }
+
+  if (Oneline)
+    return;
 
   OS << ";";
 
@@ -918,68 +941,82 @@ raw_ostream &polly::operator<<(raw_ostream &OS,
 }
 
 llvm::raw_ostream &polly::operator<<(llvm::raw_ostream &OS,
-                                     const ScopArrayInfo &SAI) {
-  OS << "ScopArrayInfo";
+                                     const ScopArrayInfo *SAI) {
+  if (!SAI) {
+    OS << "null";
+    return OS;
+  }
+
+  SAI->print(OS, true, true);
   return OS;
 }
 
 llvm::raw_ostream &polly::operator<<(llvm::raw_ostream &OS,
-                                     const MemoryAccess &MA) {
-  OS << MA.getStatement()->getBaseName();
-
-  auto OrigKind = MA.getOriginalKind();
-  switch (OrigKind) {
-  case ScopArrayInfo::MK_Value:
-    OS << " MK_Value";
-    if (MA.isWrite()) {
-      OS << " Define " << MA.getScopArrayInfo()->getName() << " as ";
-      MA.getAccessValue()->printAsOperand(OS, false);
-    } else {
-      OS << " Use " << MA.getScopArrayInfo()->getName();
-    }
-    break;
-  case ScopArrayInfo::MK_PHI:
-  case ScopArrayInfo::MK_ExitPHI:
-    OS << (OrigKind == ScopArrayInfo::MK_ExitPHI ? " MK_ExitPHI" : " MK_PHI");
-    if (MA.isWrite()) {
-      OS << " Incoming " << MA.getScopArrayInfo()->getName() << " value ";
-      bool First = true;
-      for (auto Incoming : MA.getIncoming()) {
-        if (!First)
-          OS << " or ";
-        Incoming.second->printAsOperand(OS, false);
-        First = false;
-      }
-    } else {
-      OS << " Merge " << MA.getScopArrayInfo()->getName() << " as ";
-      MA.getAccessInstruction()->printAsOperand(OS, false);
-    }
-    break;
-  case ScopArrayInfo::MK_Array:
-    OS << " MK_Array";
-    if (MA.isWrite()) {
-      OS << " Store ";
-      MA.getAccessValue()->printAsOperand(OS, false);
-      OS << " to " << give(MA.getAccessRelation());
-    } else {
-      OS << " Load ";
-      MA.getAccessInstruction()->printAsOperand(OS, false);
-      OS << " from " << give(MA.getAccessRelation());
-    }
-    break;
+                                     const MemoryAccess *MA) {
+  if (!MA) {
+    OS << "null";
+    return OS;
   }
 
-  if (MA.hasNewAccessRelation()) {
-    assert(MA.isLatestArrayKind());
-    if (MA.isWrite())
-      OS << " [new: " << give(MA.getAccessRelation()) << "]";
-    else
-      OS << " [new: " << give(MA.getAccessRelation()) << "]";
-  }
+  MA->print(OS, true);
   return OS;
 }
 
-void MemoryAccess::print(raw_ostream &OS) const {
+void MemoryAccess::print(raw_ostream &OS, bool Oneline) const {
+  if (Oneline) {
+    OS << getStatement()->getBaseName();
+
+    auto OrigKind = getOriginalKind();
+    switch (OrigKind) {
+    case ScopArrayInfo::MK_Value:
+      OS << " MK_Value";
+      if (isWrite()) {
+        OS << " Define " << getScopArrayInfo()->getName() << " as ";
+        getAccessValue()->printAsOperand(OS, false);
+      } else
+        OS << " Use " << getScopArrayInfo()->getName();
+      break;
+    case ScopArrayInfo::MK_PHI:
+    case ScopArrayInfo::MK_ExitPHI:
+      OS << (OrigKind == ScopArrayInfo::MK_ExitPHI ? " MK_ExitPHI" : " MK_PHI");
+      if (isWrite()) {
+        OS << " Incoming " << getScopArrayInfo()->getName() << " value ";
+        bool First = true;
+        for (auto Incoming : getIncoming()) {
+          if (!First)
+            OS << " or ";
+          Incoming.second->printAsOperand(OS, false);
+          First = false;
+        }
+      } else {
+        OS << " Merge " << getScopArrayInfo()->getName() << " as ";
+        getAccessInstruction()->printAsOperand(OS, false);
+      }
+      break;
+    case ScopArrayInfo::MK_Array:
+      OS << " MK_Array";
+      if (isWrite()) {
+        OS << " Store ";
+        getAccessValue()->printAsOperand(OS, false);
+        OS << " to " << give(getAccessRelation());
+      } else {
+        OS << " Load ";
+        getAccessInstruction()->printAsOperand(OS, false);
+        OS << " from " << give(getAccessRelation());
+      }
+      break;
+    }
+
+    if (hasNewAccessRelation()) {
+      assert(isLatestArrayKind());
+      if (isWrite())
+        OS << " [new: " << give(getAccessRelation()) << "]";
+      else
+        OS << " [new: " << give(getAccessRelation()) << "]";
+    }
+    return;
+  }
+
   switch (AccType) {
   case READ:
     OS.indent(12) << "ReadAccess :=\t";

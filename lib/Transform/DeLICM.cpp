@@ -1757,11 +1757,11 @@ public:
 
   /// Print this transformation report to @p OS.
   void print(llvm::raw_ostream &OS, int Indent = 0) const {
-    OS.indent(Indent) << "Mapping of " << *SAI << " {\n";
+    OS.indent(Indent) << "Mapping of " << SAI << " {\n";
     if (PrimaryAcc)
-      OS.indent(Indent + 4) << "Primary:   " << *PrimaryAcc << "\n";
+      OS.indent(Indent + 4) << "Primary:   " << PrimaryAcc << "\n";
     for (auto *MA : SecondaryAccs)
-      OS.indent(Indent + 4) << "Secondary: " << *MA << "\n";
+      OS.indent(Indent + 4) << "Secondary: " << MA << "\n";
     OS.indent(Indent + 4) << "Target:    " << Target << "\n";
     OS.indent(Indent + 4) << "Lifetime:  " << Lifetime << "\n";
     OS.indent(Indent + 4) << "Zone:\n";
@@ -2373,7 +2373,7 @@ private:
       if (Closed.count(SAI))
         continue;
       Closed.insert(SAI);
-      DEBUG(dbgs() << "\n    Trying to map " << *MA << " (SAI: " << SAI
+      DEBUG(dbgs() << "\n    Trying to map " << MA << " (SAI: " << SAI
                    << ")\n");
 
       // Skip non-mappable scalars.
@@ -2581,19 +2581,19 @@ public:
           continue;
 
         if (MA->isMayWrite()) {
-          DEBUG(dbgs() << "Access " << *MA
+          DEBUG(dbgs() << "Access " << MA
                        << " pruned because it is a MAY_WRITE\n");
           continue;
         }
 
         if (Stmt.getNumIterators() == 0) {
-          DEBUG(dbgs() << "Access " << *MA
+          DEBUG(dbgs() << "Access " << MA
                        << " pruned because it is not in a loop\n");
           continue;
         }
 
         if (isScalarAccess(getAccessRelationFor(MA))) {
-          DEBUG(dbgs() << "Access " << *MA
+          DEBUG(dbgs() << "Access " << MA
                        << " pruned because it writes only a single element\n");
           continue;
         }

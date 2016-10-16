@@ -30,8 +30,6 @@
 struct isl_schedule;
 struct isl_multi_aff;
 
-char *isl_id_to_str(__isl_keep isl_id *mat);
-
 namespace llvm {
 class Value;
 } // namespace llvm

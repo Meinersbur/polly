@@ -118,7 +118,7 @@ return:
 ; CHECK-NEXT:     Written : { [MemRef_C[i0] -> [11 + 12i0{{\]\]}} -> [Stmt_inner_for[i0, 3] -> Val_phi[{{\]\]}} : 0 <= i0 <= 2 }
 ; CHECK-NEXT: }
 ; CHECK:      Mapped scalars {
-; CHECK-NEXT:     Mapping of ScopArrayInfo {
+; CHECK-NEXT:     Mapping of double MemRef_phi MK_Value {
 ; CHECK-NEXT:         Primary:   Stmt_inner_for MK_Value Define MemRef_phi as %phi [new: { Stmt_inner_for[i0, i1] -> MemRef_C[i0] : i1 >= 0 and 4 - 4i0 <= i1 <= 11 - 4i0 and i1 <= 3; Stmt_inner_for[0, i1] -> MemRef_C[0] : 0 <= i1 <= 3 }]
 ; CHECK-NEXT:         Secondary: Stmt_inner_body MK_Value Use MemRef_phi [new: { Stmt_inner_body[i0, i1] -> MemRef_C[i0] : 0 <= i0 <= 2 and 0 <= i1 <= 10 - 4i0 and i1 <= 2 }]
 ; CHECK-NEXT:         Secondary: Stmt_inner_exit MK_Value Use MemRef_phi [new: { Stmt_inner_exit[i0] -> MemRef_C[i0] : 0 <= i0 <= 2 }]

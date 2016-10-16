@@ -97,7 +97,7 @@ return:
 ; CHECK-NEXT:     Written : { [MemRef_A[i0] -> [14 + 15i0{{\]\]}} -> [Stmt_reduction_for[i0, 4] -> Val_phi[{{\]\]}} : 0 <= i0 <= 1 }
 ; CHECK-NEXT: }
 ; CHECK:      Mapped scalars {
-; CHECK-NEXT:     Mapping of ScopArrayInfo {
+; CHECK-NEXT:     Mapping of double MemRef_phi MK_Value {
 ; CHECK-NEXT:         Primary:   Stmt_reduction_for MK_Value Define MemRef_phi as %phi [new: { Stmt_reduction_for[i0, i1] -> MemRef_A[i0] : 0 <= i0 <= 1 and 0 <= i1 <= 4 }]
 ; CHECK-NEXT:         Secondary: Stmt_body MK_Value Use MemRef_phi [new: { Stmt_body[i0, i1] -> MemRef_A[i0] : 0 <= i0 <= 1 and i1 >= 0 and -5i0 <= i1 <= 8 - 5i0 and i1 <= 3 }]
 ; CHECK-NEXT:         Secondary: Stmt_reduction_exit MK_Value Use MemRef_phi [new: { Stmt_reduction_exit[i0] -> MemRef_A[i0] : 0 <= i0 <= 1 }]
