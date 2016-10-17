@@ -2294,6 +2294,7 @@ private:
     // Redirect the PHI read.
     auto *PHIRead = PHIReadAccs.lookup(SAI);
     PHIRead->setNewAccessRelation(ReadTarget.copy());
+	applyLifetime(Proposed);
 
     MappedPHIScalars++;
     MapReports.emplace_back(SAI, PHIRead, SecondaryAccs, std::move(ReadTarget),
