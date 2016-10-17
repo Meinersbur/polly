@@ -1861,13 +1861,14 @@ private:
     return false;
   }
 
-  /// Compute the lifetime of an MK_Value (from its definition to the last use).
-  /// Pass the WRITE MemoryAccess that defines the llvm::Value
+  /// Compute the uses of an MK_Value and its lifetime (from its definition to the last use).
   ///
   /// @param SAI The ScopArrayInfo representing the value's storage.
   ///
-  /// @return { DomainDef[] -> Zone[] }
-  IslPtr<isl_map> computeValueLifetime(const ScopArrayInfo *SAI) {
+  /// @return { DomainDef[] -> DomainUse[] }, { DomainDef[] -> Zone[] }
+  ///         First element is the this of uses for each definition.
+  ///         The second is the lifetime of each definition.
+  std::tuple< IslPtr<isl_union_map>, IslPtr<isl_map> > computeValueUses(const ScopArrayInfo *SAI) {
     assert(SAI->isValueKind());
 
     // { DomainRead[] }
@@ -1875,15 +1876,10 @@ private:
 
     // Find all uses.
     for (auto *MA : ValueUseAccs.lookup(SAI))
-      Reads =
-          give(isl_union_set_add_set(Reads.take(), getDomainFor(MA).take()));
+      Reads =          give(isl_union_set_add_set(Reads.take(), getDomainFor(MA).take()));
 
     // { DomainRead[] -> Scatter[] }
     auto ReadSchedule = getScatterFor(Reads);
-
-    // { ScatterRead[] }
-    auto ReadScatters =
-        singleton(give(isl_union_map_range(ReadSchedule.take())), ScatterSpace);
 
     auto *DefMA = ValueDefAccs.lookup(SAI);
     assert(DefMA);
@@ -1897,17 +1893,19 @@ private:
     // { Scatter[] -> DomainDef[] }
     auto ReachDef = getScalarReachingDefinition(DefMA->getStatement());
 
+	// { [DomainDef[] -> Scatter[]] -> DomainRead[] }
+	auto Uses = give( isl_union_map_apply_range(isl_union_map_from_map( isl_map_range_map(isl_map_reverse(ReachDef.take()))),  isl_union_map_reverse( ReadSchedule.take()) ));
+
     // { DomainDef[] -> Scatter[] }
-    auto UseScatter = give(isl_map_intersect_range(
-        isl_map_reverse(ReachDef.take()), ReadScatters.take()));
+    auto UseScatter = singleton( give(isl_union_set_unwrap( isl_union_map_domain(  Uses.copy()))),  give( isl_space_map_from_domain_and_range( isl_set_get_space(Writes.keep()), ScatterSpace.copy() ) ) );
 
     // { DomainDef[] -> Zone[] }
     auto Lifetime = betweenScatter(WriteScatter, UseScatter, false, true);
 
-    return Lifetime;
+	// { DomainDef[] -> DomainRead[] }
+	auto DefUses = give(isl_union_map_domain_factor_domain(Uses.take()));
 
-    // return computeScalarLifetime(Schedule, Writes, Reads, false, false, true,
-    // false);
+	return std::make_pair(DefUses,Lifetime);
   }
 
   /// For each 'execution' of a PHINode, get the incoming block that was
@@ -1980,8 +1978,7 @@ private:
 
     // Where each write is mapped to, according to the suggestion.
     // { DomainDef[] -> Element[] }
-    auto DefTarget = give(isl_map_apply_domain(
-        TargetElt.copy(), isl_map_reverse(DefSched.copy())));
+    auto DefTarget = give(isl_map_apply_domain(  TargetElt.copy(), isl_map_reverse(DefSched.copy())));
     simplify(DefTarget);
     DEBUG(dbgs() << "    Def Mapping: " << DefTarget << '\n');
 
@@ -1994,10 +1991,12 @@ private:
     }
 
     // { DomainDef[] -> Zone[] }
-    // TODO: Instead of computing the lifetime separately, use the already
-    // computed scalar reaching definition. The would also produce 'UseTarget'
-    // as a byproduct.
-    auto Lifetime = computeValueLifetime(SAI);
+	IslPtr<isl_map> Lifetime;
+	
+	// { DomainDef[] -> DomainUse[] } 
+	IslPtr<isl_union_map> DefUses;
+
+    std::tie(DefUses, Lifetime) = computeValueUses(SAI);
     simplify(Lifetime);
     DEBUG(dbgs() << "    Lifetime: " << Lifetime << '\n');
 
@@ -2025,8 +2024,11 @@ private:
     if (isConflicting(Proposed))
       return false;
 
-    mapValue(SAI, std::move(DefTarget), std::move(Lifetime),
-             std::move(Proposed));
+	// { DomainUse[] -> Element[] }
+	auto UseTarget = give(isl_union_map_apply_range( isl_union_map_reverse(DefUses.take()), isl_union_map_from_map( DefTarget.copy())) );
+	simplify(UseTarget);
+
+    mapValue(SAI, std::move(DefTarget), std::move(UseTarget), std::move(Lifetime),  std::move(Proposed));
     return true;
   }
 
@@ -2043,39 +2045,30 @@ private:
   /// map.
   /// @param DefTarget { DomainDef[] -> Element[] }
   ///                  The array element to map the scalar to.
+  /// @param UseTarget { DomainUse[] -> Element[] } 
+  ///                  The array elements the uses are mapped to.
   /// @param Lifetime  { DomainDef[] -> Zone[] }
   ///                  The lifetime of each llvm::Value definition for
   ///                  reporting.
   /// @param Proposed  Mapping constraints for reporting.
-  void mapValue(const ScopArrayInfo *SAI, IslPtr<isl_map> DefTarget,
+  void mapValue(const ScopArrayInfo *SAI, IslPtr<isl_map> DefTarget, IslPtr<isl_union_map> UseTarget,
                 IslPtr<isl_map> Lifetime, Knowledge Proposed) {
-    auto *WA = ValueDefAccs.lookup(SAI);
-    assert(WA);
-
-    // { Scatter[] -> DomainDef[] }
-    // TODO: Currently we derive the 'UseTarget' mapping here; this could be
-    // also a byproduct of determining the lifetime.
-    auto ReachDef = getScalarReachingDefinition(WA->getStatement());
-
-    // { Scatter[] -> Element[] }
-    auto TargetZone =
-        give(isl_map_apply_range(ReachDef.take(), DefTarget.copy()));
-    simplify(TargetZone);
-
+	  // Redirect the use accesses.
     SmallVector<MemoryAccess *, 4> SecondaryAccs;
     for (auto *MA : ValueUseAccs.lookup(SAI)) {
-      // { Domain[] -> Scatter[] }
-      auto Sched = getScatterFor(MA);
+      // { DomainUse[] }
+      auto Domain = getDomainFor(MA);
 
-      // { Domain[] -> Element[] }
-      auto NewAccRel =
-          give(isl_map_apply_range(Sched.take(), TargetZone.copy()));
-      simplify(NewAccRel);
+	   // { DomainUse[] -> Element[] }
+	  auto NewAccRel = give(isl_union_map_intersect_domain(UseTarget.copy(), isl_union_set_from_set( Domain.take())));
+	  simplify(NewAccRel);
 
-      MA->setNewAccessRelation(NewAccRel.take());
+	  assert(isl_union_map_n_map(NewAccRel.keep()) == 1) ;
+      MA->setNewAccessRelation(isl_map_from_union_map( NewAccRel.take()));
       SecondaryAccs.push_back(MA);
     }
 
+	auto *WA = ValueDefAccs.lookup(SAI);
     WA->setNewAccessRelation(DefTarget.copy());
     applyLifetime(Proposed);
 
@@ -2273,21 +2266,18 @@ private:
   void mapPHI(const ScopArrayInfo *SAI, IslPtr<isl_map> ReadTarget,
               IslPtr<isl_union_map> WriteTarget, IslPtr<isl_map> Lifetime,
               Knowledge Proposed) {
-
-    // { Element[] }
-    auto ElementSpace =
-        give(isl_space_range(isl_map_get_space(ReadTarget.keep())));
-
     // Redirect the PHI incoming writes.
     SmallVector<MemoryAccess *, 4> SecondaryAccs;
     for (auto *MA : PHIIncomingAccs.lookup(SAI)) {
-      auto DomSpace = give(MA->getStatement()->getDomainSpace());
-      auto WriteTargetSpace = give(isl_space_map_from_domain_and_range(
-          DomSpace.take(), ElementSpace.copy()));
-      auto NewAccRel = give(isl_union_map_extract_map(WriteTarget.keep(),
-                                                      WriteTargetSpace.take()));
+// { DomainWrite[] }
+		auto Domain = getDomainFor(MA);
 
-      MA->setNewAccessRelation(NewAccRel.take());
+	   // { DomainWrite[] -> Element[] }
+	  auto NewAccRel = give(isl_union_map_intersect_domain(WriteTarget.copy(), isl_union_set_from_set( Domain.take())));
+	  simplify(NewAccRel);
+
+	  assert(isl_union_map_n_map(NewAccRel.keep()) == 1) ;
+      MA->setNewAccessRelation(isl_map_from_union_map( NewAccRel.take()));
       SecondaryAccs.push_back(MA);
     }
 
