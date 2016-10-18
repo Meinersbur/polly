@@ -171,8 +171,8 @@ static cl::opt<bool>
                  cl::Hidden, cl::init(true), cl::cat(PollyCategory));
 static cl::opt<bool>
     EnableSimplify("polly-enable-simplify",
-                 cl::desc("Simplify SCoP after optimizations"),
-                 cl::Hidden, cl::init(true), cl::cat(PollyCategory));
+                   cl::desc("Simplify SCoP after optimizations"), cl::Hidden,
+                   cl::init(true), cl::cat(PollyCategory));
 namespace polly {
 void initializePollyPasses(PassRegistry &Registry) {
   initializeCodeGenerationPass(Registry);

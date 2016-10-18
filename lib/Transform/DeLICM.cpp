@@ -131,7 +131,6 @@ cl::opt<unsigned long>
                          "analysis; 0=no limit"),
                 cl::init(1000000), cl::cat(PollyCategory));
 
-
 STATISTIC(MappedValueScalars, "Number of mapped Value scalars");
 STATISTIC(MappedPHIScalars, "Number of mapped PHI scalars");
 STATISTIC(TargetsMapped, "Number of stores used for at least one mapping");
@@ -1146,8 +1145,8 @@ protected:
   /// { [Element[] -> DomainWrite[]] -> ValInst[] }
   IslPtr<isl_union_map> AllWriteValInst;
 
-      // { [Element[] -> DomainRead[]] -> ValInst[] }
-   IslPtr<isl_union_map > AllReadValInst ;
+  // { [Element[] -> DomainRead[]] -> ValInst[] }
+  IslPtr<isl_union_map> AllReadValInst;
 
   /// All reaching definitions for MK_Array writes.
   /// { [Element[] -> Zone[]] -> DomainWrite[] }
@@ -1315,7 +1314,8 @@ private:
       auto EltLoadValInst =
           give(isl_map_apply_domain(LoadValInst.take(), IncludeElement.take()));
 
-	     AllReadValInst = give(isl_union_map_add_map(AllReadValInst.take(), EltLoadValInst.take()));
+      AllReadValInst = give(
+          isl_union_map_add_map(AllReadValInst.take(), EltLoadValInst.take()));
     }
   }
 
@@ -1682,7 +1682,7 @@ protected:
     AllMayWrites = EmptyUnionMap;
     AllMustWrites = EmptyUnionMap;
     AllWriteValInst = EmptyUnionMap;
-	AllReadValInst = EmptyUnionMap;
+    AllReadValInst = EmptyUnionMap;
     for (auto &Stmt : *S) {
       for (auto *MA : Stmt) {
         if (!MA->isLatestArrayKind())
@@ -1726,7 +1726,7 @@ protected:
     return true;
   }
 
-    /// Print the current state of all MemoryAccesses to @p.
+  /// Print the current state of all MemoryAccesses to @p.
   void printAccesses(llvm::raw_ostream &OS, int Indent = 0) {
     OS.indent(Indent) << "After accesses {\n";
     for (auto &Stmt : *S) {
@@ -2462,7 +2462,6 @@ private:
     OS.indent(Indent) << "}\n";
   }
 
-
   /// Find the MemoryAccesses that access the ScopArrayInfo-represented memory.
   void findScalarAccesses() {
     for (auto &Stmt : *S) {
@@ -2644,18 +2643,18 @@ private:
   std::shared_ptr<isl_ctx> IslCtx;
 
   /// The pass implementation, also holding per-scop data.
-  std::unique_ptr<DeLICMImpl> ZoneComputer;
+  std::unique_ptr<DeLICMImpl> Impl;
 
   void collapseToUnused(Scop &S) {
-    ZoneComputer = make_unique<DeLICMImpl>(&S);
+    Impl = make_unique<DeLICMImpl>(&S);
 
-    if (!ZoneComputer->computeZone()) {
+    if (!Impl->computeZone()) {
       DEBUG(dbgs() << "Abort because cannot reliably compute lifetimes\n");
       return;
     }
 
     DEBUG(dbgs() << "Collapsing scalars to unused array elements...\n");
-    ZoneComputer->greedyCollapse();
+    Impl->greedyCollapse();
 
     DEBUG(dbgs() << "\nFinal Scop:\n");
     DEBUG(S.print(dbgs()));
@@ -2681,15 +2680,15 @@ public:
   }
 
   virtual void printScop(raw_ostream &OS, Scop &S) const override {
-    if (!ZoneComputer)
+    if (!Impl)
       return;
 
-    assert(ZoneComputer->getScop() == &S);
-    ZoneComputer->print(OS);
+    assert(Impl->getScop() == &S);
+    Impl->print(OS);
   }
 
   virtual void releaseMemory() override {
-    ZoneComputer.reset();
+    Impl.reset();
 
     // It is important to release the isl_ctx last, to ensure it is not free'd
     // before any other ISL object held.
@@ -2708,8 +2707,6 @@ INITIALIZE_PASS_BEGIN(DeLICM, "polly-delicm", "Polly - DeLICM/DePRE", false,
                       false)
 INITIALIZE_PASS_END(DeLICM, "polly-delicm", "Polly - DeLICM/DePRE", false,
                     false)
-
-
 
 namespace {
 /// Hold the information about a change to report with -analyze.
@@ -2737,11 +2734,12 @@ struct KnownReport {
     DEBUG(print(dbgs(), 0));
   }
 
-  void print(raw_ostream &OS, int indent = 0) const {
-    OS.indent(indent) << "MemoryAccess: " << ReadMA << "\n";
-    OS.indent(indent + 4) << "Expects   : " << RequiredValue << "\n";
-    OS.indent(indent + 4) << "Candidates: " << Candidates << "\n";
-    OS.indent(indent + 4) << "Chosen    : " << Target << "\n";
+  void print(raw_ostream &OS, int Indent = 0) const {
+    OS.indent(Indent) << "Redirect " << ReadMA << " {\n";
+    OS.indent(Indent + 4) << "Expects   : " << RequiredValue << '\n';
+    OS.indent(Indent + 4) << "Candidates: " << Candidates << '\n';
+    OS.indent(Indent + 4) << "Chosen    : " << Target << '\n';
+    OS.indent(Indent) << "}\n";
   }
 };
 
@@ -2887,7 +2885,7 @@ public:
     auto MustWriteReachDefZone = give(isl_union_map_intersect_range(
         WriteReachDefZone.copy(), isl_union_map_domain(AllMustWrites.copy())));
 
-  // { Element[] -> Zone[] }
+    // { Element[] -> Zone[] }
     auto UniverseZone = give(isl_union_map_from_domain_and_range(
         AllElements.copy(),
         isl_union_set_from_set(isl_set_universe(ScatterSpace.copy()))));
@@ -2931,7 +2929,8 @@ public:
     auto ReachReachEltDom = give(isl_union_map_curry(ReachReadDom.take()));
 
     // { [Element[] -> Zone[]]  -> ValInst[] }
-    return give(isl_union_map_apply_range(ReachReachEltDom.take(),   AllReadValInst.copy()));
+    return give(isl_union_map_apply_range(ReachReachEltDom.take(),
+                                          AllReadValInst.copy()));
   }
 
   /// If there are loads of an array element before the first write, use these
@@ -2991,28 +2990,33 @@ public:
   ///
   /// @return True if the computed #Known is usable.
   bool computeKnown() {
-    IslMaxOperationsGuard MaxOpGuard(IslCtx, KnownMaxOps);
+    IslPtr<isl_union_map> MustKnown, KnownFromLoad, KnownFromInit;
 
-    if (!computeCommon())
-      return false;
+    {
+      IslMaxOperationsGuard MaxOpGuard(IslCtx, KnownMaxOps);
 
-    // { [Element[] -> Zone[]] -> ValInst[] }
-    auto MustKnown = computeKnownFromMustWrites();
+      if (!computeCommon())
+        return false;
+
+      // { [Element[] -> Zone[]] -> ValInst[] }
+      MustKnown = computeKnownFromMustWrites();
+
+      // { [Element[] -> Zone[]] -> ValInst[] }
+      KnownFromLoad = computeKnownFromLoad();
+
+      // { [Element[] -> Zone[]] -> ValInst[] }
+      KnownFromInit = computeKnownFromInit();
+
+      // { [Element[] -> Zone[]] -> ValInst[] }
+      Known =
+          give(isl_union_map_union(KnownFromInit.take(), KnownFromLoad.take()));
+      Known = give(isl_union_map_union(Known.take(), MustKnown.take()));
+      simplify(Known);
+    }
+
     DEBUG(dbgs() << "Known from must writes: " << MustKnown << "\n");
-
-    // { [Element[] -> Zone[]] -> ValInst[] }
-    auto KnownFromLoad = computeKnownFromLoad();
     DEBUG(dbgs() << "Known from load: " << KnownFromLoad << "\n");
-
-    // { [Element[] -> Zone[]] -> ValInst[] }
-    auto KnownFromInit = computeKnownFromInit();
     DEBUG(dbgs() << "Known from init: " << KnownFromInit << "\n");
-
-    // { [Element[] -> Zone[]] -> ValInst[] }
-    Known =
-        give(isl_union_map_union(KnownFromInit.take(), KnownFromLoad.take()));
-    Known = give(isl_union_map_union(Known.take(), MustKnown.take()));
-    simplify(Known);
     DEBUG(dbgs() << "All known: " << Known << "\n");
 
     // If maxops is enabled and Known is nullptr, we exceeded the operations
@@ -3043,10 +3047,9 @@ public:
   /// the transformation.
   void print(llvm::raw_ostream &OS, int Indent = 0) {
     OS.indent(Indent) << "Known zone: " << Known << "\n";
-    OS.indent(Indent) << "Mapped knowns {\n";
-    for (auto &Report : KnownReports) {
+    OS.indent(Indent) << "Redirected knowns {\n";
+    for (auto &Report : KnownReports)
       Report.print(OS, Indent + 4);
-    }
     OS.indent(Indent) << "}\n";
     printAccesses(OS, Indent);
   }
@@ -3070,16 +3073,16 @@ private:
   std::shared_ptr<isl_ctx> IslCtx;
 
   /// The pass implementation, also holding per-scop data.
-  std::unique_ptr<KnownImpl> ZoneComputer;
+  std::unique_ptr<KnownImpl> Impl;
 
   void collapseToKnown(Scop &S) {
-    ZoneComputer = make_unique<KnownImpl>(&S);
+    Impl = make_unique<KnownImpl>(&S);
 
-    if (!ZoneComputer->computeKnown())
+    if (!Impl->computeKnown())
       return;
 
     DEBUG(dbgs() << "Collapsing scalars to known array elements...\n");
-    ZoneComputer->collapseKnown();
+    Impl->collapseKnown();
 
     DEBUG(dbgs() << "\nFinal Scop:\n");
     DEBUG(S.print(dbgs()));
@@ -3103,15 +3106,15 @@ public:
   }
 
   virtual void printScop(raw_ostream &OS, Scop &S) const override {
-    if (!ZoneComputer)
+    if (!Impl)
       return;
 
-    assert(ZoneComputer->getScop() == &S);
-    ZoneComputer->print(OS);
+    assert(Impl->getScop() == &S);
+    Impl->print(OS);
   }
 
   virtual void releaseMemory() override {
-    ZoneComputer.reset();
+    Impl.reset();
 
     // It is important to release the isl_ctx last, to ensure it is not free'd
     // before any other ISL object held.
@@ -3123,14 +3126,12 @@ public:
 char Known::ID;
 } // anonymous namespace
 
-
 Pass *polly::createKnownPass() { return new Known(); }
 
-INITIALIZE_PASS_BEGIN(Known, "polly-known", "Polly - Scalar accesses to explicit", false, false)
-INITIALIZE_PASS_END(Known, "polly-known", "Polly - Scalar accesses to explicit",  false, false)
-
-
-
+INITIALIZE_PASS_BEGIN(Known, "polly-known",
+                      "Polly - Scalar accesses to explicit", false, false)
+INITIALIZE_PASS_END(Known, "polly-known", "Polly - Scalar accesses to explicit",
+                    false, false)
 
 IslPtr<isl_union_map>
 polly::computeReachingDefinition(IslPtr<isl_union_map> Schedule,

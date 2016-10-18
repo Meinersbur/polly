@@ -22,7 +22,7 @@ class PassRegistry;
 class Pass;
 } // anonymous namespace
 namespace polly {
-	llvm::Pass *createSimplifyPass();
+llvm::Pass *createSimplifyPass();
 } // namespace polly
 namespace llvm {
 void initializeSimplifyPass(llvm::PassRegistry &);

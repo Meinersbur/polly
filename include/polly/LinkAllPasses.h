@@ -85,7 +85,7 @@ struct PollyForcePassLinking {
 #endif
     polly::createIslScheduleOptimizerPass();
     polly::createFlattenSchedulePass();
-	 polly::createKnownPass();
+    polly::createKnownPass();
     polly::createDeLICMPass();
     polly::createSimplifyPass();
   }

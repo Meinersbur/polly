@@ -216,6 +216,22 @@ def classyfier1(lines):
                 if line.lstrip().startswith('}'):
                     break
                 line = i.__next__()
+        elif line.lstrip().startswith('Known zone:'):
+            yield {'KnownZone'}
+        elif line.lstrip().startswith('Redirected knowns {'):
+            yield  {'RedirectedKnowns'}
+            while True:
+                line = i.__next__()
+                if line.lstrip().startswith('}'):
+                    yield  {'RedirectedKnowns'}
+                    break
+                if line.lstrip().startswith( 'Redirect '):
+                    yield  {'RedirectedKnowns','Redirect'}
+                    while True:
+                        line = i.__next__()
+                        yield  {'RedirectedKnowns','Redirect'}
+                        if line.lstrip().startswith('}'):
+                            break
         else:
             yield set()
         line = i.__next__()
@@ -304,7 +320,7 @@ def update_autorule(filename,outfile,known):
     elif cat[:-1] == ('DeLICM',):
         update_check_rule(filename, outfile=outfile, known=known, CheckInclude={'ScheduleAfterFlattening','OriginalKnowledge','MappedScalars','AfterKnowledge','AfterAccesses'})
     elif cat[:-1] == ('Known',):
-        update_check_rule(filename, outfile=outfile, known=known, CheckInclude={'ScheduleAfterFlattening','KnownZone','MappedKnowns','AfterStatements'})
+        update_check_rule(filename, outfile=outfile, known=known, CheckInclude={'ScheduleAfterFlattening','KnownZone','RedirectedKnowns','AfterAccesses'})
     else:
         success=False
 

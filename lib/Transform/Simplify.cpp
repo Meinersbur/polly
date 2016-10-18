@@ -1,17 +1,17 @@
 #include "polly/Simplify.h"
-#include "llvm/PassSupport.h"
-#include "llvm/IR/Value.h"
-#include "polly/Support/GICHelper.h"
-#include "llvm/Support/Debug.h"
 #include "polly/ScopInfo.h"
 #include "polly/ScopPass.h"
+#include "polly/Support/GICHelper.h"
+#include "llvm/IR/Value.h"
+#include "llvm/PassSupport.h"
+#include "llvm/Support/Debug.h"
 #define DEBUG_TYPE "polly-simplify"
 
 using namespace llvm;
 using namespace polly;
 
 namespace {
-	
+
 struct CleanupReport {
   std::string StmtBaseName;
   Value *Scalar;
@@ -37,18 +37,18 @@ struct CleanupReport {
   }
 };
 
-class Simplify :public ScopPass {
+class Simplify : public ScopPass {
 private:
-	Scop *S=nullptr;
+  Scop *S = nullptr;
   SmallVector<CleanupReport, 8> CleanupReports;
 
-  void printCleanups(llvm::raw_ostream &OS, int Indent = 0)const {
+  void printCleanups(llvm::raw_ostream &OS, int Indent = 0) const {
     OS.indent(Indent) << "Cleanups {\n";
-    for (auto &Report : CleanupReports) 
+    for (auto &Report : CleanupReports)
       Report.print(OS, Indent + 4);
     OS.indent(Indent) << "}\n";
   }
-    Value *getUniqueIncoming(MemoryAccess *MA) {
+  Value *getUniqueIncoming(MemoryAccess *MA) {
     assert(MA->isAnyPHIKind());
     assert(MA->isWrite());
 
@@ -68,7 +68,7 @@ private:
     }
     return IncomingValue;
   }
-    Value *getUsedValue(MemoryAccess *MA) {
+  Value *getUsedValue(MemoryAccess *MA) {
     if (MA->isWrite() && (MA->isValueKind() || MA->isArrayKind()))
       return MA->getAccessValue();
 
@@ -77,7 +77,7 @@ private:
 
     return nullptr;
   }
-	
+
   MemoryAccess *getReadAccessForValue(ScopStmt *Stmt, llvm::Value *Val) {
     if (!isa<Instruction>(Val))
       return nullptr;
@@ -94,11 +94,9 @@ private:
     return nullptr;
   }
 
-
-
- /// Remove load-store pairs that access the same element in the block.
+  /// Remove load-store pairs that access the same element in the block.
   void cleanup() {
-	  assert(S);
+    assert(S);
 
     SmallVector<MemoryAccess *, 8> StoresToRemove;
     for (auto &Stmt : *S) {
@@ -124,7 +122,8 @@ private:
         auto IsEqualAccRel = isl_map_is_equal(RARel.keep(), WARel.keep());
 
         if (!IsEqualAccRel) {
-          DEBUG(dbgs() << "    Not cleaning up " << WA << " because of unequal access relations:\n");
+          DEBUG(dbgs() << "    Not cleaning up " << WA
+                       << " because of unequal access relations:\n");
           DEBUG(dbgs() << "      RA: " << RARel << "\n");
           DEBUG(dbgs() << "      WA: " << WARel << "\n");
         }
@@ -136,7 +135,7 @@ private:
 
     for (auto *WA : StoresToRemove) {
       auto Stmt = WA->getStatement();
-      auto AccRel = give (WA->getAccessRelation());
+      auto AccRel = give(WA->getAccessRelation());
       auto AccVal = WA->getAccessValue();
 
       DEBUG(dbgs() << "    Cleanup of\n");
@@ -161,23 +160,19 @@ public:
   virtual bool runOnScop(Scop &S) override {
     // Free resources for previous scop's computation, if not yet done.
     releaseMemory();
-	this->S = &S;
+    this->S = &S;
 
- cleanup();
- S.simplifySCoP(true);
+    cleanup();
+    S.simplifySCoP(true);
 
     return false;
   }
 
   virtual void printScop(raw_ostream &OS, Scop &S) const override {
- printCleanups(OS);
+    printCleanups(OS);
   }
 
-  virtual void releaseMemory() override {
-
-	S = nullptr;
-  }
-
+  virtual void releaseMemory() override { S = nullptr; }
 
 }; // class Simplify
 
@@ -186,6 +181,7 @@ char Simplify::ID;
 
 Pass *polly::createSimplifyPass() { return new Simplify(); }
 
-INITIALIZE_PASS_BEGIN(Simplify, "polly-simplify", "Polly - Simplify", false, false)
-INITIALIZE_PASS_END  (Simplify, "polly-simplify", "Polly - Simplify",  false, false)
-
+INITIALIZE_PASS_BEGIN(Simplify, "polly-simplify", "Polly - Simplify", false,
+                      false)
+INITIALIZE_PASS_END(Simplify, "polly-simplify", "Polly - Simplify", false,
+                    false)
