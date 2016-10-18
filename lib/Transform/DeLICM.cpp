@@ -125,9 +125,17 @@ cl::opt<unsigned long>
                           "lifetime analysis; 0=no limit"),
                  cl::init(1000000), cl::cat(PollyCategory));
 
+cl::opt<unsigned long>
+    KnownMaxOps("polly-known-max-ops",
+                cl::desc("Maximum number of ISL operations to invest for known "
+                         "analysis; 0=no limit"),
+                cl::init(1000000), cl::cat(PollyCategory));
+
+
 STATISTIC(MappedValueScalars, "Number of mapped Value scalars");
 STATISTIC(MappedPHIScalars, "Number of mapped PHI scalars");
 STATISTIC(TargetsMapped, "Number of stores used for at least one mapping");
+STATISTIC(MappedKnown, "Number of deviated scalar loads to known content");
 
 /// Return the range elements that are lexicographically smaller.
 ///
@@ -1138,6 +1146,9 @@ protected:
   /// { [Element[] -> DomainWrite[]] -> ValInst[] }
   IslPtr<isl_union_map> AllWriteValInst;
 
+      // { [Element[] -> DomainRead[]] -> ValInst[] }
+   IslPtr<isl_union_map > AllReadValInst ;
+
   /// All reaching definitions for MK_Array writes.
   /// { [Element[] -> Zone[]] -> DomainWrite[] }
   IslPtr<isl_union_map> WriteReachDefZone;
@@ -1303,6 +1314,8 @@ private:
       // { [Element[] -> DomainRead[]] -> ValInst[] }
       auto EltLoadValInst =
           give(isl_map_apply_domain(LoadValInst.take(), IncludeElement.take()));
+
+	     AllReadValInst = give(isl_union_map_add_map(AllReadValInst.take(), EltLoadValInst.take()));
     }
   }
 
@@ -1669,6 +1682,7 @@ protected:
     AllMayWrites = EmptyUnionMap;
     AllMustWrites = EmptyUnionMap;
     AllWriteValInst = EmptyUnionMap;
+	AllReadValInst = EmptyUnionMap;
     for (auto &Stmt : *S) {
       for (auto *MA : Stmt) {
         if (!MA->isLatestArrayKind())
@@ -1710,6 +1724,17 @@ protected:
     simplify(WriteReachDefZone);
 
     return true;
+  }
+
+    /// Print the current state of all MemoryAccesses to @p.
+  void printAccesses(llvm::raw_ostream &OS, int Indent = 0) {
+    OS.indent(Indent) << "After accesses {\n";
+    for (auto &Stmt : *S) {
+      OS.indent(Indent + 4) << Stmt.getBaseName() << "\n";
+      for (auto *MA : Stmt)
+        MA->print(OS);
+    }
+    OS.indent(Indent) << "}\n";
   }
 
 public:
@@ -2437,16 +2462,6 @@ private:
     OS.indent(Indent) << "}\n";
   }
 
-  /// Print the current state of all MemoryAccesses to @p.
-  void printAccesses(llvm::raw_ostream &OS, int Indent = 0) {
-    OS.indent(Indent) << "After accesses {\n";
-    for (auto &Stmt : *S) {
-      OS.indent(Indent + 4) << Stmt.getBaseName() << "\n";
-      for (auto *MA : Stmt)
-        MA->print(OS);
-    }
-    OS.indent(Indent) << "}\n";
-  }
 
   /// Find the MemoryAccesses that access the ScopArrayInfo-represented memory.
   void findScalarAccesses() {
@@ -2693,6 +2708,429 @@ INITIALIZE_PASS_BEGIN(DeLICM, "polly-delicm", "Polly - DeLICM/DePRE", false,
                       false)
 INITIALIZE_PASS_END(DeLICM, "polly-delicm", "Polly - DeLICM/DePRE", false,
                     false)
+
+
+
+namespace {
+/// Hold the information about a change to report with -analyze.
+struct KnownReport {
+  /// The scalar READ MemoryAccess that have been changed to an MK_Array access.
+  MemoryAccess *ReadMA;
+
+  /// Array elements that store the same value when the MemoryAcceess is
+  /// executed.
+  // { Domain[] -> Element[] }
+  IslPtr<isl_union_map> Candidates;
+
+  /// The chosen array elements, one for each element execution.
+  // { Domain[] -> Element[] }
+  IslPtr<isl_map> Target;
+
+  /// Value each MemoryAccess instance expects to read, either from
+  // { Domain[] -> Value[] }
+  IslPtr<isl_map> RequiredValue;
+
+  KnownReport(MemoryAccess *ReadMA, IslPtr<isl_union_map> Candidates,
+              IslPtr<isl_map> Target, IslPtr<isl_map> RequiredValue)
+      : ReadMA(ReadMA), Candidates(std::move(Candidates)),
+        Target(std::move(Target)), RequiredValue(std::move(RequiredValue)) {
+    DEBUG(print(dbgs(), 0));
+  }
+
+  void print(raw_ostream &OS, int indent = 0) const {
+    OS.indent(indent) << "MemoryAccess: " << ReadMA << "\n";
+    OS.indent(indent + 4) << "Expects   : " << RequiredValue << "\n";
+    OS.indent(indent + 4) << "Candidates: " << Candidates << "\n";
+    OS.indent(indent + 4) << "Chosen    : " << Target << "\n";
+  }
+};
+
+/// Implements the KnownPass for a specific Scop.
+///
+/// This class is responsible for
+/// - Computing the zones of all array elements where it is known to contain a
+///   specific value.
+/// - Find MemoryAccesses that could read from an array element instead from a
+///   scalar.
+/// - Change the MemoryAccess to read from the found element instead.
+class KnownImpl : public ZoneAlgorithm {
+private:
+  /// Contains the zones where array elements are known to contain a specific
+  /// value.
+  /// { [Element[] -> Zone[]] -> ValInst[] }
+  /// @see computeKnown()
+  IslPtr<isl_union_map> Known;
+
+  /// List of redirect-scalar-access-to-known-array-element actions done.
+  /// @see collapseKnownLoad()
+  SmallVector<KnownReport, 8> KnownReports;
+
+  /// Redirect a read MemoryAccess to an array element that we have proven to
+  /// contain the same value.
+  ///
+  /// Callers are responsible to determine that this does not change the scop's
+  /// semantics.
+  ///
+  /// @param RA            The MemoryAccess to redirect.
+  /// @param Target        { Domain[] -> Element[] }
+  ///                      The array element replacement to read from. Must be
+  ///                      single-valued.
+  /// @param Candidates    { Domain[] -> Element[] }
+  ///                      Complete list of array elements that contain the same
+  ///                      value (but @p Target has been chosen). For report
+  ///                      purposes only.
+  /// @param RequiredValue { Domain[] -> ValInst[] }
+  ///                      The value @p RA is expected to load. For report
+  ///                      purposes only.
+  void collapseKnownLoad(MemoryAccess *RA, IslPtr<isl_map> Target,
+                         IslPtr<isl_union_map> Candidates,
+                         IslPtr<isl_map> RequiredValue) {
+    assert(RA->isRead());
+    assert(RA->isLatestScalarKind());
+    assert(isl_map_is_single_valued(Target.keep()));
+
+    RA->setNewAccessRelation(Target.copy());
+
+    MappedKnown++;
+    KnownReports.emplace_back(RA, std::move(Candidates), std::move(Target),
+                              std::move(RequiredValue));
+  }
+
+  /// Find array elements that contain the same value as @p RA reads and try to
+  /// redirect the scalar load to read from that array element instead.
+  void tryCollapseKnownLoad(MemoryAccess *RA) {
+    assert(RA->isLatestScalarKind());
+
+    // { DomainUser[] -> ValInst[] }
+    auto ValInst = makeValInst(RA->getAccessValue(), RA->getStatement());
+
+    // { DomainUser[] -> Scatter[] }
+    auto Sched = getScatterFor(RA);
+
+    // { Element[] -> [Zone[] -> ValInst[]] }
+    auto MustKnownCurried = give(isl_union_map_curry(Known.copy()));
+
+    // { [DomainUser[] -> ValInst[]] -> DomainUser[] }
+    auto DomValDom = give(isl_map_domain_map(ValInst.copy()));
+
+    // { [DomainUser[] -> ValInst[]] -> ValInst[] }
+    auto DomValVal = give(isl_map_range_map(ValInst.copy()));
+
+    // { [DomainUser[] -> ValInst[]] -> Scatter[] }
+    auto DomValSched =
+        give(isl_map_apply_range(DomValDom.take(), Sched.take()));
+
+    // { [Scatter[] -> ValInst[]] -> [DomainUser[] -> ValInst[]] }
+    auto SchedValDomVal = give(isl_union_map_from_map(isl_map_reverse(
+        isl_map_range_product(DomValSched.take(), DomValVal.take()))));
+
+    // { Element[] -> [DomainUser[] -> ValInst[]] }
+    // Zone[] of MustKnownCurried is reinterpreted as Scatter[]: Those instants
+    // that immediately follow an unit-zone. Scalar reads take place at the
+    // beginning of a statement's execution, meaning they read directly the
+    // value that is known in the unit-zone.
+    auto MustKnownInst = give(isl_union_map_apply_range(MustKnownCurried.take(),
+                                                        SchedValDomVal.take()));
+
+    // { DomainUser[] -> Element[] }
+    // List of array elements that do contain the same ValInst[] at when the
+    // read access takes place.
+    auto MustKnownMap = give(isl_union_map_reverse(isl_union_set_unwrap(
+        isl_union_map_domain(isl_union_map_uncurry(MustKnownInst.take())))));
+    simplify(MustKnownMap);
+
+    // MemoryAccesses can read only elements from a single array (not: { Dom[0]
+    // -> A[0]; Dom[1] -> B[1] }). Look through all arrays until we find one
+    // that contains exactly the wanted values.
+    foreachEltWithBreak(MustKnownMap, [&,
+                                       this](IslPtr<isl_map> Map) -> isl_stat {
+      // Get the array this is accessing.
+      auto ArrayId = give(isl_map_get_tuple_id(Map.keep(), isl_dim_out));
+      auto SAI = static_cast<ScopArrayInfo *>(isl_id_get_user(ArrayId.keep()));
+
+      // No support for generation of indirect array accesses.
+      if (SAI->getBasePtrOriginSAI())
+        return isl_stat_ok; // continue
+
+      // Determine whether this map contains all wanted values.
+      auto Dom = getDomainFor(RA);
+      auto MapDom = give(isl_map_domain(Map.copy()));
+      if (!isl_set_is_subset(Dom.keep(), MapDom.keep()))
+        return isl_stat_ok; // continue
+
+      // TODO: Check requirement that it maps not only to the same location,
+      // otherwise we don't gain anything; DeLICM already does this.
+
+      // There might be multiple array elements the contain the same value, but
+      // choose only one of them. lexmin is used because it returns a one-value
+      // mapping, we currently do not care about which one.
+      // TODO: Get the simplest access function.
+      auto Target = give(isl_map_lexmin(Map.take()));
+
+      // Do the transformation which we determined is valid.
+      collapseKnownLoad(RA, std::move(Target), MustKnownMap, ValInst);
+
+      // We were successful and do not need to look for more candidates.
+      return isl_stat_error; // break
+    });
+  }
+
+public:
+  KnownImpl(Scop *S) : ZoneAlgorithm(S) {}
+
+  /// A reaching definition zone is known to have the definition's written value
+  /// if the definition is a MUST_WRITE.
+  ///
+  /// @return { [Element[] -> Zone[]] -> ValInst[] }
+  IslPtr<isl_union_map> computeKnownFromMustWrites() const {
+    // { [Element[] -> Zone[]] -> DomainWrite[] }
+    auto MustWriteReachDefZone = give(isl_union_map_intersect_range(
+        WriteReachDefZone.copy(), isl_union_map_domain(AllMustWrites.copy())));
+
+  // { Element[] -> Zone[] }
+    auto UniverseZone = give(isl_union_map_from_domain_and_range(
+        AllElements.copy(),
+        isl_union_set_from_set(isl_set_universe(ScatterSpace.copy()))));
+
+    // { [Element[] -> Zone[]] -> [Element[] -> DomainWrite[]] }
+    auto MustWriteReachDefEltZone = give(isl_union_map_range_product(
+        isl_union_map_domain_map(UniverseZone.take()),
+        MustWriteReachDefZone.take()));
+
+    // { [Element[] -> Zone[]] -> ValInst[] }
+    auto MustKnown = give(isl_union_map_apply_range(
+        MustWriteReachDefEltZone.take(), AllWriteValInst.copy()));
+
+    return filterKnownValInst(std::move(MustKnown));
+  }
+
+  /// A reaching definition zone is known to be the same value as any load that
+  /// reads from that array element in that period.
+  ///
+  /// @return { [Element[] -> Zone[]] -> ValInst[] }
+  IslPtr<isl_union_map> computeKnownFromLoad() const {
+    // { [Element[] -> Zone[]] -> DomainWrite[] }
+    auto MustWriteReachDefZone = give(isl_union_map_intersect_range(
+        WriteReachDefZone.copy(), isl_union_map_domain(AllMustWrites.copy())));
+
+    // { [[Element[] -> Zone[]]  -> Element[]] -> Zone[] }
+    auto ReachReachZone = give(isl_union_map_uncurry(isl_union_map_apply_range(
+        MustWriteReachDefZone.take(),
+        isl_union_map_reverse(WriteReachDefZone.copy()))));
+
+    // { [[Element[] -> Zone[]]  -> Element[]] -> Domain[] }
+    // Reinterpretation of Scatter[] (AllReadValInst) as Zone[]: This assumes
+    // that loads take place at the beginning of an instant, therefore reads the
+    // value of the unit-zone before it.
+    // FIXME: The assumption is true for scalar accesses, but not necessarily
+    // for MK_Array accesses that we test here.
+    auto ReachReadDom = give(isl_union_map_apply_domain(
+        ReachReachZone.take(), isl_union_map_reverse(Schedule.copy())));
+
+    // { [Element[] -> Zone[]]  -> [Element[] -> Domain[]] }
+    auto ReachReachEltDom = give(isl_union_map_curry(ReachReadDom.take()));
+
+    // { [Element[] -> Zone[]]  -> ValInst[] }
+    return give(isl_union_map_apply_range(ReachReachEltDom.take(),   AllReadValInst.copy()));
+  }
+
+  /// If there are loads of an array element before the first write, use these
+  /// loaded value as known.
+  ///
+  /// @return { [Element[] -> Zone[]] -> ValInst[] }
+  IslPtr<isl_union_map> computeKnownFromInit() const {
+    // { Element[] }
+    auto NotWrittenElts =
+        give(isl_union_set_subtract(isl_union_map_range(AllReads.copy()),
+                                    isl_union_map_range(AllWrites.copy())));
+
+    // { Element[] -> Zone[] }
+    auto NeverWritten = give(isl_union_map_from_domain_and_range(
+        NotWrittenElts.take(),
+        isl_union_set_from_set(isl_set_universe(ScatterSpace.copy()))));
+
+    // { Element[] -> Scatter[] }
+    auto WriteSched = give(isl_union_map_apply_range(
+        isl_union_map_reverse(AllWrites.copy()), Schedule.copy()));
+    auto FirstWrites = give(isl_union_map_lexmin(WriteSched.take()));
+
+    // { Element[] -> Zone[] }
+    // Reinterpretation of Scatter[] as Zone[]: The unit-zone before the write
+    // instant is before the write.
+    auto BeforeFirstWrite = beforeScatter(FirstWrites, false);
+
+    // { Element[] -> Zone[] }
+    auto BeforeAnyWrite =
+        give(isl_union_map_union(BeforeFirstWrite.take(), NeverWritten.take()));
+
+    // { [Element[] -> Zone[]] -> Zone[] }
+    auto BeforeFirstWriteZone =
+        give(isl_union_map_range_map(BeforeAnyWrite.copy()));
+    // give(isl_union_map_uncurry(isl_union_map_range_product(
+    // BeforeAnyWrite.copy(), BeforeAnyWrite.copy())));
+
+    // { [Element[] -> Zone[]] -> Domain[] }
+    // Reinterpretation of Zone[] as Scatter[]: get the writes at the end of
+    // before-write zones.
+    // TODO: Might avoid the double reconversion by keeping the DomainWrite[] in
+    // FirstWrites.
+    auto BeforeFirstWriteDom = give(isl_union_map_apply_range(
+        BeforeFirstWriteZone.copy(), isl_union_map_reverse(Schedule.copy())));
+
+    // { [Element[] -> Zone[]] -> [Element[] -> Domain[]] }
+    auto BeforeFirstWriteEltDom = give(isl_union_map_range_product(
+        isl_union_map_domain_map(BeforeAnyWrite.take()),
+        BeforeFirstWriteDom.take()));
+
+    // { [Element[] -> Zone[]] -> ValInst[] }
+    return give(isl_union_map_apply_range(BeforeFirstWriteEltDom.take(),
+                                          AllReadValInst.copy()));
+  }
+
+  /// Compute the zones of known array element contents.
+  ///
+  /// @return True if the computed #Known is usable.
+  bool computeKnown() {
+    IslMaxOperationsGuard MaxOpGuard(IslCtx, KnownMaxOps);
+
+    if (!computeCommon())
+      return false;
+
+    // { [Element[] -> Zone[]] -> ValInst[] }
+    auto MustKnown = computeKnownFromMustWrites();
+    DEBUG(dbgs() << "Known from must writes: " << MustKnown << "\n");
+
+    // { [Element[] -> Zone[]] -> ValInst[] }
+    auto KnownFromLoad = computeKnownFromLoad();
+    DEBUG(dbgs() << "Known from load: " << KnownFromLoad << "\n");
+
+    // { [Element[] -> Zone[]] -> ValInst[] }
+    auto KnownFromInit = computeKnownFromInit();
+    DEBUG(dbgs() << "Known from init: " << KnownFromInit << "\n");
+
+    // { [Element[] -> Zone[]] -> ValInst[] }
+    Known =
+        give(isl_union_map_union(KnownFromInit.take(), KnownFromLoad.take()));
+    Known = give(isl_union_map_union(Known.take(), MustKnown.take()));
+    simplify(Known);
+    DEBUG(dbgs() << "All known: " << Known << "\n");
+
+    // If maxops is enabled and Known is nullptr, we exceeded the operations
+    // limit somewhere during the computation.
+    return KnownMaxOps == 0 || !!Known;
+  }
+
+  /// Try to redirect all scalar reads in the scop that to array elements that
+  /// contain the same value.
+  void collapseKnown() {
+    assert(Known);
+
+    for (auto &Stmt : *S) {
+      for (auto *MA : Stmt) {
+        if (!MA->isLatestScalarKind())
+          continue;
+
+        if (!MA->isRead())
+          continue;
+
+        DEBUG(dbgs() << "Trying to collapse " << MA << "\n");
+        tryCollapseKnownLoad(MA);
+      }
+    }
+  }
+
+  /// Print the analysis result, performed transformations and the scop after
+  /// the transformation.
+  void print(llvm::raw_ostream &OS, int Indent = 0) {
+    OS.indent(Indent) << "Known zone: " << Known << "\n";
+    OS.indent(Indent) << "Mapped knowns {\n";
+    for (auto &Report : KnownReports) {
+      Report.print(OS, Indent + 4);
+    }
+    OS.indent(Indent) << "}\n";
+    printAccesses(OS, Indent);
+  }
+};
+
+/// Pass that redirects scalar reads to array elements that are known to contain
+/// the same value.
+///
+/// This reduces the number of scalar accesses and therefore potentially
+/// increased the freedom of the scheduler. In the ideal case, all reads of a
+/// scalar definition are redirected (We currently do not care about removing
+/// the write in this case).  This is also useful for the main DeLICM pass as
+/// there are less scalars to be mapped.
+class Known : public ScopPass {
+private:
+  Known(const Known &) = delete;
+  const Known &operator=(const Known &) = delete;
+
+  /// Hold a reference to the isl_ctx to avoid it being freed before we released
+  /// all of the ISL objects.
+  std::shared_ptr<isl_ctx> IslCtx;
+
+  /// The pass implementation, also holding per-scop data.
+  std::unique_ptr<KnownImpl> ZoneComputer;
+
+  void collapseToKnown(Scop &S) {
+    ZoneComputer = make_unique<KnownImpl>(&S);
+
+    if (!ZoneComputer->computeKnown())
+      return;
+
+    DEBUG(dbgs() << "Collapsing scalars to known array elements...\n");
+    ZoneComputer->collapseKnown();
+
+    DEBUG(dbgs() << "\nFinal Scop:\n");
+    DEBUG(S.print(dbgs()));
+  }
+
+public:
+  static char ID;
+  explicit Known() : ScopPass(ID) {}
+  virtual void getAnalysisUsage(AnalysisUsage &AU) const override {
+    AU.addRequiredTransitive<ScopInfoRegionPass>();
+    AU.setPreservesAll();
+  }
+  virtual bool runOnScop(Scop &S) override {
+    // Free resources for previous scop's computation, if not yet done.
+    releaseMemory();
+
+    IslCtx = S.getSharedIslCtx();
+    collapseToKnown(S);
+
+    return false;
+  }
+
+  virtual void printScop(raw_ostream &OS, Scop &S) const override {
+    if (!ZoneComputer)
+      return;
+
+    assert(ZoneComputer->getScop() == &S);
+    ZoneComputer->print(OS);
+  }
+
+  virtual void releaseMemory() override {
+    ZoneComputer.reset();
+
+    // It is important to release the isl_ctx last, to ensure it is not free'd
+    // before any other ISL object held.
+    IslCtx.reset();
+  }
+
+}; // class Known
+
+char Known::ID;
+} // anonymous namespace
+
+
+Pass *polly::createKnownPass() { return new Known(); }
+
+INITIALIZE_PASS_BEGIN(Known, "polly-known", "Polly - Scalar accesses to explicit", false, false)
+INITIALIZE_PASS_END(Known, "polly-known", "Polly - Scalar accesses to explicit",  false, false)
+
+
+
 
 IslPtr<isl_union_map>
 polly::computeReachingDefinition(IslPtr<isl_union_map> Schedule,

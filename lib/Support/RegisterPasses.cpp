@@ -160,11 +160,19 @@ static cl::opt<bool>
                          cl::desc("Enable polyhedral interface of Polly"),
                          cl::Hidden, cl::init(false), cl::cat(PollyCategory));
 
+static cl::opt<bool> EnableKnown(
+    "polly-enable-known",
+    cl::desc("Use scalar-to-array access conversion using known array content"),
+    cl::Hidden, cl::init(true), cl::cat(PollyCategory));
+
 static cl::opt<bool>
     EnableDeLICM("polly-enable-delicm",
                  cl::desc("Eliminate scalar loop carried dependences"),
                  cl::Hidden, cl::init(true), cl::cat(PollyCategory));
-
+static cl::opt<bool>
+    EnableSimplify("polly-enable-simplify",
+                 cl::desc("Simplify SCoP after optimizations"),
+                 cl::Hidden, cl::init(true), cl::cat(PollyCategory));
 namespace polly {
 void initializePollyPasses(PassRegistry &Registry) {
   initializeCodeGenerationPass(Registry);
@@ -187,7 +195,9 @@ void initializePollyPasses(PassRegistry &Registry) {
   initializeScopInfoWrapperPassPass(Registry);
   initializeCodegenCleanupPass(Registry);
   initializeFlattenSchedulePass(Registry);
+  initializeKnownPass(Registry);
   initializeDeLICMPass(Registry);
+  initializeSimplifyPass(Registry);
 }
 
 /// Register Polly passes such that they form a polyhedral optimizer.
@@ -235,8 +245,12 @@ void registerPollyPasses(llvm::legacy::PassManagerBase &PM) {
   if (EnablePolyhedralInfo)
     PM.add(polly::createPolyhedralInfoPass());
 
+  if (EnableKnown)
+    PM.add(polly::createKnownPass());
   if (EnableDeLICM)
     PM.add(polly::createDeLICMPass());
+  if (EnableSimplify)
+    PM.add(polly::createSimplifyPass());
 
   if (ImportJScop)
     PM.add(polly::createJSONImporterPass());

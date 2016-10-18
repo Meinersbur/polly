@@ -58,6 +58,7 @@ add_polly_library(Polly
   Transform/FlattenSchedule.cpp
   Transform/FlattenAlgo.cpp
   Transform/DeLICM.cpp
+  Transform/Simplify.cpp
   ${POLLY_HEADER_FILES}
   )
 

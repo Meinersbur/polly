@@ -235,6 +235,12 @@ Value *BlockGenerator::generateArrayLoad(ScopStmt &Stmt, LoadInst *Load,
   if (Value *PreloadLoad = GlobalMap.lookup(Load))
     return PreloadLoad;
 
+  // If there is no MemoryAccess for this load, the load has been identified
+  // as redundant by DeLICM or SCoP-invariant load hoisting. If the latter, the
+  // value should have been found in the GlobalMap.
+  if (!Stmt.getArrayAccessOrNULLFor(Load))
+    return UndefValue::get(Load->getType());
+
   Value *NewPointer =
       generateLocationAccessed(Stmt, Load, BBMap, LTS, NewAccesses);
   Value *ScalarLoad = Builder.CreateAlignedLoad(
@@ -289,6 +295,11 @@ void BlockGenerator::copyInstruction(ScopStmt &Stmt, Instruction *Inst,
   }
 
   if (auto *Store = dyn_cast<StoreInst>(Inst)) {
+    // If there is no MemoryAccess for this store, it has been identified as
+    // redundant.
+    if (!Stmt.getArrayAccessOrNULLFor(Store))
+      return;
+
     generateArrayStore(Stmt, Store, BBMap, LTS, NewAccesses);
     return;
   }
@@ -1018,6 +1029,10 @@ void VectorBlockGenerator::copyInstruction(
 
   if (hasVectorOperands(Inst, VectorMap)) {
     if (auto *Store = dyn_cast<StoreInst>(Inst)) {
+      // Identified as redundant by DeLICM.
+      if (!Stmt.getArrayAccessOrNULLFor(Store))
+        return;
+
       copyStore(Stmt, Store, VectorMap, ScalarMaps, NewAccesses);
       return;
     }
