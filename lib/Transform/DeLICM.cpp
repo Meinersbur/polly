@@ -1727,7 +1727,7 @@ protected:
   }
 
   /// Print the current state of all MemoryAccesses to @p.
-  void printAccesses(llvm::raw_ostream &OS, int Indent = 0) {
+  void printAccesses(llvm::raw_ostream &OS, int Indent = 0) const {
     OS.indent(Indent) << "After accesses {\n";
     for (auto &Stmt : *S) {
       OS.indent(Indent + 4) << Stmt.getBaseName() << "\n";

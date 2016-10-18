@@ -226,10 +226,24 @@ def classyfier1(lines):
                     yield  {'RedirectedKnowns'}
                     break
                 if line.lstrip().startswith( 'Redirect '):
-                    yield  {'RedirectedKnowns','Redirect'}
+                    yield  {'RedirectedKnowns', 'Redirect'}
                     while True:
                         line = i.__next__()
                         yield  {'RedirectedKnowns','Redirect'}
+                        if line.lstrip().startswith('}'):
+                            break
+        elif line.lstrip().startswith('Cleanups {'):
+            yield  {'Cleanups'}
+            while True:
+                line = i.__next__()
+                if line.lstrip().startswith('}'):
+                    yield  {'Cleanups'}
+                    break
+                if line.lstrip().startswith( 'Cleanup {'):
+                    yield  {'Cleanups', 'Cleanup'}
+                    while True:
+                        line = i.__next__()
+                        yield  {'Cleanups','Cleanup'}
                         if line.lstrip().startswith('}'):
                             break
         else:
@@ -321,6 +335,8 @@ def update_autorule(filename,outfile,known):
         update_check_rule(filename, outfile=outfile, known=known, CheckInclude={'ScheduleAfterFlattening','OriginalKnowledge','MappedScalars','AfterKnowledge','AfterAccesses'})
     elif cat[:-1] == ('Known',):
         update_check_rule(filename, outfile=outfile, known=known, CheckInclude={'ScheduleAfterFlattening','KnownZone','RedirectedKnowns','AfterAccesses'})
+    elif cat[:-1] == ('Simplify',):
+        update_check_rule(filename, outfile=outfile, known=known, CheckInclude={'Cleanups','AfterAccesses'})
     else:
         success=False
 

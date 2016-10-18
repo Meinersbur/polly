@@ -29,17 +29,24 @@ struct CleanupReport {
     That.AccRel = nullptr;
   }
 
-  void print(llvm::raw_ostream &OS, int indent = 0) const {
-    OS.indent(indent) << "Cleanup:\n";
-    OS.indent(indent + 4) << "Stmt: " << StmtBaseName << "\n";
-    OS.indent(indent + 4) << "Scalar: " << *Scalar << "\n";
-    OS.indent(indent + 4) << "AccRel: " << AccRel << "\n";
+  void print(llvm::raw_ostream &OS, int Indent = 0) const {
+    OS.indent(Indent) << "Cleanup {\n";
+    OS.indent(Indent + 4) << "Stmt: " << StmtBaseName << "\n";
+    if (Scalar)
+      OS.indent(Indent + 4) << "Scalar: " << *Scalar << "\n";
+    OS.indent(Indent + 4) << "AccRel: " << AccRel << "\n";
+    OS.indent(Indent) << "}\n";
   }
 };
 
 class Simplify : public ScopPass {
 private:
   Scop *S = nullptr;
+
+  /// Hold a reference to the isl_ctx to avoid it being freed before we released
+  /// all of the ISL objects.
+  std::shared_ptr<isl_ctx> IslCtx;
+
   SmallVector<CleanupReport, 8> CleanupReports;
 
   void printCleanups(llvm::raw_ostream &OS, int Indent = 0) const {
@@ -150,30 +157,54 @@ private:
     }
   }
 
+  /// Print the current state of all MemoryAccesses to @p.
+  void printAccesses(llvm::raw_ostream &OS, int Indent = 0) const {
+    OS.indent(Indent) << "After accesses {\n";
+    for (auto &Stmt : *S) {
+      OS.indent(Indent + 4) << Stmt.getBaseName() << "\n";
+      for (auto *MA : Stmt)
+        MA->print(OS);
+    }
+    OS.indent(Indent) << "}\n";
+  }
+
 public:
   static char ID;
   explicit Simplify() : ScopPass(ID) {}
+
   virtual void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequiredTransitive<ScopInfoRegionPass>();
     AU.setPreservesAll();
   }
+
   virtual bool runOnScop(Scop &S) override {
     // Free resources for previous scop's computation, if not yet done.
     releaseMemory();
     this->S = &S;
+    IslCtx = S.getSharedIslCtx();
 
+    DEBUG(dbgs() << "Cleaning up...\n");
     cleanup();
+
+    DEBUG(dbgs() << "Removing statements...\n");
     S.simplifySCoP(true);
+
+    DEBUG(dbgs() << "\nFinal Scop:\n");
+    DEBUG(S.print(dbgs()));
 
     return false;
   }
 
   virtual void printScop(raw_ostream &OS, Scop &S) const override {
     printCleanups(OS);
+    printAccesses(OS);
   }
 
-  virtual void releaseMemory() override { S = nullptr; }
-
+  virtual void releaseMemory() override {
+    S = nullptr;
+    CleanupReports.clear();
+    IslCtx.reset();
+  }
 }; // class Simplify
 
 char Simplify::ID;
