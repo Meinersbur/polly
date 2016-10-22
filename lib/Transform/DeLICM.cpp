@@ -3092,6 +3092,7 @@ public:
   static char ID;
   explicit Known() : ScopPass(ID) {}
   virtual void getAnalysisUsage(AnalysisUsage &AU) const override {
+	  // TODO: preserve only ScopInfo and dependencies
     AU.addRequiredTransitive<ScopInfoRegionPass>();
     AU.setPreservesAll();
   }
@@ -3128,6 +3129,7 @@ char Known::ID;
 
 Pass *polly::createKnownPass() { return new Known(); }
 
+// TODO: use llvm::RegisterPass
 INITIALIZE_PASS_BEGIN(Known, "polly-known",
                       "Polly - Scalar accesses to explicit", false, false)
 INITIALIZE_PASS_END(Known, "polly-known", "Polly - Scalar accesses to explicit",

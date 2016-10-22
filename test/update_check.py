@@ -529,7 +529,7 @@ def update_check(filename,outfile,known,CheckInclude,CheckLabelInclude):
             firstnoncommentline = i
             break
 
-    with open(outfile,'w',newline='') as file:
+    with open(outfile, 'w', newline='') as file:
         def writelines(lines):
             for line in lines:
                 file.write(line)
