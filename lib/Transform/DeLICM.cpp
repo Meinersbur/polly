@@ -3092,7 +3092,7 @@ public:
   static char ID;
   explicit Known() : ScopPass(ID) {}
   virtual void getAnalysisUsage(AnalysisUsage &AU) const override {
-	  // TODO: preserve only ScopInfo and dependencies
+    // TODO: preserve only ScopInfo and dependencies
     AU.addRequiredTransitive<ScopInfoRegionPass>();
     AU.setPreservesAll();
   }
