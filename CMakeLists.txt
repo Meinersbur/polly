@@ -158,6 +158,9 @@ include_directories(
   ${CMAKE_CURRENT_BINARY_DIR}/include
   )
 
+# Allow getting stats
+add_definitions(-DLLVM_ENABLE_STATS)
+
 if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
   install(DIRECTORY include/
     DESTINATION include
