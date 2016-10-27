@@ -131,10 +131,21 @@ cl::opt<unsigned long>
                          "analysis; 0=no limit"),
                 cl::init(1000000), cl::cat(PollyCategory));
 
+STATISTIC(DeLICMAnalyzed, "Number of successfully analyzed SCoPs for DeLICM");
+STATISTIC(DeLICMOutOfQuota,
+          "DeLICM-analyses aborted because max_operations was reached");
+STATISTIC(DeLICMIncompatible, "SCoP is incompatible for DeLICM analysis");
 STATISTIC(MappedValueScalars, "Number of mapped Value scalars");
 STATISTIC(MappedPHIScalars, "Number of mapped PHI scalars");
 STATISTIC(TargetsMapped, "Number of stores used for at least one mapping");
+STATISTIC(DeLICMScopsModified, "Number of SCoPs optimized by DeLICM");
+
+STATISTIC(KnownAnalyzed, "Number of successfully analyzed SCoPs for Known");
+STATISTIC(KnownOutOfQuota,
+          "Known-analyses aborted because max_operations was reached");
+STATISTIC(KnownIncompatible, "SCoP is incompatible for Known-analysis");
 STATISTIC(MappedKnown, "Number of deviated scalar loads to known content");
+STATISTIC(KnownScopsModified, "Number of SCoPs optimized by Known");
 
 /// Return the range elements that are lexicographically smaller.
 ///
@@ -2341,7 +2352,7 @@ private:
   /// There is currently no preference in which order scalars are being tried.
   /// Ideally, we would direct it towards a load instruction of the same array
   /// element.
-  void collapseScalarsToStore(MemoryAccess *TargetStoreMA) {
+  bool collapseScalarsToStore(MemoryAccess *TargetStoreMA) {
     assert(TargetStoreMA->isLatestArrayKind());
     assert(TargetStoreMA->isMustWrite());
 
@@ -2438,6 +2449,7 @@ private:
 
     if (AnyMapped)
       TargetsMapped++;
+    return AnyMapped;
   }
 
   /// Print the knowledge before any transformation has been applied to @p OS.
@@ -2566,8 +2578,10 @@ public:
     {
       IslMaxOperationsGuard MaxOpGuard(IslCtx, DelicmMaxOps);
 
-      if (!computeCommon())
+      if (!computeCommon()) {
+        DeLICMIncompatible++;
         return false;
+      }
 
       findScalarAccesses();
 
@@ -2575,9 +2589,12 @@ public:
       EltWritten = computeWritten();
     }
 
-    if (isl_ctx_last_error(IslCtx) == isl_error_quota)
+    if (isl_ctx_last_error(IslCtx) == isl_error_quota) {
+      DeLICMOutOfQuota++;
       DEBUG(dbgs() << "DeLICM analysis exceeded max_operations\n");
+    }
 
+    DeLICMAnalyzed++;
     OriginalZone =
         Knowledge(std::move(EltLifetime), true, std::move(EltWritten));
     DEBUG(dbgs() << "Computed Zone:\n"; OriginalZone.print(dbgs(), 4));
@@ -2593,6 +2610,8 @@ public:
   /// zones, but we can only chose one. This is a greedy algorithm, therefore
   /// the first processed will claim it.
   void greedyCollapse() {
+    bool Modified = false;
+
     for (auto &Stmt : *S) {
       for (auto *MA : Stmt) {
         if (!MA->isLatestArrayKind())
@@ -2619,9 +2638,13 @@ public:
         }
 
         DEBUG(dbgs() << "Analyzing target access " << MA << "\n");
-        collapseScalarsToStore(MA);
+        if (collapseScalarsToStore(MA))
+          Modified = true;
       }
     }
+
+    if (Modified)
+      DeLICMScopsModified++;
   }
 
   /// Dump the internal information about a performed DeLICM to @p OS.
@@ -2796,7 +2819,7 @@ private:
 
   /// Find array elements that contain the same value as @p RA reads and try to
   /// redirect the scalar load to read from that array element instead.
-  void tryCollapseKnownLoad(MemoryAccess *RA) {
+  bool tryCollapseKnownLoad(MemoryAccess *RA) {
     assert(RA->isLatestScalarKind());
 
     // { DomainUser[] -> ValInst[] }
@@ -2837,6 +2860,8 @@ private:
         isl_union_map_domain(isl_union_map_uncurry(MustKnownInst.take())))));
     simplify(MustKnownMap);
 
+    bool Modified = false;
+
     // MemoryAccesses can read only elements from a single array (not: { Dom[0]
     // -> A[0]; Dom[1] -> B[1] }). Look through all arrays until we find one
     // that contains exactly the wanted values.
@@ -2869,8 +2894,11 @@ private:
       collapseKnownLoad(RA, std::move(Target), MustKnownMap, ValInst);
 
       // We were successful and do not need to look for more candidates.
+      Modified = true;
       return isl_stat_error; // break
     });
+
+    return Modified;
   }
 
 public:
@@ -2995,8 +3023,10 @@ public:
     {
       IslMaxOperationsGuard MaxOpGuard(IslCtx, KnownMaxOps);
 
-      if (!computeCommon())
+      if (!computeCommon()) {
+        KnownIncompatible++;
         return false;
+      }
 
       // { [Element[] -> Zone[]] -> ValInst[] }
       MustKnown = computeKnownFromMustWrites();
@@ -3014,6 +3044,13 @@ public:
       simplify(Known);
     }
 
+    if (isl_ctx_last_error(IslCtx) == isl_error_quota) {
+      KnownOutOfQuota++;
+      DEBUG(dbgs() << "DeLICM analysis exceeded max_operations\n");
+      return false;
+    }
+
+    KnownAnalyzed++;
     DEBUG(dbgs() << "Known from must writes: " << MustKnown << "\n");
     DEBUG(dbgs() << "Known from load: " << KnownFromLoad << "\n");
     DEBUG(dbgs() << "Known from init: " << KnownFromInit << "\n");
@@ -3029,6 +3066,8 @@ public:
   void collapseKnown() {
     assert(Known);
 
+    bool Modified = false;
+
     for (auto &Stmt : *S) {
       for (auto *MA : Stmt) {
         if (!MA->isLatestScalarKind())
@@ -3038,9 +3077,13 @@ public:
           continue;
 
         DEBUG(dbgs() << "Trying to collapse " << MA << "\n");
-        tryCollapseKnownLoad(MA);
+        if (tryCollapseKnownLoad(MA))
+          Modified = true;
       }
     }
+
+    if (Modified)
+      KnownScopsModified++;
   }
 
   /// Print the analysis result, performed transformations and the scop after

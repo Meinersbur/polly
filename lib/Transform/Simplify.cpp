@@ -2,6 +2,7 @@
 #include "polly/ScopInfo.h"
 #include "polly/ScopPass.h"
 #include "polly/Support/GICHelper.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/IR/Value.h"
 #include "llvm/PassSupport.h"
 #include "llvm/Support/Debug.h"
@@ -11,6 +12,11 @@ using namespace llvm;
 using namespace polly;
 
 namespace {
+
+STATISTIC(Processed, "Number of SCoPs processed");
+STATISTIC(PairsCleaned, "Number of Load-Store pairs cleaned");
+STATISTIC(StmtsRemoved, "Number of statements removed");
+STATISTIC(Modified, "Number of SCoPs modified");
 
 struct CleanupReport {
   std::string StmtBaseName;
@@ -102,8 +108,9 @@ private:
   }
 
   /// Remove load-store pairs that access the same element in the block.
-  void cleanup() {
+  bool cleanup() {
     assert(S);
+    bool Modified = false;
 
     SmallVector<MemoryAccess *, 8> StoresToRemove;
     for (auto &Stmt : *S) {
@@ -154,7 +161,10 @@ private:
 
       Stmt->removeSingleMemoryAccess(WA);
       // TODO: Also remove read accesses when not used anymore
+      PairsCleaned++;
+      Modified = true;
     }
+    return Modified;
   }
 
   /// Print the current state of all MemoryAccesses to @p.
@@ -182,12 +192,20 @@ public:
     releaseMemory();
     this->S = &S;
     IslCtx = S.getSharedIslCtx();
+    Processed++;
 
     DEBUG(dbgs() << "Cleaning up...\n");
-    cleanup();
+    auto Modified = cleanup();
 
     DEBUG(dbgs() << "Removing statements...\n");
+    auto NumStmtsBefore = S.getSize();
     S.simplifySCoP(true);
+    auto NumRemoved = NumStmtsBefore - S.getSize();
+    assert(NumRemoved >= 0);
+    StmtsRemoved += NumRemoved;
+
+    if (Modified || NumRemoved)
+      Modified++;
 
     DEBUG(dbgs() << "\nFinal Scop:\n");
     DEBUG(S.print(dbgs()));
