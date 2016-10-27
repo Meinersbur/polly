@@ -131,21 +131,25 @@ cl::opt<unsigned long>
                          "analysis; 0=no limit"),
                 cl::init(1000000), cl::cat(PollyCategory));
 
-STATISTIC(DeLICMAnalyzed, "Number of successfully analyzed SCoPs for DeLICM");
-STATISTIC(DeLICMOutOfQuota,
-          "DeLICM-analyses aborted because max_operations was reached");
-STATISTIC(DeLICMIncompatible, "SCoP is incompatible for DeLICM analysis");
+STATISTIC(DeLICMAnalyzed, "Number of successfully analyzed SCoPs");
+STATISTIC(DeLICMOutOfQuota, "Analyses aborted because max_operations was reached");
+STATISTIC(DeLICMIncompatible, "Number of SCoPs incompatible for analysis");
 STATISTIC(MappedValueScalars, "Number of mapped Value scalars");
 STATISTIC(MappedPHIScalars, "Number of mapped PHI scalars");
 STATISTIC(TargetsMapped, "Number of stores used for at least one mapping");
-STATISTIC(DeLICMScopsModified, "Number of SCoPs optimized by DeLICM");
+STATISTIC(DeLICMScopsModified, "Number of SCoPs optimized");
 
-STATISTIC(KnownAnalyzed, "Number of successfully analyzed SCoPs for Known");
-STATISTIC(KnownOutOfQuota,
-          "Known-analyses aborted because max_operations was reached");
-STATISTIC(KnownIncompatible, "SCoP is incompatible for Known-analysis");
+#undef DEBUG_TYPE
+#define DEBUG_TYPE "polly-known"
+
+STATISTIC(KnownAnalyzed, "Number of successfully analyzed SCoPs");
+STATISTIC(KnownOutOfQuota, "Analyses aborted because max_operations was reached");
+STATISTIC(KnownIncompatible, "Number of SCoPs incompatible for analysis");
 STATISTIC(MappedKnown, "Number of deviated scalar loads to known content");
-STATISTIC(KnownScopsModified, "Number of SCoPs optimized by Known");
+STATISTIC(KnownScopsModified, "Number of SCoPs optimized");
+
+#undef DEBUG_TYPE
+#define DEBUG_TYPE "polly-delicm"
 
 /// Return the range elements that are lexicographically smaller.
 ///

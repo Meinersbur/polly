@@ -13,10 +13,10 @@ using namespace polly;
 
 namespace {
 
-STATISTIC(Processed, "Number of SCoPs processed");
+STATISTIC(ScopsProcessed, "Number of SCoPs processed");
 STATISTIC(PairsCleaned, "Number of Load-Store pairs cleaned");
 STATISTIC(StmtsRemoved, "Number of statements removed");
-STATISTIC(Modified, "Number of SCoPs modified");
+STATISTIC(ScopsModified, "Number of SCoPs modified");
 
 struct CleanupReport {
   std::string StmtBaseName;
@@ -192,7 +192,7 @@ public:
     releaseMemory();
     this->S = &S;
     IslCtx = S.getSharedIslCtx();
-    Processed++;
+    ScopsProcessed++;
 
     DEBUG(dbgs() << "Cleaning up...\n");
     auto Modified = cleanup();
@@ -200,12 +200,12 @@ public:
     DEBUG(dbgs() << "Removing statements...\n");
     auto NumStmtsBefore = S.getSize();
     S.simplifySCoP(true);
+    assert(NumStmtsBefore >= S.getSize());
     auto NumRemoved = NumStmtsBefore - S.getSize();
-    assert(NumRemoved >= 0);
     StmtsRemoved += NumRemoved;
 
     if (Modified || NumRemoved)
-      Modified++;
+      ScopsModified++;
 
     DEBUG(dbgs() << "\nFinal Scop:\n");
     DEBUG(S.print(dbgs()));
