@@ -158,6 +158,9 @@ include_directories(
   ${CMAKE_CURRENT_BINARY_DIR}/include
   )
 
+# Unconditionally get stats for Polly
+add_definitions(-DLLVM_ENABLE_STATS)
+
 if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
   install(DIRECTORY include/
     DESTINATION include
