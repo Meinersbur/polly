@@ -132,7 +132,8 @@ cl::opt<unsigned long>
                 cl::init(1000000), cl::cat(PollyCategory));
 
 STATISTIC(DeLICMAnalyzed, "Number of successfully analyzed SCoPs");
-STATISTIC(DeLICMOutOfQuota, "Analyses aborted because max_operations was reached");
+STATISTIC(DeLICMOutOfQuota,
+          "Analyses aborted because max_operations was reached");
 STATISTIC(DeLICMIncompatible, "Number of SCoPs incompatible for analysis");
 STATISTIC(MappedValueScalars, "Number of mapped Value scalars");
 STATISTIC(MappedPHIScalars, "Number of mapped PHI scalars");
@@ -143,7 +144,8 @@ STATISTIC(DeLICMScopsModified, "Number of SCoPs optimized");
 #define DEBUG_TYPE "polly-known"
 
 STATISTIC(KnownAnalyzed, "Number of successfully analyzed SCoPs");
-STATISTIC(KnownOutOfQuota, "Analyses aborted because max_operations was reached");
+STATISTIC(KnownOutOfQuota,
+          "Analyses aborted because max_operations was reached");
 STATISTIC(KnownIncompatible, "Number of SCoPs incompatible for analysis");
 STATISTIC(MappedKnown, "Number of deviated scalar loads to known content");
 STATISTIC(KnownScopsModified, "Number of SCoPs optimized");
@@ -958,8 +960,8 @@ public:
     // 6a) Written Known vs Known, 6b) Known vs Written Known that do not write
     //     the same llvm::Value instance
     // 7) Written Known/Unknown vs Written Known/Unknown, where the first writes
-    //    to the same location and at the same timepoint as the latter
-    // TODO: Exception to 7) if the same value is written.
+    //    different values to the same location and at the same timepoint as the
+    //    latter.
 
     // Check 1) and 2a)
     auto ExistingUndef = getUndefValInstDomain(Existing.Lifetime);
@@ -1076,21 +1078,33 @@ public:
         give(isl_union_map_domain(Existing.Written.copy()));
     auto ProposedWrittenDomain =
         give(isl_union_map_domain(Proposed.Written.copy()));
-    if (!isl_union_set_is_disjoint(ExistingWrittenDomain.keep(),
-                                   ProposedWrittenDomain.keep())) {
+    auto WriteOverlap = give(isl_union_set_intersect(
+        ExistingWrittenDomain.copy(), ProposedWrittenDomain.copy()));
+    auto ExistingOverlapOverwrite = give(isl_union_map_intersect_domain(
+        Existing.Written.copy(), WriteOverlap.copy()));
+    auto ProposedOverlapOverwrite = give(isl_union_map_intersect_domain(
+        Proposed.Written.copy(), WriteOverlap.copy()));
+
+    if (!isl_union_map_is_equal(ExistingOverlapOverwrite.keep(),
+                                ProposedOverlapOverwrite.keep())) {
       if (OS) {
         OS->indent(Indent)
             << "Conflict because of existing/proposed undefined write order\n";
-        auto Overlap = give(isl_union_set_intersect(
-            ExistingWrittenDomain.take(), ProposedWrittenDomain.take()));
-        auto ExistingOverwrite = give(isl_union_map_intersect_domain(
-            Existing.Written.copy(), Overlap.copy()));
-        auto ProposedOverwrite = give(isl_union_map_intersect_domain(
-            Proposed.Written.copy(), Overlap.take()));
+        // Note that if eg. Existing writes two values, one of which is also
+        // written by Proposed, that value is removed from
+        // ExistingConflictingOverwrite, st. it seems the value in Proposed does
+        // not conflict with anything. The isl_union_map_is_equal above still
+        // fails (and has to!)
+        auto ExistingConflictingOverwrite = isl_union_map_subtract(
+            ExistingOverlapOverwrite.copy(), ProposedOverlapOverwrite.copy());
+        auto ProposedConflictingOverwrite = isl_union_map_subtract(
+            ProposedOverlapOverwrite.copy(), ExistingOverlapOverwrite.copy());
         OS->indent(Indent + 2)
-            << "Existing wants to write: " << ExistingOverwrite << '\n';
+            << "Existing wants to write: " << ExistingConflictingOverwrite
+            << '\n';
         OS->indent(Indent + 2)
-            << "Proposed wants to write: " << ProposedOverwrite << '\n';
+            << "Proposed wants to write: " << ProposedConflictingOverwrite
+            << '\n';
       }
       return true;
     }
@@ -2434,7 +2448,8 @@ private:
 
       // Try to map MK_Value scalars.
       if (SAI->isValueKind() && tryMapValue(SAI, EltTarget)) {
-        ProcessAllIncoming(MA->getStatement());
+        auto *DefAcc = ValueDefAccs.lookup(SAI);
+        ProcessAllIncoming(DefAcc->getStatement());
 
         AnyMapped = true;
         continue;

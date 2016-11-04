@@ -15,6 +15,8 @@ namespace {
 
 STATISTIC(ScopsProcessed, "Number of SCoPs processed");
 STATISTIC(PairsCleaned, "Number of Load-Store pairs cleaned");
+STATISTIC(PairUnequalAccRels, "Number of Load-Store pairs NOT cleaned because "
+                              "of different access relations");
 STATISTIC(StmtsRemoved, "Number of statements removed");
 STATISTIC(ScopsModified, "Number of SCoPs modified");
 
@@ -131,19 +133,25 @@ private:
           continue;
 
         auto WARel = give(WA->getLatestAccessRelation());
+        WARel = give(isl_map_intersect_domain(WARel.take(),
+                                              WA->getStatement()->getDomain()));
+        WARel = give(isl_map_intersect_params(WARel.take(), S->getContext()));
         auto RARel = give(RA->getLatestAccessRelation());
+        RARel = give(isl_map_intersect_domain(RARel.take(),
+                                              RA->getStatement()->getDomain()));
+        RARel = give(isl_map_intersect_params(RARel.take(), S->getContext()));
 
         auto IsEqualAccRel = isl_map_is_equal(RARel.keep(), WARel.keep());
-
         if (!IsEqualAccRel) {
+          PairUnequalAccRels++;
           DEBUG(dbgs() << "    Not cleaning up " << WA
                        << " because of unequal access relations:\n");
           DEBUG(dbgs() << "      RA: " << RARel << "\n");
           DEBUG(dbgs() << "      WA: " << WARel << "\n");
+          continue;
         }
 
-        if (IsEqualAccRel)
-          StoresToRemove.push_back(WA);
+        StoresToRemove.push_back(WA);
       }
     }
 

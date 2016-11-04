@@ -1455,6 +1455,9 @@ bool ScopDetection::isReducibleRegion(Region &R, DebugLoc &DbgLoc) const {
 }
 
 bool ScopDetection::runOnFunction(llvm::Function &F) {
+  if (skipFunction(F))
+    return false;
+
   LI = &getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
   RI = &getAnalysis<RegionInfoPass>().getRegionInfo();
   if (!PollyProcessUnprofitable && LI->empty())
