@@ -1109,6 +1109,24 @@ public:
       return true;
     }
 
+    auto ExistingWrittenUnknown = getUnknownValInstDomain(Existing.Written);
+    if (!isl_union_set_is_disjoint(ExistingWrittenUnknown.keep(),
+                                   ProposedWrittenDomain.keep())) {
+      if (OS)
+        OS->indent(Indent) << "Existing writes unknown with undefined order to "
+                              "proposed write\n";
+      return true;
+    }
+
+    auto ProposedWrittenUnknown = getUnknownValInstDomain(Proposed.Written);
+    if (!isl_union_set_is_disjoint(ProposedWrittenUnknown.keep(),
+                                   ExistingWrittenDomain.keep())) {
+      if (OS)
+        OS->indent(Indent) << "Existing writes with undefined order to "
+                              "proposed write unknown\n";
+      return true;
+    }
+
     return false;
   }
 };
