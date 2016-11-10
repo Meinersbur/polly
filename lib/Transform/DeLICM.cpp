@@ -140,8 +140,10 @@ STATISTIC(MappedPHIScalars, "Number of mapped PHI scalars");
 STATISTIC(TargetsMapped, "Number of stores used for at least one mapping");
 STATISTIC(DeLICMScopsModified, "Number of SCoPs optimized");
 
-STATISTIC(ScalarValues, "Number of scalar value dependencies");
-STATISTIC(ScalarPHI, "Number of scalar PHI dependencies");
+STATISTIC(ScalarValueDeps, "Number of scalar value dependencies");
+STATISTIC(ScalarValueLoopDeps, "Number of scalar value dependencies in loops");
+STATISTIC(ScalarPHIDeps, "Number of scalar PHI dependencies");
+STATISTIC(ScalarPHILoopDeps, "Number of scalar PHI dependencies in loops");
 
 #undef DEBUG_TYPE
 #define DEBUG_TYPE "polly-known"
@@ -2514,6 +2516,11 @@ private:
     OS.indent(Indent) << "}\n";
   }
 
+  bool isInLoop(MemoryAccess *MA) {
+    auto Stmt = MA->getStatement();
+    return Stmt->getNumIterators() > 0;
+  }
+
   /// Find the MemoryAccesses that access the ScopArrayInfo-represented memory.
   void findScalarAccesses() {
     for (auto &Stmt : *S) {
@@ -2543,12 +2550,28 @@ private:
 
     for (auto ScalarVals : ValueDefAccs) {
       if (!ValueUseAccs[ScalarVals.first].empty())
-        ScalarValues++;
+        ScalarValueDeps++;
+
+      if (!isInLoop(ScalarVals.second))
+        continue;
+      for (auto Use : ValueUseAccs[ScalarVals.first])
+        if (isInLoop(Use)) {
+          ScalarValueLoopDeps++;
+          break;
+        }
     }
 
     for (auto ScalarPHIs : PHIReadAccs) {
       if (!PHIIncomingAccs[ScalarPHIs.first].empty())
-        ScalarPHI++;
+        ScalarPHIDeps++;
+
+      if (!isInLoop(ScalarPHIs.second))
+        continue;
+      for (auto Incoming : ValueUseAccs[ScalarPHIs.first])
+        if (isInLoop(Incoming)) {
+          ScalarPHILoopDeps++;
+          break;
+        }
     }
   }
 
