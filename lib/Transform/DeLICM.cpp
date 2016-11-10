@@ -2570,7 +2570,7 @@ private:
 
       if (!isInLoop(ScalarPHIs.second))
         continue;
-      for (auto Incoming : ValueUseAccs[ScalarPHIs.first])
+      for (auto Incoming : PHIIncomingAccs[ScalarPHIs.first])
         if (isInLoop(Incoming)) {
           ScalarPHILoopDeps++;
           break;
