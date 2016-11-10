@@ -140,6 +140,9 @@ STATISTIC(MappedPHIScalars, "Number of mapped PHI scalars");
 STATISTIC(TargetsMapped, "Number of stores used for at least one mapping");
 STATISTIC(DeLICMScopsModified, "Number of SCoPs optimized");
 
+STATISTIC(ScalarValues, "Number of scalar value dependencies");
+STATISTIC(ScalarPHI, "Number of scalar PHI dependencies");
+
 #undef DEBUG_TYPE
 #define DEBUG_TYPE "polly-known"
 
@@ -2537,6 +2540,16 @@ private:
           PHIIncomingAccs[MA->getScopArrayInfo()].push_back(MA);
       }
     }
+
+    for (auto ScalarVals : ValueDefAccs) {
+      if (!ValueUseAccs[ScalarVals.first].empty())
+        ScalarValues++;
+    }
+
+    for (auto ScalarPHIs : PHIReadAccs) {
+      if (!PHIIncomingAccs[ScalarPHIs.first].empty())
+        ScalarPHI++;
+    }
   }
 
   /// Compute when an array element is alive (Its value will be read in the
@@ -3020,7 +3033,7 @@ public:
 
     // { Element[] -> Zone[] }
     // Reinterpretation of Scatter[] as Zone[]: The unit-zone before the write
-    // instant is before the write.
+    // timepoint is before the write.
     auto BeforeFirstWrite = beforeScatter(FirstWrites, false);
 
     // { Element[] -> Zone[] }
