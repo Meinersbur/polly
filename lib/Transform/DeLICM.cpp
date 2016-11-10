@@ -140,6 +140,9 @@ STATISTIC(MappedPHIScalars, "Number of mapped PHI scalars");
 STATISTIC(TargetsMapped, "Number of stores used for at least one mapping");
 STATISTIC(DeLICMScopsModified, "Number of SCoPs optimized");
 
+#undef DEBUG_TYPE
+#define DEBUG_TYPE "polly-scalardeps"
+
 STATISTIC(ScalarValueDeps, "Number of scalar value dependencies");
 STATISTIC(ScalarValueLoopDeps, "Number of scalar value dependencies in loops");
 STATISTIC(ScalarPHIDeps, "Number of scalar PHI dependencies");
