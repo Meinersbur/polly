@@ -2893,6 +2893,128 @@ private:
                               std::move(RequiredValue));
   }
 
+
+
+  bool canForwardTree(llvm::Value *Val, ScopStmt *ToStmt) {
+	  if (isa<Constant>(Val))
+		  return true;
+
+	  auto Inst = dyn_cast<Instruction>(Val);
+	  if (!Inst) 
+		return false;
+
+	  if (auto LI = dyn_cast<LoadInst>(Inst)) {
+		   auto FromStmt = S->getStmtFor(Inst);
+		   if (!FromStmt)
+			   return false;
+
+			auto *RA = &FromStmt->getArrayAccessFor(LI);
+			auto ExpectedVal = makeValInst(Val, FromStmt);
+
+
+
+	  }
+
+	  if (Inst->mayReadOrWriteMemory())
+		  return false;
+	  
+	  for (auto OpVal : Inst->operand_values()) {
+		  if (!canForwardTree(OpVal, ToStmt))
+			  return false;
+	  }
+	  return true;
+  }
+
+  bool tryForwardTree(MemoryAccess *RA) {
+	  assert(RA->isLatestScalarKind());
+
+	  if (!canForwardTree(RA->getAccessValue()))
+		  return false;
+
+  }
+
+
+  // { Domain[] -> Element[] } 
+  IslPtr<isl_map> findSameContent( 
+	  // { Domain[] -> ValInst[] }
+	  IslPtr<isl_map> ValInst) {
+
+	  // { Domain[] }
+	  auto Domain = give(isl_map_domain(ValInst.copy()));
+
+    // { DomainUser[] -> Scatter[] }
+    auto Sched = getScatterFor(RA);
+
+    // { Element[] -> [Zone[] -> ValInst[]] }
+    auto MustKnownCurried = give(isl_union_map_curry(Known.copy()));
+
+    // { [DomainUser[] -> ValInst[]] -> DomainUser[] }
+    auto DomValDom = give(isl_map_domain_map(ValInst.copy()));
+
+    // { [DomainUser[] -> ValInst[]] -> ValInst[] }
+    auto DomValVal = give(isl_map_range_map(ValInst.copy()));
+
+    // { [DomainUser[] -> ValInst[]] -> Scatter[] }
+    auto DomValSched =
+        give(isl_map_apply_range(DomValDom.take(), Sched.take()));
+
+    // { [Scatter[] -> ValInst[]] -> [DomainUser[] -> ValInst[]] }
+    auto SchedValDomVal = give(isl_union_map_from_map(isl_map_reverse(
+        isl_map_range_product(DomValSched.take(), DomValVal.take()))));
+
+    // { Element[] -> [DomainUser[] -> ValInst[]] }
+    // Zone[] of MustKnownCurried is reinterpreted as Scatter[]: Those instants
+    // that immediately follow an unit-zone. Scalar reads take place at the
+    // beginning of a statement's execution, meaning they read directly the
+    // value that is known in the unit-zone.
+    auto MustKnownInst = give(isl_union_map_apply_range(MustKnownCurried.take(),
+                                                        SchedValDomVal.take()));
+
+    // { DomainUser[] -> Element[] }
+    // List of array elements that do contain the same ValInst[] at when the
+    // read access takes place.
+    auto MustKnownMap = give(isl_union_map_reverse(isl_union_set_unwrap(isl_union_map_domain(isl_union_map_uncurry(MustKnownInst.take())))));
+    simplify(MustKnownMap);
+
+    bool Modified = false;
+
+    // MemoryAccesses can read only elements from a single array (not: { Dom[0]
+    // -> A[0]; Dom[1] -> B[1] }). Look through all arrays until we find one
+    // that contains exactly the wanted values.
+    foreachEltWithBreak(MustKnownMap, [&,  this](IslPtr<isl_map> Map) -> isl_stat {
+      // Get the array this is accessing.
+      auto ArrayId = give(isl_map_get_tuple_id(Map.keep(), isl_dim_out));
+      auto SAI = static_cast<ScopArrayInfo *>(isl_id_get_user(ArrayId.keep()));
+
+      // No support for generation of indirect array accesses.
+      if (SAI->getBasePtrOriginSAI())
+        return isl_stat_ok; // continue
+
+      // Determine whether this map contains all wanted values.
+      auto Dom = getDomainFor(RA);
+      auto MapDom = give(isl_map_domain(Map.copy()));
+      if (!isl_set_is_subset(Dom.keep(), MapDom.keep()))
+        return isl_stat_ok; // continue
+
+      // TODO: Check requirement that it maps not only to the same location,
+      // otherwise we don't gain anything; DeLICM already does this.
+
+      // There might be multiple array elements the contain the same value, but
+      // choose only one of them. lexmin is used because it returns a one-value
+      // mapping, we currently do not care about which one.
+      // TODO: Get the simplest access function.
+      auto Target = give(isl_map_lexmin(Map.take()));
+
+      // Do the transformation which we determined is valid.
+      collapseKnownLoad(RA, std::move(Target), MustKnownMap, ValInst);
+
+      // We were successful and do not need to look for more candidates.
+      Modified = true;
+      return isl_stat_error; // break
+    });
+
+  }
+
   /// Find array elements that contain the same value as @p RA reads and try to
   /// redirect the scalar load to read from that array element instead.
   bool tryCollapseKnownLoad(MemoryAccess *RA) {
@@ -2932,8 +3054,7 @@ private:
     // { DomainUser[] -> Element[] }
     // List of array elements that do contain the same ValInst[] at when the
     // read access takes place.
-    auto MustKnownMap = give(isl_union_map_reverse(isl_union_set_unwrap(
-        isl_union_map_domain(isl_union_map_uncurry(MustKnownInst.take())))));
+    auto MustKnownMap = give(isl_union_map_reverse(isl_union_set_unwrap(isl_union_map_domain(isl_union_map_uncurry(MustKnownInst.take())))));
     simplify(MustKnownMap);
 
     bool Modified = false;
@@ -2941,8 +3062,7 @@ private:
     // MemoryAccesses can read only elements from a single array (not: { Dom[0]
     // -> A[0]; Dom[1] -> B[1] }). Look through all arrays until we find one
     // that contains exactly the wanted values.
-    foreachEltWithBreak(MustKnownMap, [&,
-                                       this](IslPtr<isl_map> Map) -> isl_stat {
+    foreachEltWithBreak(MustKnownMap, [&,  this](IslPtr<isl_map> Map) -> isl_stat {
       // Get the array this is accessing.
       auto ArrayId = give(isl_map_get_tuple_id(Map.keep(), isl_dim_out));
       auto SAI = static_cast<ScopArrayInfo *>(isl_id_get_user(ArrayId.keep()));
@@ -3137,6 +3257,8 @@ public:
     return KnownMaxOps == 0 || !!Known;
   }
 
+
+
   /// Try to redirect all scalar reads in the scop that to array elements that
   /// contain the same value.
   void collapseKnown() {
@@ -3155,6 +3277,8 @@ public:
         DEBUG(dbgs() << "Trying to collapse " << MA << "\n");
         if (tryCollapseKnownLoad(MA))
           Modified = true;
+		else if (tryForwardTree(MA))
+			Modified = true;
       }
     }
 
@@ -3215,6 +3339,7 @@ public:
     AU.addRequiredTransitive<ScopInfoRegionPass>();
     AU.setPreservesAll();
   }
+
   virtual bool runOnScop(Scop &S) override {
     // Free resources for previous scop's computation, if not yet done.
     releaseMemory();
