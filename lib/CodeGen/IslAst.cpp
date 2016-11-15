@@ -463,6 +463,9 @@ void IslAstInfo::releaseMemory() {
   }
 }
 
+STATISTIC(ParallelLoops, "Number of parallel loops");
+STATISTIC(ReductionParallelLoops, "Number of reduction-parallel loops");
+
 bool IslAstInfo::runOnScop(Scop &Scop) {
   if (Ast)
     delete Ast;
@@ -473,6 +476,19 @@ bool IslAstInfo::runOnScop(Scop &Scop) {
       getAnalysis<DependenceInfo>().getDependences(Dependences::AL_Statement);
 
   Ast = IslAst::create(&Scop, D);
+
+  auto Root = Ast->getAst();
+  isl_ast_node_foreach_descendant_top_down(
+      Root,
+      [](isl_ast_node *node, void *user) -> isl_bool {
+        if (isParallel(node))
+          ParallelLoops++;
+        if (isReductionParallel(node))
+          ReductionParallelLoops++;
+        return isl_bool_true;
+      },
+      nullptr);
+  isl_ast_node_free(Root);
 
   DEBUG(printScop(dbgs(), Scop));
   return false;
