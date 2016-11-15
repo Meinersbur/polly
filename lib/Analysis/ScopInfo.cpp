@@ -2904,7 +2904,9 @@ bool Scop::addLoopBoundsToHeaderDomain(Loop *L, LoopInfo &LI) {
 
     TerminatorInst *TI = LatchBB->getTerminator();
     BranchInst *BI = dyn_cast<BranchInst>(TI);
-    if (BI && BI->isUnconditional())
+    assert(BI && "Only branch instructions allowed in loop latches");
+
+    if (BI->isUnconditional())
       BackedgeCondition = isl_set_copy(LatchBBDom);
     else {
       SmallVector<isl_set *, 8> ConditionSets;
@@ -3878,6 +3880,8 @@ void Scop::addAssumption(AssumptionKind Kind, __isl_take isl_set *Set,
 
 void Scop::recordAssumption(AssumptionKind Kind, __isl_take isl_set *Set,
                             DebugLoc Loc, AssumptionSign Sign, BasicBlock *BB) {
+  assert((isl_set_is_params(Set) || BB) &&
+         "Assumptions without a basic block must be parameter sets");
   RecordedAssumptions.push_back({Kind, Sign, Set, Loc, BB});
 }
 
@@ -4265,6 +4269,16 @@ void Scop::addScopStmt(BasicBlock *BB, Region *R) {
 ScopStmt *Scop::addScopStmt(__isl_take isl_map *SourceRel,
                             __isl_take isl_map *TargetRel,
                             __isl_take isl_set *Domain) {
+#ifndef NDEBUG
+  isl_set *SourceDomain = isl_map_domain(isl_map_copy(SourceRel));
+  isl_set *TargetDomain = isl_map_domain(isl_map_copy(TargetRel));
+  assert(isl_set_is_subset(Domain, TargetDomain) &&
+         "Target access not defined for complete statement domain");
+  assert(isl_set_is_subset(Domain, SourceDomain) &&
+         "Source access not defined for complete statement domain");
+  isl_set_free(SourceDomain);
+  isl_set_free(TargetDomain);
+#endif
   Stmts.emplace_back(*this, SourceRel, TargetRel, Domain);
   CopyStmtsNum++;
   return &(Stmts.back());
