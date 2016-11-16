@@ -2862,6 +2862,9 @@ private:
   /// @see collapseKnownLoad()
   SmallVector<KnownReport, 8> KnownReports;
 
+  LoopInfo *LI;
+  ScalarEvolution *SE;
+
   /// Redirect a read MemoryAccess to an array element that we have proven to
   /// contain the same value.
   ///
@@ -2893,57 +2896,176 @@ private:
                               std::move(RequiredValue));
   }
 
+  struct SCEVGetUnknowns  {
+	   std::vector<llvm::Value*> Unknowns;
+
+	  void visit(const SCEV *S) {
+		  if (isa<SCEVUnknown> (S) )
+	Unknowns.push_back(  cast <SCEVUnknown>(S)->getValue());
+	  }
 
 
-  bool canForwardTree(llvm::Value *Val, ScopStmt *ToStmt) {
-	  if (isa<Constant>(Val))
+	  bool isDone() {return false;} 
+	  bool follow(const SCEV *S) {return true;}
+  };
+
+	  std::vector<llvm::Value*> getUnknowns(const SCEV *Root) {
+	  SCEVGetUnknowns Visitor;
+  visitAll(Root, Visitor);
+  return std::move(Visitor.Unknowns);
+  }
+
+
+	
+
+  bool canForwardTree(llvm::Value *Val, Loop *UsedIn,   ScopStmt *ToStmt, 
+	  // { DomainDef[] -> DomainTo[] }
+	  IslPtr<isl_map> Mapping,  bool DoIt) {
+
+
+	  std::vector<llvm::Value *> Ops;
+	  bool IsSCEV;
+	if (SE->isSCEVable(Val->getType()))  {
+	  auto Scev = SE->getSCEVAtScope(Val, UsedIn);
+	  Ops = getUnknowns(Scev);
+	  IsSCEV= true;
+	} else {
+		Ops.push_back(Val);
+		IsSCEV = false;
+#if 0
+			  if (isa<Constant>(Val))
 		  return true;
 
-	  auto Inst = dyn_cast<Instruction>(Val);
-	  if (!Inst) 
-		return false;
+		   auto Inst = dyn_cast<Instruction>(Val);
+		   if (!Inst)
+			   return false; // What else could it be?
 
-	  if (auto LI = dyn_cast<LoadInst>(Inst)) {
-		   auto FromStmt = S->getStmtFor(Inst);
+		   for (auto *Op: Inst->operand_values() )
+			   Ops.push_back(Op);
+#endif
+	}
+
+
+  	  for (auto Op : Ops) {
+		  // Constants are free to use.
+		  			  if (isa<Constant>(Val))
+		  continue;
+
+		   auto Inst = cast<Instruction>(Op);
+
+		  if (IsSCEV) {
+			   auto Param  = give( S->getIdForParam( SE->getSCEVAtScope(Op, UsedIn) ));
+			   // Parameters are free to use.
+			   if (Param)
+				   return true;
+		  }
+
+		   if (!S->contains(Inst)) {
+			   // Read-only scalars require a read access
+			   if (DoIt) {
+				   // TODO: Verify this access does not already exist in ToStmt
+				   auto *Access =      new MemoryAccess(ToStmt, nullptr, MemoryAccess::READ, Inst, Inst->getType(), true,     {}, {}, Inst, ScopArrayInfo::MK_Value, Inst->getName() );
+			  S->addAccessFunction(Access);
+			  ToStmt->addAccess(Access);
+			   }
+			   return true;
+		   }
+
+		   		   auto FromStmt = S->getStmtFor(Inst);
 		   if (!FromStmt)
 			   return false;
+		   
+	  if (auto LI = dyn_cast<LoadInst>(Inst)) {
+
 
 			auto *RA = &FromStmt->getArrayAccessFor(LI);
+			assert(RA);
+
+			// { DomainDef[] -> ValInst[] }
 			auto ExpectedVal = makeValInst(Val, FromStmt);
 
-
-
+			// { DomainTo[] -> ValInst[] }
+			auto ToExpectedVal =  give(isl_map_apply_domain(ExpectedVal.copy(),   Mapping.copy() ));
+			
+			// { DomainTo[] -> Element[] }
+			auto SameVal = containsSameValue(ToExpectedVal, getScatterFor(ToStmt));
+			if ( !SameVal)
+				return false;
+			if (DoIt) {
+				// TODO: Remove read accesses from source stmt
+			  auto  ArrayId = give(	isl_map_get_tuple_id(SameVal.keep(), isl_dim_out ));
+			  auto SAI = reinterpret_cast< ScopArrayInfo*>(isl_id_get_user(ArrayId.keep()));
+			  SmallVector<const SCEV*, 4> Sizes;Sizes.reserve(SAI->getNumberOfDimensions());
+			  for (unsigned i =0 ; i<SAI->getNumberOfDimensions();i+=1)
+				  Sizes.push_back(SAI->getDimensionSize(i));
+			   SmallVector<const SCEV*, 4> Subscripts;Subscripts.reserve(SAI->getNumberOfDimensions());
+			   for (unsigned i =0 ; i<SAI->getNumberOfDimensions();i+=1)
+				   Subscripts.push_back(SE->getConstant(SAI->getDimensionSize(i)->getType(), 0, true  ) );
+			   auto *Access =  new MemoryAccess(ToStmt, nullptr, MemoryAccess::READ,  SAI->getBasePtr() , Inst->getType(), true,     {},   Sizes , Inst, ScopArrayInfo::MK_Array, RA->getBaseName() );
+			 Access->setNewAccessRelation(SameVal.copy());
+			   S->addAccessFunction(Access);
+			  ToStmt->addAccess(Access);
+			}
+			return true;
 	  }
 
-	  if (Inst->mayReadOrWriteMemory())
+		  	  if (Inst->mayReadOrWriteMemory())
 		  return false;
-	  
-	  for (auto OpVal : Inst->operand_values()) {
-		  if (!canForwardTree(OpVal, ToStmt))
+
+			  // { DomainTo[] -> Scatter[] }
+			  auto ScatterTo  = getScatterFor(ToStmt);
+
+		 for (auto OpVal : Inst->operand_values()) {
+			 		  			  if (isa<Constant>(Val))
+		  continue;
+
+						   auto Inst = cast<Instruction>(Op);
+
+			 auto  ValDefStmt = S->getStmtFor(Inst);
+
+			 // { Scatter[] -> DomainValDef[] }
+			 auto ReachDef = getScalarReachingDefinition (getDomainFor(ValDefStmt));
+			 auto NewMapping = give( isl_map_reverse(	 isl_map_apply_range( ScatterTo.copy(), ReachDef.copy() )));
+
+
+		  if (!canForwardTree(OpVal, LI->getLoopFor(Inst->getParent()),ToStmt,  NewMapping,   DoIt)) {
+			  // TODO: Remove scalar access for OpVal, if it has not other use in this Stmt AND Inst is not use by anything else anymore (markAndSweep algorithm?)
 			  return false;
+		  }
 	  }
-	  return true;
+	
+	  }
+	    return true;
+  }
+
+  Loop* getOutermostLoopFor(ScopStmt *Stmt) {
+	 return  LI->getLoopFor(Stmt->getEntryBlock());
   }
 
   bool tryForwardTree(MemoryAccess *RA) {
 	  assert(RA->isLatestScalarKind());
 
-	  if (!canForwardTree(RA->getAccessValue()))
+	  auto Stmt = RA->getStatement();
+	  auto InLoop = getOutermostLoopFor(Stmt);
+	  auto Identity = give( isl_map_identity(  Stmt->getDomainSpace() ));
+
+	  if (!canForwardTree(RA->getAccessValue(), InLoop, Stmt,Identity, false ))
 		  return false;
 
+	  bool Success = canForwardTree(RA->getAccessValue(), InLoop, Stmt,Identity, true );
+	  assert(Success && "If it says it can do it, it must be able to do it");
+	  return true;
   }
 
-
-  // { Domain[] -> Element[] } 
-  IslPtr<isl_map> findSameContent( 
-	  // { Domain[] -> ValInst[] }
-	  IslPtr<isl_map> ValInst) {
-
+  // { Domain[] -> Element[] }
+    IslPtr<isl_map> containsSameValue(
+		// { Domain[] -> ValInst[] }
+		IslPtr<isl_map> ValInst, 
+		// { Domain[] -> Scatter[] }
+		IslPtr<isl_map> Sched) {
+	  
 	  // { Domain[] }
 	  auto Domain = give(isl_map_domain(ValInst.copy()));
-
-    // { DomainUser[] -> Scatter[] }
-    auto Sched = getScatterFor(RA);
 
     // { Element[] -> [Zone[] -> ValInst[]] }
     auto MustKnownCurried = give(isl_union_map_curry(Known.copy()));
@@ -2976,12 +3098,14 @@ private:
     auto MustKnownMap = give(isl_union_map_reverse(isl_union_set_unwrap(isl_union_map_domain(isl_union_map_uncurry(MustKnownInst.take())))));
     simplify(MustKnownMap);
 
-    bool Modified = false;
+
+
+	IslPtr<isl_map> Result;
 
     // MemoryAccesses can read only elements from a single array (not: { Dom[0]
     // -> A[0]; Dom[1] -> B[1] }). Look through all arrays until we find one
     // that contains exactly the wanted values.
-    foreachEltWithBreak(MustKnownMap, [&,  this](IslPtr<isl_map> Map) -> isl_stat {
+    foreachEltWithBreak(MustKnownMap, [&, this](IslPtr<isl_map> Map) -> isl_stat {
       // Get the array this is accessing.
       auto ArrayId = give(isl_map_get_tuple_id(Map.keep(), isl_dim_out));
       auto SAI = static_cast<ScopArrayInfo *>(isl_id_get_user(ArrayId.keep()));
@@ -2991,9 +3115,8 @@ private:
         return isl_stat_ok; // continue
 
       // Determine whether this map contains all wanted values.
-      auto Dom = getDomainFor(RA);
       auto MapDom = give(isl_map_domain(Map.copy()));
-      if (!isl_set_is_subset(Dom.keep(), MapDom.keep()))
+      if (!isl_set_is_subset(Domain.keep(), MapDom.keep()))
         return isl_stat_ok; // continue
 
       // TODO: Check requirement that it maps not only to the same location,
@@ -3003,16 +3126,11 @@ private:
       // choose only one of them. lexmin is used because it returns a one-value
       // mapping, we currently do not care about which one.
       // TODO: Get the simplest access function.
-      auto Target = give(isl_map_lexmin(Map.take()));
-
-      // Do the transformation which we determined is valid.
-      collapseKnownLoad(RA, std::move(Target), MustKnownMap, ValInst);
-
-      // We were successful and do not need to look for more candidates.
-      Modified = true;
+      Result = give(isl_map_lexmin(Map.take()));
       return isl_stat_error; // break
     });
 
+	return Result;
   }
 
   /// Find array elements that contain the same value as @p RA reads and try to
