@@ -1101,10 +1101,10 @@ public:
   const ScopStmt &operator=(const ScopStmt &) = delete;
 
   /// Create the ScopStmt from a BasicBlock.
-  ScopStmt(Scop &parent, BasicBlock &bb);
+  ScopStmt(Scop &parent, BasicBlock &bb,Loop *SurroundingLoop);
 
   /// Create an overapproximating ScopStmt for the region @p R.
-  ScopStmt(Scop &parent, Region &R);
+  ScopStmt(Scop &parent, Region &R,Loop *SurroundingLoop);
 
   /// Create a copy statement.
   ///
@@ -1114,7 +1114,7 @@ public:
   /// @param Domain     The original domain under which copy statement whould
   ///                   be executed.
   ScopStmt(Scop &parent, __isl_take isl_map *SourceRel,
-           __isl_take isl_map *TargetRel, __isl_take isl_set *Domain);
+           __isl_take isl_map *TargetRel, __isl_take isl_set *Domain,Loop *SurroundingLoop);
 
   /// Initialize members after all MemoryAccesses have been added.
   void init(LoopInfo &LI);
@@ -1205,6 +1205,8 @@ private:
 
   std::string BaseName;
 
+    Loop *SurroundingLoop;
+
   /// Build the statement.
   //@{
   void buildDomain();
@@ -1226,6 +1228,8 @@ private:
 
 public:
   ~ScopStmt();
+
+  Loop *getSurroundingLoop() const {return SurroundingLoop;}
 
   /// Get an isl_ctx pointer.
   isl_ctx *getIslCtx() const;
@@ -1872,7 +1876,7 @@ private:
   ///
   /// @param BB         The basic block we build the statement for (or null)
   /// @param R          The region we build the statement for (or null).
-  void addScopStmt(BasicBlock *BB, Region *R);
+  void addScopStmt(BasicBlock *BB, Region *R, Loop* SurroundingLoop);
 
   /// @param Update access dimensionalities.
   ///
@@ -1983,7 +1987,7 @@ public:
   ///                   be executed.
   ScopStmt *addScopStmt(__isl_take isl_map *SourceRel,
                         __isl_take isl_map *TargetRel,
-                        __isl_take isl_set *Domain);
+                        __isl_take isl_set *Domain, Loop *SurroundingLoop);
 
   /// Add the access function to all MemoryAccess objects of the Scop
   ///        created in this pass.

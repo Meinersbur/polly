@@ -784,6 +784,104 @@ IslPtr<isl_union_map> filterKnownValInst(NonowningIslPtr<isl_union_map> UMap) {
   return Result;
 }
 
+
+
+
+class VirtualInstruction {
+private:
+	ScopStmt *Stmt=nullptr;
+	Instruction *Inst=nullptr;
+
+	MemoryAccess *findInputAccess(Value *Val )const {
+		return getInputAccessOf(Val, Stmt);
+	}
+
+public:
+	VirtualInstruction() {}
+	VirtualInstruction(ScopStmt *Stmt, Instruction *Inst) : Stmt(Stmt), Inst(Inst){};
+
+	Scop *getScop() const {return Stmt->getParent(); }
+	ScopStmt *getStmt() const {return Stmt;}
+	Instruction*getInstruction() const {return Inst;}
+
+	int getNumOperands() const { return Inst->getNumOperands(); }
+	Value *getOperand(unsigned i) const { return Inst->getOperand(i);}
+
+	auto operands() const {return  Inst->operands();   }
+
+	bool isVirtualOperand(const Use &U) const {
+		assert(U.getUser() == Inst);
+		auto Op = U.get();
+
+		if (isa<Constant>(Op))
+			return false;
+
+			auto S = getScop();
+			return ! canSynthesize(Op,  *S, S->getSE() , Stmt->getSurroundingLoop() );
+	}
+
+	bool isInterScopOperand(const Use &U) const{ 
+		assert(U.getUser() == Inst);
+		auto Op = U.get();
+		if (isa<Constant>(Op))
+			return false;
+		return !findInputAccess(Op);
+	}
+
+	bool isIntraOperand(const Use &U) const {
+		return isVirtualOperand(U) && !isInterScopOperand(U);
+	}
+
+	VirtualInstruction getIntraOperand(const Use &U ) const {
+		assert(isIntraOperand(U));
+		return {Stmt, cast<Instruction >(U.get()) };
+	}
+
+	VirtualInstruction getInterOperand(const Use &U ) const {
+		assert(isInterScopOperand(U));
+		auto OpInst= cast<Instruction>(U.get());
+		auto S = Stmt->getParent()->getStmtFor(OpInst);
+		assert(S);
+		return { S, OpInst };
+	}
+
+	VirtualInstruction getVirtualOperand(const Use &U) const{
+	if (isInterScopOperand(U))
+		return getInterOperand(U);
+	return getIntraOperand(U);
+	}
+
+	MemoryAccess *getInterOperandInput(const Use &U) const {
+		auto MA = findInputAccess(U.get());
+		assert(MA && "But be an inter-Stmt use");
+		return MA;
+	}
+};
+}
+
+namespace llvm {
+	template<>
+	class DenseMapInfo<VirtualInstruction> {
+	public:
+		static bool isEqual (  VirtualInstruction LHS,  VirtualInstruction RHS ) {
+			return  DenseMapInfo<ScopStmt*>::isEqual( LHS.getStmt(),RHS.getStmt()) && DenseMapInfo<Instruction*>::isEqual( LHS.getInstruction(),RHS.getInstruction()) ;
+		}
+
+		static VirtualInstruction getTombstoneKey() {
+		return VirtualInstruction( DenseMapInfo<ScopStmt*>::getTombstoneKey(), DenseMapInfo<Instruction*>::getTombstoneKey() );
+		}
+
+			static VirtualInstruction getEmptyKey() {
+		return VirtualInstruction( DenseMapInfo<ScopStmt*>::getEmptyKey(), DenseMapInfo<Instruction*>::getEmptyKey() );
+		}
+
+			static unsigned getHashValue(VirtualInstruction Val) {
+			return DenseMapInfo<std::pair< ScopStmt*,Instruction* >>::getHashValue( std::make_pair( Val.getStmt( ), Val.getInstruction()));
+			}
+	};
+}
+
+namespace{
 /// Represent the knowledge of the contents any array elements in any zone or
 /// the knowledge we would add when mapping a scalar to an array element.
 ///
@@ -1141,13 +1239,93 @@ public:
 
 void Knowledge::dump() const { print(llvm::errs()); }
 
+     bool isInLoop(MemoryAccess *MA) {
+    auto Stmt = MA->getStatement();
+    return Stmt->getNumIterators() > 0;
+  }
+
 /// Base class for algorithms based on zones, like DeLICM.
 class ZoneAlgorithm {
+protected:
+	
+    /// The definitions/write MemoryAccess of an MK_Value scalar.
+  ///
+  /// Note that read-only values have no value-defining write access.
+  DenseMap<const ScopArrayInfo *, MemoryAccess *> ValueDefAccs;
+
+  /// List of all uses/read MemoryAccesses for an MK_Value scalar.
+  DenseMap<const ScopArrayInfo *, SmallVector<MemoryAccess *, 4>> ValueUseAccs;
+
+  /// The PHI/read MemoryAccess of an MK_PHI scalar.
+  DenseMap<const ScopArrayInfo *, MemoryAccess *> PHIReadAccs;
+
+  /// List of all incoming values/writes of an MK_PHI scalar.
+  DenseMap<const ScopArrayInfo *, SmallVector<MemoryAccess *, 4>>
+      PHIIncomingAccs;
+
+protected:
+  /// Find the MemoryAccesses that access the ScopArrayInfo-represented memory.
+  void findScalarAccesses() {
+    for (auto &Stmt : *S) {
+      for (auto *MA : Stmt) {
+        if (MA->isOriginalValueKind() && MA->isWrite()) {
+          auto *SAI = MA->getScopArrayInfo();
+          assert(!ValueDefAccs.count(SAI) &&
+                 "There can be at most one definition per MK_Value scalar");
+          ValueDefAccs[SAI] = MA;
+        }
+
+        if (MA->isOriginalValueKind() && MA->isRead())
+          ValueUseAccs[MA->getScopArrayInfo()].push_back(MA);
+
+        if (MA->isOriginalAnyPHIKind() && MA->isRead()) {
+          auto *SAI = MA->getScopArrayInfo();
+          assert(!PHIReadAccs.count(SAI) && "There must be exactly one read "
+                                            "per PHI (that's where the PHINode "
+                                            "is)");
+          PHIReadAccs[SAI] = MA;
+        }
+
+        if (MA->isOriginalAnyPHIKind() && MA->isWrite())
+          PHIIncomingAccs[MA->getScopArrayInfo()].push_back(MA);
+      }
+    }
+
+    for (auto ScalarVals : ValueDefAccs) {
+      if (!ValueUseAccs[ScalarVals.first].empty())
+        ScalarValueDeps++;
+
+      if (!isInLoop(ScalarVals.second))
+        continue;
+      for (auto Use : ValueUseAccs[ScalarVals.first])
+        if (isInLoop(Use)) {
+          ScalarValueLoopDeps++;
+          break;
+        }
+    }
+
+    for (auto ScalarPHIs : PHIReadAccs) {
+      if (!PHIIncomingAccs[ScalarPHIs.first].empty())
+        ScalarPHIDeps++;
+
+      if (!isInLoop(ScalarPHIs.second))
+        continue;
+      for (auto Incoming : PHIIncomingAccs[ScalarPHIs.first])
+        if (isInLoop(Incoming)) {
+          ScalarPHILoopDeps++;
+          break;
+        }
+    }
+  }
+
 private:
   /// Cached reaching definitions for each ScopStmt.
   ///
   /// Use getScalarReachingDefinition() to get its contents.
   DenseMap<ScopStmt *, IslPtr<isl_map>> ScalarReachDefZone;
+
+
+
 
 protected:
   /// The isl_ctx used for all computations.
@@ -1863,20 +2041,7 @@ private:
   /// Log of every applied mapping transformations.
   SmallVector<MapReport, 8> MapReports;
 
-  /// The definitions/write MemoryAccess of an MK_Value scalar.
-  ///
-  /// Note that read-only values have no value-defining write access.
-  DenseMap<const ScopArrayInfo *, MemoryAccess *> ValueDefAccs;
 
-  /// List of all uses/read MemoryAccesses for an MK_Value scalar.
-  DenseMap<const ScopArrayInfo *, SmallVector<MemoryAccess *, 4>> ValueUseAccs;
-
-  /// The PHI/read MemoryAccess of an MK_PHI scalar.
-  DenseMap<const ScopArrayInfo *, MemoryAccess *> PHIReadAccs;
-
-  /// List of all incoming values/writes of an MK_PHI scalar.
-  DenseMap<const ScopArrayInfo *, SmallVector<MemoryAccess *, 4>>
-      PHIIncomingAccs;
 
   /// Determine whether to knowledges are conflicting each other.
   ///
@@ -2519,64 +2684,7 @@ private:
     OS.indent(Indent) << "}\n";
   }
 
-  bool isInLoop(MemoryAccess *MA) {
-    auto Stmt = MA->getStatement();
-    return Stmt->getNumIterators() > 0;
-  }
-
-  /// Find the MemoryAccesses that access the ScopArrayInfo-represented memory.
-  void findScalarAccesses() {
-    for (auto &Stmt : *S) {
-      for (auto *MA : Stmt) {
-        if (MA->isOriginalValueKind() && MA->isWrite()) {
-          auto *SAI = MA->getScopArrayInfo();
-          assert(!ValueDefAccs.count(SAI) &&
-                 "There can be at most one definition per MK_Value scalar");
-          ValueDefAccs[SAI] = MA;
-        }
-
-        if (MA->isOriginalValueKind() && MA->isRead())
-          ValueUseAccs[MA->getScopArrayInfo()].push_back(MA);
-
-        if (MA->isOriginalAnyPHIKind() && MA->isRead()) {
-          auto *SAI = MA->getScopArrayInfo();
-          assert(!PHIReadAccs.count(SAI) && "There must be exactly one read "
-                                            "per PHI (that's where the PHINode "
-                                            "is)");
-          PHIReadAccs[SAI] = MA;
-        }
-
-        if (MA->isOriginalAnyPHIKind() && MA->isWrite())
-          PHIIncomingAccs[MA->getScopArrayInfo()].push_back(MA);
-      }
-    }
-
-    for (auto ScalarVals : ValueDefAccs) {
-      if (!ValueUseAccs[ScalarVals.first].empty())
-        ScalarValueDeps++;
-
-      if (!isInLoop(ScalarVals.second))
-        continue;
-      for (auto Use : ValueUseAccs[ScalarVals.first])
-        if (isInLoop(Use)) {
-          ScalarValueLoopDeps++;
-          break;
-        }
-    }
-
-    for (auto ScalarPHIs : PHIReadAccs) {
-      if (!PHIIncomingAccs[ScalarPHIs.first].empty())
-        ScalarPHIDeps++;
-
-      if (!isInLoop(ScalarPHIs.second))
-        continue;
-      for (auto Incoming : PHIIncomingAccs[ScalarPHIs.first])
-        if (isInLoop(Incoming)) {
-          ScalarPHILoopDeps++;
-          break;
-        }
-    }
-  }
+ 
 
   /// Compute when an array element is alive (Its value will be read in the
   /// future) and its value at that time.
@@ -2863,7 +2971,7 @@ private:
   SmallVector<KnownReport, 8> KnownReports;
 
   LoopInfo *LI;
-  ScalarEvolution *SE;
+  //ScalarEvolution *SE;
 
   /// Redirect a read MemoryAccess to an array element that we have proven to
   /// contain the same value.
@@ -2918,47 +3026,94 @@ private:
 
 	
 
-  bool canForwardTree(llvm::Value *Val, Loop *UsedIn,   ScopStmt *ToStmt, 
-	  // { DomainDef[] -> DomainTo[] }
-	  IslPtr<isl_map> Mapping,  bool DoIt) {
+  bool canForwardTree(llvm::Value *Val,   Loop *UsedIn, 
+	  // { DomainUse[] -> Scatter[] }
+	  IslPtr<isl_map> ScatterUse, 
+	  ScopStmt *ToStmt, 
+	  // { DomainDef[] -> DomainTo[] } 
+	  IslPtr<isl_map> Mapping,      int Depth ,      bool DoIt, MemoryAccess *&ReuseMe) {
+
+	   if (isa<Constant>(Val))
+		   return true;
+	   // parameters
+	   if (canSynthesize(Val, *S, S->getSE(), UsedIn))  
+			return true;
+
+	   auto Inst = cast<Instruction>(Val);
+	    auto L = LI->getLoopFor(Inst->getParent());
+
+	    if (auto LI = dyn_cast<LoadInst>(Inst)) {
+			auto FromStmt = S->getStmtFor(LI);  assert(FromStmt && "A load that is used may not have been eliminated");
+			if (!canForwardTree(LI->getPointerOperand(), L, getScatterFor(FromStmt), ToStmt,Mapping ,Depth +1,DoIt, ReuseMe ))
+				return false;
+
+			
+			auto *RA = &FromStmt->getArrayAccessFor(LI);
+			assert(RA);
+
+			// { DomainDef[] -> ValInst[] }
+			auto ExpectedVal = makeValInst(Val, FromStmt);
+
+			// { DomainTo[] -> ValInst[] }
+			auto ToExpectedVal =  give(isl_map_apply_domain(ExpectedVal.copy(),   Mapping.copy() ));
+			
+			// { DomainTo[] -> Element[] }
+			auto SameVal = containsSameValue(ToExpectedVal, getScatterFor(ToStmt));
+			if ( !SameVal)
+				return false;
+			if (DoIt) {
+				MemoryAccess *Access;
+				if (Depth==0 && ReuseMe) {
+					Access = ReuseMe;
+					ReuseMe=nullptr;
+				} else {
+			  auto  ArrayId = give(	isl_map_get_tuple_id(SameVal.keep(), isl_dim_out ));
+			  auto SAI = reinterpret_cast< ScopArrayInfo*>(isl_id_get_user(ArrayId.keep()));
+			  SmallVector<const SCEV*, 4> Sizes;Sizes.reserve(SAI->getNumberOfDimensions());
+			  for (unsigned i =0 ; i<SAI->getNumberOfDimensions();i+=1)
+				  Sizes.push_back(SAI->getDimensionSize(i));
+			   SmallVector<const SCEV*, 4> Subscripts;Subscripts.reserve(SAI->getNumberOfDimensions());
+			   for (unsigned i =0 ; i<SAI->getNumberOfDimensions();i+=1)
+				   Subscripts.push_back(S->getSE() ->getConstant(SAI->getDimensionSize(i)->getType(), 0, true  ) );
+			   auto *Access =  new MemoryAccess(ToStmt, nullptr, MemoryAccess::READ,  SAI->getBasePtr() , Inst->getType(), true,     {},   Sizes , Inst, ScopArrayInfo::MK_Array, RA->getBaseName() );
+			 
+			   S->addAccessFunction(Access);
+			  ToStmt->addAccess(Access);
+				}
+				Access->setNewAccessRelation(SameVal.copy());
+			}
+			return true;
+		}
+
+		// isSafeToSpeculativelyExecute()
+	   if (Inst->mayHaveSideEffects())
+		  return false;
+	  auto InstStmt = S->getStmtFor(Inst); auto MyScatter = getScatterFor(InstStmt); auto MyLoop = LI->getLoopFor(Inst->getParent());
+	  // auto ScatterTo  = getScatterFor(ToStmt);
+	   		 for (auto OpVal : Inst->operand_values()) {
+			 	if (isa<Constant>(Val))
+					continue;
+
+			auto OpInst = cast<Instruction>(OpVal);
+			 auto  ValDefStmt = S->getStmtFor(OpInst); assert(ValDefStmt);
+			
+
+			 // { Scatter[] -> DomainValDef[] }
+			 auto ReachDef = getScalarReachingDefinition (getDomainFor(ValDefStmt));
+			 auto NewMapping = give( isl_map_reverse(	 isl_map_apply_range( ScatterUse.copy(), ReachDef.copy() )));
 
 
-	  std::vector<llvm::Value *> Ops;
-	  bool IsSCEV;
-	if (SE->isSCEVable(Val->getType()))  {
-	  auto Scev = SE->getSCEVAtScope(Val, UsedIn);
-	  Ops = getUnknowns(Scev);
-	  IsSCEV= true;
-	} else {
-		Ops.push_back(Val);
-		IsSCEV = false;
-#if 0
-			  if (isa<Constant>(Val))
-		  return true;
-
-		   auto Inst = dyn_cast<Instruction>(Val);
-		   if (!Inst)
-			   return false; // What else could it be?
-
-		   for (auto *Op: Inst->operand_values() )
-			   Ops.push_back(Op);
-#endif
-	}
-
-
-  	  for (auto Op : Ops) {
-		  // Constants are free to use.
-		  			  if (isa<Constant>(Val))
-		  continue;
-
-		   auto Inst = cast<Instruction>(Op);
-
-		  if (IsSCEV) {
-			   auto Param  = give( S->getIdForParam( SE->getSCEVAtScope(Op, UsedIn) ));
-			   // Parameters are free to use.
-			   if (Param)
-				   return true;
+		  if (!canForwardTree(OpVal, MyLoop,MyScatter,  ToStmt,  NewMapping,  Depth +1, DoIt, ReuseMe)) {
+			  // TODO: Remove scalar access for OpVal, if it has not other use in this Stmt AND Inst is not use by anything else anymore (markAndSweep algorithm?)
+			  return false;
 		  }
+		}
+			 return true;
+
+
+#if 0
+	  auto MA = getInputAccessOf(  Val, ToStmt  );
+
 
 		   if (!S->contains(Inst)) {
 			   // Read-only scalars require a read access
@@ -3036,6 +3191,7 @@ private:
 	
 	  }
 	    return true;
+#endif
   }
 
   Loop* getOutermostLoopFor(ScopStmt *Stmt) {
@@ -3046,14 +3202,22 @@ private:
 	  assert(RA->isLatestScalarKind());
 
 	  auto Stmt = RA->getStatement();
-	  auto InLoop = getOutermostLoopFor(Stmt);
-	  auto Identity = give( isl_map_identity(  Stmt->getDomainSpace() ));
+	  auto InLoop = Stmt->getSurroundingLoop();
+	  auto DomSpace = give(Stmt->getDomainSpace());
+	  auto Identity = give( isl_map_identity( isl_space_map_from_domain_and_range(DomSpace.copy(), DomSpace.copy())   ));
+	  auto Scatter= getScatterFor(Stmt);
 
-	  if (!canForwardTree(RA->getAccessValue(), InLoop, Stmt,Identity, false ))
+	  if (!canForwardTree(RA->getAccessValue(), InLoop,Scatter, Stmt,Identity,0, false, RA ))
 		  return false;
 
-	  bool Success = canForwardTree(RA->getAccessValue(), InLoop, Stmt,Identity, true );
+	  bool Success = canForwardTree(RA->getAccessValue(), InLoop,Scatter,  Stmt,Identity,0, true, RA );
 	  assert(Success && "If it says it can do it, it must be able to do it");
+
+	  // Remove if not been removed.
+	  if (RA)
+	   Stmt->removeSingleMemoryAccess(RA);
+
+
 	  return true;
   }
 
@@ -3216,7 +3380,7 @@ private:
   }
 
 public:
-  KnownImpl(Scop *S) : ZoneAlgorithm(S) {}
+  KnownImpl(Scop *S, LoopInfo *LI) : ZoneAlgorithm(S), LI(LI) {}
 
   /// A reaching definition zone is known to have the definition's written value
   /// if the definition is a MUST_WRITE.
@@ -3369,7 +3533,7 @@ public:
     DEBUG(dbgs() << "Known from load: " << KnownFromLoad << "\n");
     DEBUG(dbgs() << "Known from init: " << KnownFromInit << "\n");
     DEBUG(dbgs() << "All known: " << Known << "\n");
-
+	findScalarAccesses();
     // If maxops is enabled and Known is nullptr, we exceeded the operations
     // limit somewhere during the computation.
     return KnownMaxOps == 0 || !!Known;
@@ -3381,9 +3545,20 @@ public:
   /// contain the same value.
   void collapseKnown() {
     assert(Known);
-
     bool Modified = false;
 
+	for (auto &Stmt : *S) {
+		for (auto *RA : Stmt) {
+			        if (!RA->isLatestScalarKind())
+          continue;
+			if (!RA->isRead())
+				continue;
+
+			if (tryForwardTree(RA))
+				Modified = true;
+		}
+	}
+#if 0
     for (auto &Stmt : *S) {
       for (auto *MA : Stmt) {
         if (!MA->isLatestScalarKind())
@@ -3395,14 +3570,122 @@ public:
         DEBUG(dbgs() << "Trying to collapse " << MA << "\n");
         if (tryCollapseKnownLoad(MA))
           Modified = true;
-		else if (tryForwardTree(MA))
-			Modified = true;
       }
     }
+#endif
+	if (markAndSweep())
+		Modified = true;
 
     if (Modified)
       KnownScopsModified++;
   }
+
+  void collectInsts(ScopStmt *Stmt, SmallVectorImpl<Instruction*> &List) {
+	  		if (!Stmt->isRegionStmt()) {
+					for (auto &Inst : *Stmt->getBasicBlock())
+			List.push_back(&Inst);
+					return;
+		}
+
+			for (auto *BB : Stmt->getRegion()->blocks()) 
+						for (auto &Inst : *BB)
+			List.push_back(&Inst);
+  }
+
+  bool markAndSweep() {
+	  DenseSet<VirtualInstruction > Used;
+	  DenseSet<MemoryAccess  *> UsedMA;
+
+	  SmallVector<VirtualInstruction, 32> Worklist;
+
+
+	  // Add roots to worklist
+	      for (auto &Stmt : *S) {
+      for (auto *MA : Stmt) {
+		  if (!MA->isWrite())
+			  continue;
+
+		  // Writes to arrays are always used
+		  if (MA->isLatestArrayKind()) {
+			  auto Inst = MA->getAccessInstruction();
+			  Worklist.emplace_back(&Stmt, Inst);
+			  UsedMA.insert(MA);
+		  }
+
+		  // Values are roots if they are escaping
+		  if (MA->isLatestValueKind()) {
+			   auto ComputingInst = cast<Instruction>( MA->getAccessValue());
+			   bool IsEscaping = false;
+			   for (auto &Use : ComputingInst->uses()) {
+				  auto User = cast<Instruction>( Use.getUser());
+				  if (!S->contains(User) ) {
+					  IsEscaping= true;
+					break;
+				  }
+			   }
+
+			   if (IsEscaping) {
+				   Worklist.emplace_back(&Stmt, ComputingInst);
+				 UsedMA.insert(MA);
+			   }
+		  }
+
+		  // Exit phis are, by definition, escaping
+		  if (MA->isLatestExitPHIKind()) {
+			  auto ComputingInst=  dyn_cast<Instruction>( MA->getAccessValue());
+			  if (ComputingInst) 
+				Worklist.emplace_back(&Stmt, ComputingInst);
+			  UsedMA.insert(MA);
+		  }
+
+	  }}
+
+
+		while (!Worklist.empty()) {
+		  auto VInst = Worklist.pop_back_val();
+
+		  auto InsertResult =  Used.insert(VInst);
+		   if (!InsertResult.second)
+			    continue;
+
+		   for (auto &Use  : VInst.operands()) {
+			   if (!VInst.isVirtualOperand(Use) )
+				   continue;
+
+			   if (VInst.isIntraOperand(Use)) {
+				   Worklist.push_back(VInst.getIntraOperand(Use));
+				   continue;
+			   }
+
+			  auto InputMA = VInst. getInterOperandInput(Use);
+			auto SAI = InputMA->getScopArrayInfo();
+			  assert(InputMA->isLatestScalarKind() && InputMA->isRead() );
+
+
+			  if (InputMA->isLatestPHIKind()) {
+				  for (auto *IncomingMA : PHIIncomingAccs.lookup(SAI)) {
+					  Worklist.emplace_back(  IncomingMA->getStatement(), cast<Instruction> (Use.get() ) );
+					  UsedMA.insert(IncomingMA);
+				  }
+			  }
+
+			  if (InputMA->isLatestValueKind()) {
+				  // search for the definition
+				  auto DefMA = ValueDefAccs.lookup(SAI);
+				  Worklist.emplace_back(  DefMA->getStatement(), cast<Instruction> (Use.get() ) );
+				  UsedMA.insert(DefMA);
+			  }
+
+		   }
+		}
+
+	
+			  bool Modified = false;
+llvm_unreachable("Unimplemented: sweep phase");
+
+	  return Modified;
+  }
+
 
   /// Print the analysis result, performed transformations and the scop after
   /// the transformation.
@@ -3437,8 +3720,8 @@ private:
   std::unique_ptr<KnownImpl> Impl;
 
   void collapseToKnown(Scop &S) {
-    Impl = make_unique<KnownImpl>(&S);
-
+    Impl = make_unique<KnownImpl>(&S, &getAnalysis<LoopInfoWrapperPass>().getLoopInfo());
+	
     if (!Impl->computeKnown())
       return;
 
@@ -3455,6 +3738,7 @@ public:
   virtual void getAnalysisUsage(AnalysisUsage &AU) const override {
     // TODO: preserve only ScopInfo and dependencies
     AU.addRequiredTransitive<ScopInfoRegionPass>();
+	AU.addRequired<LoopInfoWrapperPass>();
     AU.setPreservesAll();
   }
 

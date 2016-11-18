@@ -882,7 +882,7 @@ static __isl_give isl_schedule_node *optimizeDataLayoutMatrMulPattern(
   ExtMap = isl_map_project_out(ExtMap, isl_dim_in, 1, 1);
   auto *Domain = Stmt->getDomain();
   auto *NewStmt = Stmt->getParent()->addScopStmt(
-      OldAcc, MemAccessA->getAccessRelation(), isl_set_copy(Domain));
+      OldAcc, MemAccessA->getAccessRelation(), isl_set_copy(Domain), nullptr);
   ExtMap = isl_map_set_tuple_id(ExtMap, isl_dim_out, NewStmt->getDomainId());
   Node = createExtensionNode(Node, ExtMap);
   Node = isl_schedule_node_child(Node, 0);
@@ -898,7 +898,7 @@ static __isl_give isl_schedule_node *optimizeDataLayoutMatrMulPattern(
   isl_map_move_dims(ExtMap, isl_dim_out, 0, isl_dim_in, 1, 1);
   isl_map_move_dims(ExtMap, isl_dim_in, 2, isl_dim_out, 0, 1);
   NewStmt = Stmt->getParent()->addScopStmt(
-      OldAcc, MemAccessB->getAccessRelation(), Domain);
+      OldAcc, MemAccessB->getAccessRelation(), Domain, nullptr);
   ExtMap = isl_map_set_tuple_id(ExtMap, isl_dim_out, NewStmt->getDomainId());
   Node = createExtensionNode(Node, ExtMap);
   Node = isl_schedule_node_child(isl_schedule_node_child(Node, 0), 0);

@@ -1562,24 +1562,24 @@ void ScopStmt::collectSurroundingLoops() {
   }
 }
 
-ScopStmt::ScopStmt(Scop &parent, Region &R)
+ScopStmt::ScopStmt(Scop &parent, Region &R,Loop *SurroundingLoop)
     : Parent(parent), InvalidDomain(nullptr), Domain(nullptr), BB(nullptr),
-      R(&R), Build(nullptr) {
+      R(&R), Build(nullptr), SurroundingLoop(SurroundingLoop) {
 
   BaseName = getIslCompatibleName("Stmt_", R.getNameStr(), "");
 }
 
-ScopStmt::ScopStmt(Scop &parent, BasicBlock &bb)
+ScopStmt::ScopStmt(Scop &parent, BasicBlock &bb,Loop *SurroundingLoop)
     : Parent(parent), InvalidDomain(nullptr), Domain(nullptr), BB(&bb),
-      R(nullptr), Build(nullptr) {
+      R(nullptr), Build(nullptr), SurroundingLoop(SurroundingLoop) {
 
   BaseName = getIslCompatibleName("Stmt_", &bb, "");
 }
 
 ScopStmt::ScopStmt(Scop &parent, __isl_take isl_map *SourceRel,
-                   __isl_take isl_map *TargetRel, __isl_take isl_set *NewDomain)
+                   __isl_take isl_map *TargetRel, __isl_take isl_set *NewDomain,Loop *SurroundingLoop)
     : Parent(parent), InvalidDomain(nullptr), Domain(NewDomain), BB(nullptr),
-      R(nullptr), Build(nullptr) {
+      R(nullptr), Build(nullptr) ,SurroundingLoop(SurroundingLoop){
   BaseName = getIslCompatibleName("CopyStmt_", "",
                                   std::to_string(parent.getCopyStmtsNum()));
   auto *Id = isl_id_alloc(getIslCtx(), getBaseName(), this);
@@ -4252,14 +4252,14 @@ mapToDimension(__isl_take isl_union_set *USet, int N) {
   return isl_multi_union_pw_aff_from_union_pw_multi_aff(Data.Res);
 }
 
-void Scop::addScopStmt(BasicBlock *BB, Region *R) {
+void Scop::addScopStmt(BasicBlock *BB, Region *R,Loop* SurroundingLoop) {
   if (BB) {
-    Stmts.emplace_back(*this, *BB);
+    Stmts.emplace_back(*this, *BB,SurroundingLoop);
     auto *Stmt = &Stmts.back();
     StmtMap[BB] = Stmt;
   } else {
     assert(R && "Either basic block or a region expected.");
-    Stmts.emplace_back(*this, *R);
+    Stmts.emplace_back(*this, *R,SurroundingLoop);
     auto *Stmt = &Stmts.back();
     for (BasicBlock *BB : R->blocks())
       StmtMap[BB] = Stmt;
@@ -4268,7 +4268,7 @@ void Scop::addScopStmt(BasicBlock *BB, Region *R) {
 
 ScopStmt *Scop::addScopStmt(__isl_take isl_map *SourceRel,
                             __isl_take isl_map *TargetRel,
-                            __isl_take isl_set *Domain) {
+                            __isl_take isl_set *Domain, Loop *SurroundingLoop) {
 #ifndef NDEBUG
   isl_set *SourceDomain = isl_map_domain(isl_map_copy(SourceRel));
   isl_set *TargetDomain = isl_map_domain(isl_map_copy(TargetRel));
@@ -4279,7 +4279,7 @@ ScopStmt *Scop::addScopStmt(__isl_take isl_map *SourceRel,
   isl_set_free(SourceDomain);
   isl_set_free(TargetDomain);
 #endif
-  Stmts.emplace_back(*this, SourceRel, TargetRel, Domain);
+  Stmts.emplace_back(*this, SourceRel, TargetRel, Domain,SurroundingLoop);
   CopyStmtsNum++;
   return &(Stmts.back());
 }
