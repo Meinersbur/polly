@@ -2,6 +2,7 @@
 #include "polly/ScopInfo.h"
 #include "polly/ScopPass.h"
 #include "polly/Support/GICHelper.h"
+#include "polly/Support/VirtualInstruction.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/IR/Value.h"
 #include "llvm/PassSupport.h"
@@ -15,8 +16,8 @@ namespace {
 
 STATISTIC(ScopsProcessed, "Number of SCoPs processed");
 STATISTIC(PairsCleaned, "Number of Load-Store pairs cleaned");
-STATISTIC(PairUnequalAccRels, "Number of Load-Store pairs NOT cleaned because "
-                              "of different access relations");
+STATISTIC(PairUnequalAccRels, "Number of Load-Store pairs NOT cleaned because of different access relations");
+STATISTIC(UnusedAccs,"Number of unused accesses");
 STATISTIC(StmtsRemoved, "Number of statements removed");
 STATISTIC(ScopsModified, "Number of SCoPs modified");
 
@@ -50,6 +51,7 @@ struct CleanupReport {
 class Simplify : public ScopPass {
 private:
   Scop *S = nullptr;
+  ScalarDefUseChains DefUse;
 
   /// Hold a reference to the isl_ctx to avoid it being freed before we released
   /// all of the ISL objects.
@@ -175,6 +177,125 @@ private:
     return Modified;
   }
 
+  
+
+
+  bool markAndSweep() {
+	  DenseSet<VirtualInstruction > Used;
+	  DenseSet<MemoryAccess  *> UsedMA;
+	  SmallVector<MemoryAccess*,32> AllMAs;
+
+	  SmallVector<VirtualInstruction, 32> Worklist;
+
+
+	  // Add roots (things that are used after the scop; aka escaping values) to worklist
+	      for (auto &Stmt : *S) {
+      for (auto *MA : Stmt) {
+		  AllMAs.push_back(MA);
+		  if (!MA->isWrite())
+			  continue;
+
+		  // Writes to arrays are always used
+		  if (MA->isLatestArrayKind()) {
+			  auto Inst = MA->getAccessInstruction();
+			  Worklist.emplace_back(&Stmt, Inst);
+			  UsedMA.insert(MA);
+		  }
+
+		  // Values are roots if they are escaping
+		  if (MA->isLatestValueKind()) {
+			   auto ComputingInst = cast<Instruction>( MA->getAccessValue());
+			   bool IsEscaping = false;
+			   for (auto &Use : ComputingInst->uses()) {
+				  auto User = cast<Instruction>( Use.getUser());
+				  if (!S->contains(User) ) {
+					  IsEscaping= true;
+					break;
+				  }
+			   }
+
+			   if (IsEscaping) {
+				   Worklist.emplace_back(&Stmt, ComputingInst);
+				 UsedMA.insert(MA);
+			   }
+		  }
+
+		  // Exit phis are, by definition, escaping
+		  if (MA->isLatestExitPHIKind()) {
+			  auto ComputingInst=  dyn_cast<Instruction>( MA->getAccessValue());
+			  if (ComputingInst) 
+				Worklist.emplace_back(&Stmt, ComputingInst);
+			  UsedMA.insert(MA);
+		  }
+
+	  }}
+
+
+		while (!Worklist.empty()) {
+		  auto VInst = Worklist.pop_back_val();
+
+		  auto InsertResult =  Used.insert(VInst);
+		   if (!InsertResult.second)
+			    continue;
+
+		   if (auto MA = VInst.getStmt()->getArrayAccessOrNULLFor(VInst.getInstruction())) 
+			   UsedMA.insert(MA);
+
+		   for (auto &Use  : VInst.operands()) {
+			   if (!VInst.isVirtualOperand(Use) )
+				   continue;
+
+			 auto InputMA = VInst.findInputAccess(Use.get(), true);
+			 if (!InputMA) {
+				   Worklist.push_back(VInst.getIntraOperand(Use));
+				   continue;
+			   }
+
+			auto SAI = InputMA->getScopArrayInfo();
+			  assert( InputMA->isRead() );
+			  UsedMA.insert(InputMA);
+
+			  if (InputMA->isLatestPHIKind()) {
+				  for (auto *IncomingMA : DefUse.getPHIIncomings (SAI)) {
+					  Worklist.emplace_back(  IncomingMA->getStatement(), cast<Instruction> (Use.get() ) );
+					  UsedMA.insert(IncomingMA);
+				  }
+			  }
+
+			  if (InputMA->isLatestValueKind()) {
+				  // search for the definition
+				  auto DefMA =  DefUse.getValueDef(SAI);
+				  Worklist.emplace_back(  DefMA->getStatement(), cast<Instruction> (Use.get() ) );
+				  UsedMA.insert(DefMA);
+			  }
+
+			  if (InputMA->isLatestArrayKind() ) {
+				   auto LI =  cast<LoadInst> (Use.get()) ;
+
+				   // If the access is explicit, it is just like the intra-operand case
+				   // If the access is implicit, there is no getAccessInstruction(). The pointer operand should be synthesizable such that there is no effect of this.
+				   Worklist.emplace_back(InputMA->getStatement(), LI);
+			  }
+
+		   }
+		}
+
+	
+			  bool Modified = false;
+			  for (auto *MA: AllMAs) {
+				  if (UsedMA.count(MA))
+					  continue;
+
+				  auto Stmt = MA->getStatement();
+				  Stmt->removeSingleMemoryAccess(MA);
+				  Modified=true;
+				  UnusedAccs++;
+			  }
+
+	  return Modified;
+  }
+
+
   /// Print the current state of all MemoryAccesses to @p.
   void printAccesses(llvm::raw_ostream &OS, int Indent = 0) const {
     OS.indent(Indent) << "After accesses {\n";
@@ -202,8 +323,14 @@ public:
     IslCtx = S.getSharedIslCtx();
     ScopsProcessed++;
 
-    DEBUG(dbgs() << "Cleaning up...\n");
+	DefUse.compute(&S);
+
+    DEBUG(dbgs() << "Cleaning up no-op load-store combinations...\n");
     auto Modified = cleanup();
+
+	DEBUG(dbgs() << "Cleanup unused accesses...\n");
+	if (markAndSweep())
+		Modified = true;
 
     DEBUG(dbgs() << "Removing statements...\n");
     auto NumStmtsBefore = S.getSize();
@@ -228,6 +355,7 @@ public:
 
   virtual void releaseMemory() override {
     S = nullptr;
+	DefUse.reset();
     CleanupReports.clear();
     IslCtx.reset();
   }
@@ -238,7 +366,5 @@ char Simplify::ID;
 
 Pass *polly::createSimplifyPass() { return new Simplify(); }
 
-INITIALIZE_PASS_BEGIN(Simplify, "polly-simplify", "Polly - Simplify", false,
-                      false)
-INITIALIZE_PASS_END(Simplify, "polly-simplify", "Polly - Simplify", false,
-                    false)
+INITIALIZE_PASS_BEGIN(Simplify, "polly-simplify", "Polly - Simplify", false,                      false)
+INITIALIZE_PASS_END(Simplify, "polly-simplify", "Polly - Simplify", false,                    false)

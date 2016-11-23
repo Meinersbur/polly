@@ -59,6 +59,7 @@ add_polly_library(Polly
   Transform/FlattenAlgo.cpp
   Transform/DeLICM.cpp
   Transform/Simplify.cpp
+  Support/VirtualInstruction.cpp
   ${POLLY_HEADER_FILES}
   )
 

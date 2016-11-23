@@ -111,6 +111,7 @@
 #include "polly/Options.h"
 #include "polly/ScopInfo.h"
 #include "polly/ScopPass.h"
+#include "polly/Support/VirtualInstruction.h"
 #include "llvm/ADT/Statistic.h"
 #define DEBUG_TYPE "polly-delicm"
 
@@ -160,6 +161,9 @@ STATISTIC(KnownScopsModified, "Number of SCoPs optimized");
 
 #undef DEBUG_TYPE
 #define DEBUG_TYPE "polly-delicm"
+
+
+
 
 /// Return the range elements that are lexicographically smaller.
 ///
@@ -635,35 +639,7 @@ void simplify(IslPtr<isl_union_map> &Map) {
   Map = give(isl_union_map_coalesce(Map.take()));
 }
 
-/// If InputVal is not defined in the stmt itself, return the MemoryAccess that
-/// reads the scalar. Return nullptr otherwise (if the value is defined in the
-/// scop, or is synthesizable)
-MemoryAccess *getInputAccessOf(Value *InputVal, ScopStmt *Stmt, bool AllowArrayLoads) {
-  for (auto *MA : *Stmt) {
-    if (!MA->isRead())
-      continue;
-    if (!(MA->isLatestScalarKind() || (AllowArrayLoads && MA->isLatestArrayKind())))
-      continue;
 
-    if (MA->getAccessValue() == InputVal)
-      return MA;
-  }
-  return nullptr;
-}
-
-MemoryAccess *getOutputAccessFor(Value *OutputVal, ScopStmt *Stmt) {
-  for (auto *MA : *Stmt) {
-    if (!MA->isWrite())
-      continue;
-    if (!MA->isLatestValueKind())
-      continue;
-
-    assert(MA->getAccessValue() == MA->getBaseAddr());
-    if (MA->getAccessValue() == OutputVal)
-      return MA;
-  }
-  return nullptr;
-}
 
 /// Try to find a 'natural' extension of a mapped to elements outside its
 /// domain.
@@ -840,111 +816,6 @@ IslPtr<isl_union_map> filterKnownValInst(NonowningIslPtr<isl_union_map> UMap) {
 
 
 
-class VirtualInstruction {
-private:
-	ScopStmt *Stmt=nullptr;
-	Instruction *Inst=nullptr;
-
-public:
-	MemoryAccess *findInputAccess(Value *Val , bool AllowLoad)const {
-		return getInputAccessOf(Val, Stmt, AllowLoad);
-	}
-
-private:
-	MemoryAccess *findOutputAccess(Value *Val )const {
-		return getOutputAccessFor(Val, Stmt);
-	}
-
-public:
-	VirtualInstruction() {}
-	VirtualInstruction(ScopStmt *Stmt, Instruction *Inst) : Stmt(Stmt), Inst(Inst){};
-
-	Scop *getScop() const {return Stmt->getParent(); }
-	ScopStmt *getStmt() const {return Stmt;}
-	Instruction*getInstruction() const {return Inst;}
-
-	int getNumOperands() const { return Inst->getNumOperands(); }
-	Value *getOperand(unsigned i) const { return Inst->getOperand(i);}
-
-	auto operands() const {return  Inst->operands();   }
-
-	bool isVirtualOperand(const Use &U) const {
-		assert(U.getUser() == Inst);
-		auto Op = U.get();
-
-		if (isa<Constant>(Op))
-			return false;
-
-			auto S = getScop();
-			return ! canSynthesize(Op,  *S, S->getSE() , Stmt->getSurroundingLoop() );
-	}
-
-	bool isInterScopOperand(const Use &U) const{ 
-		assert(U.getUser() == Inst);
-		auto Op = U.get();
-		if (isa<Constant>(Op))
-			return false;
-		return findInputAccess(Op, false);
-	}
-
-	bool isIntraOperand(const Use &U) const {
-		return isVirtualOperand(U) && !isInterScopOperand(U);
-	}
-
-	VirtualInstruction getIntraOperand(const Use &U ) const {
-		assert(isIntraOperand(U));
-		return {Stmt, cast<Instruction >(U.get()) };
-	}
-
-	VirtualInstruction getInterOperand(const Use &U ) const {
-		assert(isInterScopOperand(U));
-		auto OpInst= cast<Instruction>(U.get());
-		auto S = Stmt->getParent()->getStmtFor(OpInst);
-		assert(S);
-		return { S, OpInst };
-	}
-
-	VirtualInstruction getVirtualOperand(const Use &U) const{
-	if (isInterScopOperand(U))
-		return getInterOperand(U);
-	return getIntraOperand(U);
-	}
-
-	MemoryAccess *getInterOperandInput(const Use &U ) const {
-		auto MA = findInputAccess(U.get(), false);
-		assert(MA && "Must be an inter-Stmt use");
-		return MA;
-	}
-
-		MemoryAccess *getInterOperandOutput() const {
-			return findOutputAccess(Inst);
-	}
-};
-}
-
-namespace llvm {
-	template<>
-	class DenseMapInfo<VirtualInstruction> {
-	public:
-		static bool isEqual (  VirtualInstruction LHS,  VirtualInstruction RHS ) {
-			return  DenseMapInfo<ScopStmt*>::isEqual( LHS.getStmt(),RHS.getStmt()) && DenseMapInfo<Instruction*>::isEqual( LHS.getInstruction(),RHS.getInstruction()) ;
-		}
-
-		static VirtualInstruction getTombstoneKey() {
-		return VirtualInstruction( DenseMapInfo<ScopStmt*>::getTombstoneKey(), DenseMapInfo<Instruction*>::getTombstoneKey() );
-		}
-
-			static VirtualInstruction getEmptyKey() {
-		return VirtualInstruction( DenseMapInfo<ScopStmt*>::getEmptyKey(), DenseMapInfo<Instruction*>::getEmptyKey() );
-		}
-
-			static unsigned getHashValue(VirtualInstruction Val) {
-			return DenseMapInfo<std::pair< ScopStmt*,Instruction* >>::getHashValue( std::make_pair( Val.getStmt( ), Val.getInstruction()));
-			}
-	};
-}
-
-namespace{
 /// Represent the knowledge of the contents any array elements in any zone or
 /// the knowledge we would add when mapping a scalar to an array element.
 ///
@@ -1302,84 +1173,13 @@ public:
 
 void Knowledge::dump() const { print(llvm::errs()); }
 
-     bool isInLoop(MemoryAccess *MA) {
-    auto Stmt = MA->getStatement();
-    return Stmt->getNumIterators() > 0;
-  }
+
 
 /// Base class for algorithms based on zones, like DeLICM.
 class ZoneAlgorithm {
 protected:
-	
-    /// The definitions/write MemoryAccess of an MK_Value scalar.
-  ///
-  /// Note that read-only values have no value-defining write access.
-  DenseMap<const ScopArrayInfo *, MemoryAccess *> ValueDefAccs;
 
-  /// List of all uses/read MemoryAccesses for an MK_Value scalar.
-  DenseMap<const ScopArrayInfo *, SmallVector<MemoryAccess *, 4>> ValueUseAccs;
 
-  /// The PHI/read MemoryAccess of an MK_PHI scalar.
-  DenseMap<const ScopArrayInfo *, MemoryAccess *> PHIReadAccs;
-
-  /// List of all incoming values/writes of an MK_PHI scalar.
-  DenseMap<const ScopArrayInfo *, SmallVector<MemoryAccess *, 4>>
-      PHIIncomingAccs;
-
-protected:
-  /// Find the MemoryAccesses that access the ScopArrayInfo-represented memory.
-  void findScalarAccesses() {
-    for (auto &Stmt : *S) {
-      for (auto *MA : Stmt) {
-        if (MA->isOriginalValueKind() && MA->isWrite()) {
-          auto *SAI = MA->getScopArrayInfo();
-          assert(!ValueDefAccs.count(SAI) &&
-                 "There can be at most one definition per MK_Value scalar");
-          ValueDefAccs[SAI] = MA;
-        }
-
-        if (MA->isOriginalValueKind() && MA->isRead())
-          ValueUseAccs[MA->getScopArrayInfo()].push_back(MA);
-
-        if (MA->isOriginalAnyPHIKind() && MA->isRead()) {
-          auto *SAI = MA->getScopArrayInfo();
-          assert(!PHIReadAccs.count(SAI) && "There must be exactly one read "
-                                            "per PHI (that's where the PHINode "
-                                            "is)");
-          PHIReadAccs[SAI] = MA;
-        }
-
-        if (MA->isOriginalAnyPHIKind() && MA->isWrite())
-          PHIIncomingAccs[MA->getScopArrayInfo()].push_back(MA);
-      }
-    }
-
-    for (auto ScalarVals : ValueDefAccs) {
-      if (!ValueUseAccs[ScalarVals.first].empty())
-        ScalarValueDeps++;
-
-      if (!isInLoop(ScalarVals.second))
-        continue;
-      for (auto Use : ValueUseAccs[ScalarVals.first])
-        if (isInLoop(Use)) {
-          ScalarValueLoopDeps++;
-          break;
-        }
-    }
-
-    for (auto ScalarPHIs : PHIReadAccs) {
-      if (!PHIIncomingAccs[ScalarPHIs.first].empty())
-        ScalarPHIDeps++;
-
-      if (!isInLoop(ScalarPHIs.second))
-        continue;
-      for (auto Incoming : PHIIncomingAccs[ScalarPHIs.first])
-        if (isInLoop(Incoming)) {
-          ScalarPHILoopDeps++;
-          break;
-        }
-    }
-  }
 
 private:
   /// Cached reaching definitions for each ScopStmt.
@@ -2104,6 +1904,7 @@ private:
   /// Log of every applied mapping transformations.
   SmallVector<MapReport, 8> MapReports;
 
+  ScalarDefUseChains DefUse;
 
 
   /// Determine whether to knowledges are conflicting each other.
@@ -2121,7 +1922,7 @@ private:
     assert(SAI);
 
     if (SAI->isValueKind()) {
-      auto *MA = ValueDefAccs.lookup(SAI);
+      auto *MA = DefUse.getValueDef(SAI);
       if (!MA) {
         DEBUG(dbgs()
               << "    Reject because value is read-only within the scop\n");
@@ -2148,7 +1949,7 @@ private:
     }
 
     if (SAI->isPHIKind()) {
-      auto *MA = PHIReadAccs.lookup(SAI);
+      auto *MA = DefUse.getPHIRead(SAI);
       assert(MA);
 
       // Mapping of an incoming block from before the SCoP is not supported by
@@ -2185,14 +1986,13 @@ private:
     auto Reads = EmptyUnionSet;
 
     // Find all uses.
-    for (auto *MA : ValueUseAccs.lookup(SAI))
-      Reads =
-          give(isl_union_set_add_set(Reads.take(), getDomainFor(MA).take()));
+    for (auto *MA : DefUse.getValueUses(SAI))
+      Reads = give(isl_union_set_add_set(Reads.take(), getDomainFor(MA).take()));
 
     // { DomainRead[] -> Scatter[] }
     auto ReadSchedule = getScatterFor(Reads);
 
-    auto *DefMA = ValueDefAccs.lookup(SAI);
+    auto *DefMA =  DefUse.getValueDef(SAI);
     assert(DefMA);
 
     // { DomainDef[] }
@@ -2241,14 +2041,14 @@ private:
     auto PHIWriteScatter = EmptyUnionMap;
 
     // Collect all incoming block timepoint.
-    for (auto *MA : PHIIncomingAccs.lookup(SAI)) {
+    for (auto *MA :  DefUse.getPHIIncomings(SAI)) {
       auto Scatter = getScatterFor(MA);
       PHIWriteScatter =
           give(isl_union_map_add_map(PHIWriteScatter.take(), Scatter.take()));
     }
 
     // { DomainPHIRead[] -> Scatter[] }
-    auto PHIReadScatter = getScatterFor(PHIReadAccs.lookup(SAI));
+    auto PHIReadScatter = getScatterFor(DefUse.getPHIRead (SAI));
 
     // { DomainPHIRead[] -> Scatter[] }
     auto BeforeRead = beforeScatter(PHIReadScatter, true);
@@ -2281,7 +2081,7 @@ private:
   bool tryMapValue(const ScopArrayInfo *SAI, IslPtr<isl_map> TargetElt) {
     assert(SAI->isValueKind());
 
-    auto *DefMA = ValueDefAccs.lookup(SAI);
+    auto *DefMA = DefUse.getValueDef (SAI);
     assert(DefMA->isValueKind());
     assert(DefMA->isMustWrite());
     auto *V = DefMA->getAccessValue();
@@ -2376,7 +2176,7 @@ private:
                 Knowledge Proposed) {
     // Redirect the use accesses.
     SmallVector<MemoryAccess *, 4> SecondaryAccs;
-    for (auto *MA : ValueUseAccs.lookup(SAI)) {
+    for (auto *MA : DefUse.getValueUses(SAI)) {
       // { DomainUse[] }
       auto Domain = getDomainFor(MA);
 
@@ -2390,7 +2190,7 @@ private:
       SecondaryAccs.push_back(MA);
     }
 
-    auto *WA = ValueDefAccs.lookup(SAI);
+    auto *WA =  DefUse.getValueDef (SAI);
     WA->setNewAccessRelation(DefTarget.copy());
     applyLifetime(Proposed);
 
@@ -2433,7 +2233,7 @@ private:
     auto Result = EmptyUnionMap;
 
     // Collect the incoming values.
-    for (auto *MA : PHIIncomingAccs.lookup(SAI)) {
+    for (auto *MA :  DefUse.getPHIIncomings (SAI)) {
       // { DomainWrite[] -> ValInst[] }
       IslPtr<isl_map> ValInst;
       auto *WriteStmt = MA->getStatement();
@@ -2470,7 +2270,7 @@ private:
   ///
   /// @return true if the PHI scalar has been mapped.
   bool tryMapPHI(const ScopArrayInfo *SAI, IslPtr<isl_map> TargetElt) {
-    auto *PHIRead = PHIReadAccs.lookup(SAI);
+    auto *PHIRead = DefUse.getPHIRead (SAI);
     assert(PHIRead->isPHIKind());
     assert(PHIRead->isRead());
 
@@ -2511,7 +2311,7 @@ private:
         give(isl_union_map_domain(ExpandedTargetWrites.copy()));
     auto UniverseWritesDom = give(isl_union_set_empty(ParamSpace.copy()));
 
-    for (auto *MA : PHIIncomingAccs.lookup(SAI))
+    for (auto *MA :  DefUse.getPHIIncomings (SAI))
       UniverseWritesDom = give(isl_union_set_add_set(UniverseWritesDom.take(),
                                                      getDomainFor(MA).take()));
 
@@ -2590,7 +2390,7 @@ private:
               Knowledge Proposed) {
     // Redirect the PHI incoming writes.
     SmallVector<MemoryAccess *, 4> SecondaryAccs;
-    for (auto *MA : PHIIncomingAccs.lookup(SAI)) {
+    for (auto *MA :  DefUse.getPHIIncomings(SAI)) {
       // { DomainWrite[] }
       auto Domain = getDomainFor(MA);
 
@@ -2605,13 +2405,12 @@ private:
     }
 
     // Redirect the PHI read.
-    auto *PHIRead = PHIReadAccs.lookup(SAI);
+    auto *PHIRead =  DefUse.getPHIRead(SAI);
     PHIRead->setNewAccessRelation(ReadTarget.copy());
     applyLifetime(Proposed);
 
     MappedPHIScalars++;
-    MapReports.emplace_back(SAI, PHIRead, SecondaryAccs, std::move(ReadTarget),
-                            std::move(Lifetime), std::move(Proposed));
+    MapReports.emplace_back(SAI, PHIRead, SecondaryAccs, std::move(ReadTarget),     std::move(Lifetime), std::move(Proposed));
   }
 
   /// Search and map scalars to memory overwritten by @p TargetStoreMA.
@@ -2702,7 +2501,7 @@ private:
 
       // Try to map MK_Value scalars.
       if (SAI->isValueKind() && tryMapValue(SAI, EltTarget)) {
-        auto *DefAcc = ValueDefAccs.lookup(SAI);
+        auto *DefAcc = DefUse.getValueDef(SAI);
         ProcessAllIncoming(DefAcc->getStatement());
 
         AnyMapped = true;
@@ -2712,7 +2511,7 @@ private:
       // Try to map MK_PHI scalars.
       if (SAI->isPHIKind() && tryMapPHI(SAI, EltTarget)) {
         // Add inputs of all incoming statements to the worklist.
-        for (auto *PHIWrite : PHIIncomingAccs.lookup(SAI))
+        for (auto *PHIWrite :DefUse.getPHIIncomings (SAI))
           ProcessAllIncoming(PHIWrite->getStatement());
 
         AnyMapped = true;
@@ -2814,7 +2613,7 @@ private:
   }
 
 public:
-  DeLICMImpl(Scop *S) : ZoneAlgorithm(S) {}
+  DeLICMImpl(Scop *S) : ZoneAlgorithm(S) { DefUse.compute(S); }
 
   /// Calculate the lifetime (definition to last use) of every array element.
   ///
@@ -2830,8 +2629,6 @@ public:
         return false;
       }
 
-      findScalarAccesses();
-
       EltLifetime = computeLifetime();
       EltWritten = computeWritten();
     }
@@ -2842,8 +2639,7 @@ public:
     }
 
     DeLICMAnalyzed++;
-    OriginalZone =
-        Knowledge(std::move(EltLifetime), true, std::move(EltWritten));
+    OriginalZone =   Knowledge(std::move(EltLifetime), true, std::move(EltWritten));
     DEBUG(dbgs() << "Computed Zone:\n"; OriginalZone.print(dbgs(), 4));
 
     Zone = OriginalZone;
@@ -3558,7 +3354,7 @@ public:
     DEBUG(dbgs() << "Known from load: " << KnownFromLoad << "\n");
     //DEBUG(dbgs() << "Known from init: " << KnownFromInit << "\n");
     DEBUG(dbgs() << "All known: " << Known << "\n");
-	findScalarAccesses();
+
     // If maxops is enabled and Known is nullptr, we exceeded the operations
     // limit somewhere during the computation.
     return KnownMaxOps == 0 || !!Known;
@@ -3583,6 +3379,7 @@ public:
 				Modified = true;
 		}
 	}
+
 #if 0
     for (auto &Stmt : *S) {
       for (auto *MA : Stmt) {
@@ -3598,8 +3395,6 @@ public:
       }
     }
 #endif
-	if (markAndSweep())
-		Modified = true;
 
     if (Modified)
       KnownScopsModified++;
@@ -3617,122 +3412,6 @@ public:
 			List.push_back(&Inst);
   }
 
-
-
-  //TODO: Move to SimplifyPass
-  bool markAndSweep() {
-	  DenseSet<VirtualInstruction > Used;
-	  DenseSet<MemoryAccess  *> UsedMA;
-	  SmallVector<MemoryAccess*,32> AllMAs;
-
-	  SmallVector<VirtualInstruction, 32> Worklist;
-
-
-	  // Add roots (things that are used after the scop; aka escaping values) to worklist
-	      for (auto &Stmt : *S) {
-      for (auto *MA : Stmt) {
-		  AllMAs.push_back(MA);
-		  if (!MA->isWrite())
-			  continue;
-
-		  // Writes to arrays are always used
-		  if (MA->isLatestArrayKind()) {
-			  auto Inst = MA->getAccessInstruction();
-			  Worklist.emplace_back(&Stmt, Inst);
-			  UsedMA.insert(MA);
-		  }
-
-		  // Values are roots if they are escaping
-		  if (MA->isLatestValueKind()) {
-			   auto ComputingInst = cast<Instruction>( MA->getAccessValue());
-			   bool IsEscaping = false;
-			   for (auto &Use : ComputingInst->uses()) {
-				  auto User = cast<Instruction>( Use.getUser());
-				  if (!S->contains(User) ) {
-					  IsEscaping= true;
-					break;
-				  }
-			   }
-
-			   if (IsEscaping) {
-				   Worklist.emplace_back(&Stmt, ComputingInst);
-				 UsedMA.insert(MA);
-			   }
-		  }
-
-		  // Exit phis are, by definition, escaping
-		  if (MA->isLatestExitPHIKind()) {
-			  auto ComputingInst=  dyn_cast<Instruction>( MA->getAccessValue());
-			  if (ComputingInst) 
-				Worklist.emplace_back(&Stmt, ComputingInst);
-			  UsedMA.insert(MA);
-		  }
-
-	  }}
-
-
-		while (!Worklist.empty()) {
-		  auto VInst = Worklist.pop_back_val();
-
-		  auto InsertResult =  Used.insert(VInst);
-		   if (!InsertResult.second)
-			    continue;
-
-		   if (auto MA = VInst.getStmt()->getArrayAccessOrNULLFor(VInst.getInstruction())) 
-			   UsedMA.insert(MA);
-
-		   for (auto &Use  : VInst.operands()) {
-			   if (!VInst.isVirtualOperand(Use) )
-				   continue;
-
-			 auto InputMA = VInst.findInputAccess(Use.get(), true);
-			 if (!InputMA) {
-				   Worklist.push_back(VInst.getIntraOperand(Use));
-				   continue;
-			   }
-
-			auto SAI = InputMA->getScopArrayInfo();
-			  assert( InputMA->isRead() );
-			  UsedMA.insert(InputMA);
-
-			  if (InputMA->isLatestPHIKind()) {
-				  for (auto *IncomingMA : PHIIncomingAccs.lookup(SAI)) {
-					  Worklist.emplace_back(  IncomingMA->getStatement(), cast<Instruction> (Use.get() ) );
-					  UsedMA.insert(IncomingMA);
-				  }
-			  }
-
-			  if (InputMA->isLatestValueKind()) {
-				  // search for the definition
-				  auto DefMA = ValueDefAccs.lookup(SAI);
-				  Worklist.emplace_back(  DefMA->getStatement(), cast<Instruction> (Use.get() ) );
-				  UsedMA.insert(DefMA);
-			  }
-
-			  if (InputMA->isLatestArrayKind() ) {
-				   auto LI =  cast<LoadInst> (Use.get()) ;
-
-				   // If the access is explicit, it is just like the intra-operand case
-				   // If the access is implicit, there is no getAccessInstruction(). The pointer operand should be synthesizable such that there is no effect of this.
-				   Worklist.emplace_back(InputMA->getStatement(), LI);
-			  }
-
-		   }
-		}
-
-	
-			  bool Modified = false;
-			  for (auto *MA: AllMAs) {
-				  if (UsedMA.count(MA))
-					  continue;
-
-				  auto Stmt = MA->getStatement();
-				  Stmt->removeSingleMemoryAccess(MA);
-				  Modified=true;
-			  }
-
-	  return Modified;
-  }
 
 
   /// Print the analysis result, performed transformations and the scop after
