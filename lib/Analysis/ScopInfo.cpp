@@ -612,6 +612,29 @@ std::string MemoryAccess::getNewAccessRelationStr() const {
   return stringFromIslObj(NewAccessRelation);
 }
 
+ bool polly::MemoryAccess::isImplicit() const {
+	if (isOriginalScalarKind())
+		return true;
+	auto *AccInst = getAccessInstruction();
+	if (!AccInst)
+		return false;
+#if 1
+	if (isa<LoadInst>(AccInst)) {
+		auto *Stmt = getStatement();
+		if (Stmt->isRegionStmt()) {
+			if (!Stmt->getRegion()->contains(AccInst)) {
+				return true;
+			}
+		}
+		else {
+			if (Stmt->getBasicBlock() != AccInst->getParent())
+				return true;
+		}
+	}
+#endif
+	return false;
+}
+
 __isl_give isl_basic_map *
 MemoryAccess::createBasicAccessMap(ScopStmt *Statement) {
   isl_space *Space = isl_space_set_alloc(Statement->getIslCtx(), 0, 1);

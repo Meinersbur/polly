@@ -638,15 +638,28 @@ void simplify(IslPtr<isl_union_map> &Map) {
 /// If InputVal is not defined in the stmt itself, return the MemoryAccess that
 /// reads the scalar. Return nullptr otherwise (if the value is defined in the
 /// scop, or is synthesizable)
-MemoryAccess *getInputAccessOf(Value *InputVal, ScopStmt *Stmt) {
+MemoryAccess *getInputAccessOf(Value *InputVal, ScopStmt *Stmt, bool AllowArrayLoads) {
   for (auto *MA : *Stmt) {
     if (!MA->isRead())
       continue;
-    if (!MA->isLatestScalarKind())
+    if (!(MA->isLatestScalarKind() || (AllowArrayLoads && MA->isLatestArrayKind())))
+      continue;
+
+    if (MA->getAccessValue() == InputVal)
+      return MA;
+  }
+  return nullptr;
+}
+
+MemoryAccess *getOutputAccessFor(Value *OutputVal, ScopStmt *Stmt) {
+  for (auto *MA : *Stmt) {
+    if (!MA->isWrite())
+      continue;
+    if (!MA->isLatestValueKind())
       continue;
 
     assert(MA->getAccessValue() == MA->getBaseAddr());
-    if (MA->getAccessValue() == InputVal)
+    if (MA->getAccessValue() == OutputVal)
       return MA;
   }
   return nullptr;
@@ -671,6 +684,46 @@ IslPtr<isl_union_map> expandMapping(IslPtr<isl_union_map> Relevant,
   return give(
       isl_union_map_intersect_domain(Simplified.take(), Universe.take()));
 }
+
+/// Input: { Domain[] -> [Range1[] -> Range2[]] }
+/// Output: { [Domain[] -> Range1[]] -> [Domain[] -> Range2[]] }
+IslPtr<isl_map> isl_map_distribute_domain(IslPtr<isl_map> Map ) {
+	auto Space = give( isl_map_get_space(Map.keep()) );
+	auto DomainSpace  = give(isl_space_domain(Space.copy())); assert(DomainSpace);
+	auto DomainDims = isl_space_dim(DomainSpace.keep(), isl_dim_set);
+		auto RangeSpace  = give(isl_space_unwrap( isl_space_range(Space.copy())));
+		auto Range1Space =  give(isl_space_domain(RangeSpace.copy())); assert(Range1Space);
+			auto Range1Dims = isl_space_dim(Range1Space.keep(), isl_dim_set);
+		auto Range2Space =  give(isl_space_range(RangeSpace.copy())); assert(Range2Space);
+			auto Range2Dims = isl_space_dim(Range2Space.keep(), isl_dim_set);
+
+	auto OutputSpace = give( isl_space_map_from_domain_and_range( isl_space_wrap (isl_space_map_from_domain_and_range(DomainSpace.copy(),  Range1Space.copy() ) ) , isl_space_wrap( isl_space_map_from_domain_and_range(DomainSpace.copy(),  Range2Space.copy() )) ));
+
+	auto Translator = give(isl_basic_map_universe( isl_space_map_from_domain_and_range(isl_space_wrap( Space.copy()),isl_space_wrap( OutputSpace.copy()) ) ));
+	
+	for (unsigned i =0; i < DomainDims; i+=1 ) {
+	Translator = give(	isl_basic_map_equate( Translator.take(), isl_dim_in, i, isl_dim_out,    i ));
+		Translator = give(	isl_basic_map_equate( Translator.take(), isl_dim_in, i, isl_dim_out, DomainDims + Range1Dims +    i ));
+	}
+		for (unsigned i =0; i < Range1Dims; i+=1 ) {
+			Translator = give(	isl_basic_map_equate( Translator.take(), isl_dim_in, DomainDims+i, isl_dim_out,DomainDims+    i ));
+		}
+				for (unsigned i =0; i < Range2Dims; i+=1 ) {
+			Translator = give(	isl_basic_map_equate( Translator.take(), isl_dim_in, DomainDims+Range1Dims+i, isl_dim_out,DomainDims+  Range1Dims +DomainDims+  i ));
+		}
+
+				return give( isl_set_unwrap( isl_set_apply(isl_map_wrap(Map.copy()), isl_map_from_basic_map(Translator.copy()))));
+}
+
+IslPtr<isl_union_map> isl_union_map_distribute_domain(IslPtr<isl_union_map> UMap ) {
+	  auto Result = give(isl_union_map_empty(isl_union_map_get_space(UMap.keep())));
+  foreachElt(UMap, [=, &Result](IslPtr<isl_map> Map) {
+	  auto Distributed = isl_map_distribute_domain(Map);
+    Result = give(isl_union_map_add_map(Result.take(), Distributed.copy()  ));
+  });
+  return Result;
+}
+
 
 /// Determine whether an access touches at most one element.
 ///
@@ -792,8 +845,14 @@ private:
 	ScopStmt *Stmt=nullptr;
 	Instruction *Inst=nullptr;
 
-	MemoryAccess *findInputAccess(Value *Val )const {
-		return getInputAccessOf(Val, Stmt);
+public:
+	MemoryAccess *findInputAccess(Value *Val , bool AllowLoad)const {
+		return getInputAccessOf(Val, Stmt, AllowLoad);
+	}
+
+private:
+	MemoryAccess *findOutputAccess(Value *Val )const {
+		return getOutputAccessFor(Val, Stmt);
 	}
 
 public:
@@ -825,7 +884,7 @@ public:
 		auto Op = U.get();
 		if (isa<Constant>(Op))
 			return false;
-		return !findInputAccess(Op);
+		return findInputAccess(Op, false);
 	}
 
 	bool isIntraOperand(const Use &U) const {
@@ -851,10 +910,14 @@ public:
 	return getIntraOperand(U);
 	}
 
-	MemoryAccess *getInterOperandInput(const Use &U) const {
-		auto MA = findInputAccess(U.get());
-		assert(MA && "But be an inter-Stmt use");
+	MemoryAccess *getInterOperandInput(const Use &U ) const {
+		auto MA = findInputAccess(U.get(), false);
+		assert(MA && "Must be an inter-Stmt use");
 		return MA;
+	}
+
+		MemoryAccess *getInterOperandOutput() const {
+			return findOutputAccess(Inst);
 	}
 };
 }
@@ -2606,7 +2669,7 @@ private:
     // Add initial scalar. Either the value written by the store, or all inputs
     // of its statement.
     auto WrittenVal = TargetStoreMA->getAccessValue();
-    if (auto InputAcc = getInputAccessOf(WrittenVal, TargetStmt))
+    if (auto InputAcc = getInputAccessOf(WrittenVal, TargetStmt, false))
       Worklist.push_back(InputAcc);
     else
       ProcessAllIncoming(TargetStmt);
@@ -3026,40 +3089,79 @@ private:
 
 	
 
-  bool canForwardTree(llvm::Value *Val,   Loop *UsedIn, 
+  bool canForwardTree(llvm::Value *UseVal, ScopStmt * UseStmt,   Loop *UseLoop, 
 	  // { DomainUse[] -> Scatter[] }
-	  IslPtr<isl_map> ScatterUse, 
-	  ScopStmt *ToStmt, 
-	  // { DomainDef[] -> DomainTo[] } 
-	  IslPtr<isl_map> Mapping,      int Depth ,      bool DoIt, MemoryAccess *&ReuseMe) {
+	  IslPtr<isl_map> UseScatter, 
+	  ScopStmt *TargetStmt, 
+	  // { DomainUse[] -> DomainTarget[] } 
+	  IslPtr<isl_map> UseToTargetMapping,      int Depth ,      bool DoIt,    MemoryAccess *&ReuseMe) {
 
-	   if (isa<Constant>(Val))
-		   return true;
-	   // parameters
-	   if (canSynthesize(Val, *S, S->getSE(), UsedIn))  
+	   // parameters, constants and induction variables
+	   if (canSynthesize(UseVal, *S, S->getSE(), UseLoop))  
 			return true;
+	   if (isa<Constant>(UseVal))
+		   return true;
 
-	   auto Inst = cast<Instruction>(Val);
-	    auto L = LI->getLoopFor(Inst->getParent());
+	   auto Inst = cast<Instruction>(UseVal);
+
+	   // Read-only values
+	   if (!S->contains(Inst)) {
+		   if (DoIt) {
+			   auto *Access = new MemoryAccess(TargetStmt, nullptr, MemoryAccess::READ,  Inst, Inst->getType(), true,     {},   {} , Inst, ScopArrayInfo::MK_Array, Inst->getName() );
+			   S->addAccessFunction(Access);
+			  TargetStmt->addAccess(Access);
+		   }
+		   return true;
+	   }
+
+	   if (Inst->mayHaveSideEffects() && !isa<LoadInst>(Inst)) // isSafeToSpeculativelyExecute()???
+		   return false;
+
+
+		auto DefStmt= S->getStmtFor(Inst); assert(DefStmt); 
+		    auto DefLoop =  LI->getLoopFor(Inst->getParent());
+
+			// { DomainDef[] -> Scatter[] }
+		IslPtr<isl_map> DefScatter;
+
+		// { DomainDef[] -> DomainTarget[] }
+			IslPtr<isl_map>DefToTargetMapping;
+
+		if (UseStmt == DefStmt) {
+			DefScatter = UseScatter; DefToTargetMapping = UseToTargetMapping;
+		} else {
+				
+
+		// { DomainDef[] -> Scatter[] }
+		DefScatter =  getScatterFor(DefStmt);
+
+		// { Scatter[] -> DomainDef[] }
+		auto ReachDef =  getScalarReachingDefinition (DefStmt);
+
+		// { DomainUse[] -> DomainDef[] }
+		auto DefToUseMapping =  give(isl_map_apply_range(UseScatter.copy(), ReachDef.copy()));
+
+		// { DomainDef[] -> DomainTarget[] }
+		DefToTargetMapping = give( isl_map_apply_domain(isl_map_reverse(UseToTargetMapping.copy()), DefToUseMapping.copy() ));
+		}
+
 
 	    if (auto LI = dyn_cast<LoadInst>(Inst)) {
-			auto FromStmt = S->getStmtFor(LI);  assert(FromStmt && "A load that is used may not have been eliminated");
-			if (!canForwardTree(LI->getPointerOperand(), L, getScatterFor(FromStmt), ToStmt,Mapping ,Depth +1,DoIt, ReuseMe ))
+			if (!canForwardTree(LI->getPointerOperand(),DefStmt, DefLoop, DefScatter, TargetStmt,UseToTargetMapping ,Depth +1,DoIt, ReuseMe ))
 				return false;
 
-			
-			auto *RA = &FromStmt->getArrayAccessFor(LI);
-			assert(RA);
+			auto *RA = &DefStmt->getArrayAccessFor(LI);
+		
 
 			// { DomainDef[] -> ValInst[] }
-			auto ExpectedVal = makeValInst(Val, FromStmt);
+			auto ExpectedVal = makeValInst(UseVal, DefStmt);
 
-			// { DomainTo[] -> ValInst[] }
-			auto ToExpectedVal =  give(isl_map_apply_domain(ExpectedVal.copy(),   Mapping.copy() ));
+			// { DomainTarget[] -> ValInst[] }
+			auto ToExpectedVal =  give(isl_map_apply_domain(  ExpectedVal.copy(),  DefToTargetMapping.copy()   ));
 			
 			// { DomainTo[] -> Element[] }
-			auto SameVal = containsSameValue(ToExpectedVal, getScatterFor(ToStmt));
-			if ( !SameVal)
+			auto SameVal = containsSameValue(ToExpectedVal, getScatterFor(TargetStmt));
+			if (!SameVal)
 				return false;
 			if (DoIt) {
 				MemoryAccess *Access;
@@ -3070,128 +3172,31 @@ private:
 			  auto  ArrayId = give(	isl_map_get_tuple_id(SameVal.keep(), isl_dim_out ));
 			  auto SAI = reinterpret_cast< ScopArrayInfo*>(isl_id_get_user(ArrayId.keep()));
 			  SmallVector<const SCEV*, 4> Sizes;Sizes.reserve(SAI->getNumberOfDimensions());
-			  for (unsigned i =0 ; i<SAI->getNumberOfDimensions();i+=1)
-				  Sizes.push_back(SAI->getDimensionSize(i));
 			   SmallVector<const SCEV*, 4> Subscripts;Subscripts.reserve(SAI->getNumberOfDimensions());
-			   for (unsigned i =0 ; i<SAI->getNumberOfDimensions();i+=1)
-				   Subscripts.push_back(S->getSE() ->getConstant(SAI->getDimensionSize(i)->getType(), 0, true  ) );
-			   auto *Access =  new MemoryAccess(ToStmt, nullptr, MemoryAccess::READ,  SAI->getBasePtr() , Inst->getType(), true,     {},   Sizes , Inst, ScopArrayInfo::MK_Array, RA->getBaseName() );
-			 
+			  for (unsigned i =0 ; i<SAI->getNumberOfDimensions();i+=1) {
+				  auto DimSize = SAI->getDimensionSize(i);
+				  Sizes.push_back(DimSize);
+				  
+				  // Dummy access, to be replaced anyway.
+				  Subscripts.push_back(nullptr);
+			   }
+			   Access =  new MemoryAccess(TargetStmt, nullptr, MemoryAccess::READ,  SAI->getBasePtr() , Inst->getType(), true, {}, Sizes , Inst, ScopArrayInfo::MK_Array, RA->getBaseName() );
 			   S->addAccessFunction(Access);
-			  ToStmt->addAccess(Access);
+			  TargetStmt->addAccess(Access);
 				}
 				Access->setNewAccessRelation(SameVal.copy());
 			}
 			return true;
 		}
 
-		// isSafeToSpeculativelyExecute()
 	   if (Inst->mayHaveSideEffects())
 		  return false;
-	  auto InstStmt = S->getStmtFor(Inst); auto MyScatter = getScatterFor(InstStmt); auto MyLoop = LI->getLoopFor(Inst->getParent());
-	  // auto ScatterTo  = getScatterFor(ToStmt);
-	   		 for (auto OpVal : Inst->operand_values()) {
-			 	if (isa<Constant>(Val))
-					continue;
 
-			auto OpInst = cast<Instruction>(OpVal);
-			 auto  ValDefStmt = S->getStmtFor(OpInst); assert(ValDefStmt);
-			
-
-			 // { Scatter[] -> DomainValDef[] }
-			 auto ReachDef = getScalarReachingDefinition (getDomainFor(ValDefStmt));
-			 auto NewMapping = give( isl_map_reverse(	 isl_map_apply_range( ScatterUse.copy(), ReachDef.copy() )));
-
-
-		  if (!canForwardTree(OpVal, MyLoop,MyScatter,  ToStmt,  NewMapping,  Depth +1, DoIt, ReuseMe)) {
-			  // TODO: Remove scalar access for OpVal, if it has not other use in this Stmt AND Inst is not use by anything else anymore (markAndSweep algorithm?)
+	  for (auto OpVal : Inst->operand_values()) {
+		  if (!canForwardTree(OpVal, DefStmt, DefLoop, DefScatter,  TargetStmt,  DefToTargetMapping,  Depth +1, DoIt, ReuseMe)) 
 			  return false;
-		  }
 		}
-			 return true;
-
-
-#if 0
-	  auto MA = getInputAccessOf(  Val, ToStmt  );
-
-
-		   if (!S->contains(Inst)) {
-			   // Read-only scalars require a read access
-			   if (DoIt) {
-				   // TODO: Verify this access does not already exist in ToStmt
-				   auto *Access =      new MemoryAccess(ToStmt, nullptr, MemoryAccess::READ, Inst, Inst->getType(), true,     {}, {}, Inst, ScopArrayInfo::MK_Value, Inst->getName() );
-			  S->addAccessFunction(Access);
-			  ToStmt->addAccess(Access);
-			   }
-			   return true;
-		   }
-
-		   		   auto FromStmt = S->getStmtFor(Inst);
-		   if (!FromStmt)
-			   return false;
-		   
-	  if (auto LI = dyn_cast<LoadInst>(Inst)) {
-
-
-			auto *RA = &FromStmt->getArrayAccessFor(LI);
-			assert(RA);
-
-			// { DomainDef[] -> ValInst[] }
-			auto ExpectedVal = makeValInst(Val, FromStmt);
-
-			// { DomainTo[] -> ValInst[] }
-			auto ToExpectedVal =  give(isl_map_apply_domain(ExpectedVal.copy(),   Mapping.copy() ));
-			
-			// { DomainTo[] -> Element[] }
-			auto SameVal = containsSameValue(ToExpectedVal, getScatterFor(ToStmt));
-			if ( !SameVal)
-				return false;
-			if (DoIt) {
-				// TODO: Remove read accesses from source stmt
-			  auto  ArrayId = give(	isl_map_get_tuple_id(SameVal.keep(), isl_dim_out ));
-			  auto SAI = reinterpret_cast< ScopArrayInfo*>(isl_id_get_user(ArrayId.keep()));
-			  SmallVector<const SCEV*, 4> Sizes;Sizes.reserve(SAI->getNumberOfDimensions());
-			  for (unsigned i =0 ; i<SAI->getNumberOfDimensions();i+=1)
-				  Sizes.push_back(SAI->getDimensionSize(i));
-			   SmallVector<const SCEV*, 4> Subscripts;Subscripts.reserve(SAI->getNumberOfDimensions());
-			   for (unsigned i =0 ; i<SAI->getNumberOfDimensions();i+=1)
-				   Subscripts.push_back(SE->getConstant(SAI->getDimensionSize(i)->getType(), 0, true  ) );
-			   auto *Access =  new MemoryAccess(ToStmt, nullptr, MemoryAccess::READ,  SAI->getBasePtr() , Inst->getType(), true,     {},   Sizes , Inst, ScopArrayInfo::MK_Array, RA->getBaseName() );
-			 Access->setNewAccessRelation(SameVal.copy());
-			   S->addAccessFunction(Access);
-			  ToStmt->addAccess(Access);
-			}
-			return true;
-	  }
-
-		  	  if (Inst->mayReadOrWriteMemory())
-		  return false;
-
-			  // { DomainTo[] -> Scatter[] }
-			  auto ScatterTo  = getScatterFor(ToStmt);
-
-		 for (auto OpVal : Inst->operand_values()) {
-			 		  			  if (isa<Constant>(Val))
-		  continue;
-
-						   auto Inst = cast<Instruction>(Op);
-
-			 auto  ValDefStmt = S->getStmtFor(Inst);
-
-			 // { Scatter[] -> DomainValDef[] }
-			 auto ReachDef = getScalarReachingDefinition (getDomainFor(ValDefStmt));
-			 auto NewMapping = give( isl_map_reverse(	 isl_map_apply_range( ScatterTo.copy(), ReachDef.copy() )));
-
-
-		  if (!canForwardTree(OpVal, LI->getLoopFor(Inst->getParent()),ToStmt,  NewMapping,   DoIt)) {
-			  // TODO: Remove scalar access for OpVal, if it has not other use in this Stmt AND Inst is not use by anything else anymore (markAndSweep algorithm?)
-			  return false;
-		  }
-	  }
-	
-	  }
-	    return true;
-#endif
+		return true;
   }
 
   Loop* getOutermostLoopFor(ScopStmt *Stmt) {
@@ -3207,13 +3212,13 @@ private:
 	  auto Identity = give( isl_map_identity( isl_space_map_from_domain_and_range(DomSpace.copy(), DomSpace.copy())   ));
 	  auto Scatter= getScatterFor(Stmt);
 
-	  if (!canForwardTree(RA->getAccessValue(), InLoop,Scatter, Stmt,Identity,0, false, RA ))
+	  if (!canForwardTree(RA->getAccessValue(), Stmt, InLoop,Scatter, Stmt,Identity,0, false, RA ))
 		  return false;
 
-	  bool Success = canForwardTree(RA->getAccessValue(), InLoop,Scatter,  Stmt,Identity,0, true, RA );
+	  bool Success = canForwardTree(RA->getAccessValue(),Stmt, InLoop,Scatter,  Stmt,Identity,0, true, RA );
 	  assert(Success && "If it says it can do it, it must be able to do it");
 
-	  // Remove if not been removed.
+	  // Remove if not been reused.
 	  if (RA)
 	   Stmt->removeSingleMemoryAccess(RA);
 
@@ -3413,30 +3418,55 @@ public:
   ///
   /// @return { [Element[] -> Zone[]] -> ValInst[] }
   IslPtr<isl_union_map> computeKnownFromLoad() const {
-    // { [Element[] -> Zone[]] -> DomainWrite[] }
-    auto MustWriteReachDefZone = give(isl_union_map_intersect_range(
-        WriteReachDefZone.copy(), isl_union_map_domain(AllMustWrites.copy())));
+	
+	// { Scatter[] }
+	auto ScatterUniverse =  give( isl_union_set_from_set( isl_set_universe(  ScatterSpace.copy()))) ;
 
-    // { [[Element[] -> Zone[]]  -> Element[]] -> Zone[] }
-    auto ReachReachZone = give(isl_union_map_uncurry(isl_union_map_apply_range(
-        MustWriteReachDefZone.take(),
-        isl_union_map_reverse(WriteReachDefZone.copy()))));
+	// { Element[] }
+	auto AllAccessedElts =  give( isl_union_set_union(isl_union_map_range( AllReads.copy()), isl_union_map_range( AllWrites.copy())));
 
-    // { [[Element[] -> Zone[]]  -> Element[]] -> Domain[] }
-    // Reinterpretation of Scatter[] (AllReadValInst) as Zone[]: This assumes
-    // that loads take place at the beginning of an instant, therefore reads the
-    // value of the unit-zone before it.
-    // FIXME: The assumption is true for scalar accesses, but not necessarily
-    // for MK_Array accesses that we test here.
-    auto ReachReadDom = give(isl_union_map_apply_domain(
-        ReachReachZone.take(), isl_union_map_reverse(Schedule.copy())));
+		// { Element[] -> Scatter[] }
+	auto EltZoneUniverse = give( isl_union_map_from_domain_and_range(AllAccessedElts.copy(),ScatterUniverse.copy() ));
 
-    // { [Element[] -> Zone[]]  -> [Element[] -> Domain[]] }
-    auto ReachReachEltDom = give(isl_union_map_curry(ReachReadDom.take()));
+	// This assumes there are no "holes" in isl_union_map_domain(WriteReachDefZone); alternatively, compute the zone before the first write or that are not written at all.
+		// { Element[] -> Scatter[] }
+	auto NonReachDef = give( isl_union_set_subtract( isl_union_map_wrap(EltZoneUniverse.copy()), isl_union_map_domain(WriteReachDefZone.copy()) ));
 
-    // { [Element[] -> Zone[]]  -> ValInst[] }
-    return give(isl_union_map_apply_range(ReachReachEltDom.take(),
-                                          AllReadValInst.copy()));
+	// { [Element[] -> Zone[]] -> ReachDefId[] }
+	auto DefZone = give( isl_union_map_union(WriteReachDefZone.copy(), isl_union_map_from_domain(NonReachDef.copy())) );
+
+
+
+		// { [Element[] -> Scatter[]] -> Element[] }
+	auto EltZoneElt = give(isl_union_map_domain_map( EltZoneUniverse.copy()));
+
+		// { [Element[] -> Zone[]] -> [Element[] -> ReachDefId[]] }
+	auto DefZoneEltDefId = give(isl_union_map_range_product( EltZoneElt.copy(),DefZone.copy()  ));
+
+		// { [Element[] -> Zone[]] -> [ReachDefId[] -> Element[]] }
+	auto DefZoneDefidElt = give(isl_union_map_range_product(DefZone.copy() , EltZoneElt.copy() ));
+
+	// { Element[] -> [Zone[] -> ReachDefId[]] }
+	auto EltDefZone = give( isl_union_map_curry(DefZone.copy()));
+
+	// { [Element[] -> Zone[] -> [Element[] -> ReachDefId[]] }
+	auto EltZoneEltDefid = isl_union_map_distribute_domain(EltDefZone);
+
+	 // { [Element[] -> Scatter[]] -> DomainRead[] } 
+	 auto Reads = give( isl_union_map_reverse( isl_union_map_range_product( AllReads.copy(), Schedule.copy())));
+
+	 // { [Element[] -> Scatter[]] -> [Element[] -> DomainRead[]] } 
+	 auto ReadsElt = give(isl_union_map_range_product(EltZoneElt.copy(), Reads.copy() ));
+
+	 // { [Element[] -> Scatter[]] -> ValInst[] } 
+	 auto ScatterKnown = give(isl_union_map_apply_range(ReadsElt.copy(),  AllReadValInst.copy()));
+
+	  // { [Element[] -> ReachDefId[]] -> ValInst[] } 
+	 auto DefidKnown = give(isl_union_map_reverse(isl_union_map_apply_domain(DefZoneEltDefId.copy(), ScatterKnown.copy())));
+
+	// { [Element[] -> Zone[]] -> ValInst[] } 
+	auto DefZoneKnown = give(isl_union_map_apply_range(DefZoneEltDefId.copy(), DefidKnown.copy() ));
+	return DefZoneKnown;
   }
 
   /// If there are loads of an array element before the first write, use these
@@ -3513,12 +3543,7 @@ public:
       KnownFromLoad = computeKnownFromLoad();
 
       // { [Element[] -> Zone[]] -> ValInst[] }
-      KnownFromInit = computeKnownFromInit();
-
-      // { [Element[] -> Zone[]] -> ValInst[] }
-      Known =
-          give(isl_union_map_union(KnownFromInit.take(), KnownFromLoad.take()));
-      Known = give(isl_union_map_union(Known.take(), MustKnown.take()));
+      Known = give(isl_union_map_union(KnownFromLoad.copy(), MustKnown.copy()));
       simplify(Known);
     }
 
@@ -3531,7 +3556,7 @@ public:
     KnownAnalyzed++;
     DEBUG(dbgs() << "Known from must writes: " << MustKnown << "\n");
     DEBUG(dbgs() << "Known from load: " << KnownFromLoad << "\n");
-    DEBUG(dbgs() << "Known from init: " << KnownFromInit << "\n");
+    //DEBUG(dbgs() << "Known from init: " << KnownFromInit << "\n");
     DEBUG(dbgs() << "All known: " << Known << "\n");
 	findScalarAccesses();
     // If maxops is enabled and Known is nullptr, we exceeded the operations
@@ -3592,16 +3617,21 @@ public:
 			List.push_back(&Inst);
   }
 
+
+
+  //TODO: Move to SimplifyPass
   bool markAndSweep() {
 	  DenseSet<VirtualInstruction > Used;
 	  DenseSet<MemoryAccess  *> UsedMA;
+	  SmallVector<MemoryAccess*,32> AllMAs;
 
 	  SmallVector<VirtualInstruction, 32> Worklist;
 
 
-	  // Add roots to worklist
+	  // Add roots (things that are used after the scop; aka escaping values) to worklist
 	      for (auto &Stmt : *S) {
       for (auto *MA : Stmt) {
+		  AllMAs.push_back(MA);
 		  if (!MA->isWrite())
 			  continue;
 
@@ -3648,19 +3678,22 @@ public:
 		   if (!InsertResult.second)
 			    continue;
 
+		   if (auto MA = VInst.getStmt()->getArrayAccessOrNULLFor(VInst.getInstruction())) 
+			   UsedMA.insert(MA);
+
 		   for (auto &Use  : VInst.operands()) {
 			   if (!VInst.isVirtualOperand(Use) )
 				   continue;
 
-			   if (VInst.isIntraOperand(Use)) {
+			 auto InputMA = VInst.findInputAccess(Use.get(), true);
+			 if (!InputMA) {
 				   Worklist.push_back(VInst.getIntraOperand(Use));
 				   continue;
 			   }
 
-			  auto InputMA = VInst. getInterOperandInput(Use);
 			auto SAI = InputMA->getScopArrayInfo();
-			  assert(InputMA->isLatestScalarKind() && InputMA->isRead() );
-
+			  assert( InputMA->isRead() );
+			  UsedMA.insert(InputMA);
 
 			  if (InputMA->isLatestPHIKind()) {
 				  for (auto *IncomingMA : PHIIncomingAccs.lookup(SAI)) {
@@ -3676,12 +3709,27 @@ public:
 				  UsedMA.insert(DefMA);
 			  }
 
+			  if (InputMA->isLatestArrayKind() ) {
+				   auto LI =  cast<LoadInst> (Use.get()) ;
+
+				   // If the access is explicit, it is just like the intra-operand case
+				   // If the access is implicit, there is no getAccessInstruction(). The pointer operand should be synthesizable such that there is no effect of this.
+				   Worklist.emplace_back(InputMA->getStatement(), LI);
+			  }
+
 		   }
 		}
 
 	
 			  bool Modified = false;
-llvm_unreachable("Unimplemented: sweep phase");
+			  for (auto *MA: AllMAs) {
+				  if (UsedMA.count(MA))
+					  continue;
+
+				  auto Stmt = MA->getStatement();
+				  Stmt->removeSingleMemoryAccess(MA);
+				  Modified=true;
+			  }
 
 	  return Modified;
   }

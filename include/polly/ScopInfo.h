@@ -412,6 +412,9 @@ class MemoryAccess {
   friend class ScopStmt;
 
 public:
+	bool isImplicit() const;
+	bool isExplicit() const{return !isImplicit();}
+
   /// The access type of a memory access
   ///
   /// There are three kind of access types:
