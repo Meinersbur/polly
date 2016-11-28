@@ -110,10 +110,125 @@ void ScalarDefUseChains::reset() {
 	  return nullptr;
   }
 
+
+  static bool isRoot(Instruction *Inst) {
+	  if (isa<LoadInst>(Inst) || isa<StoreInst>(Inst))
+		  return false;
+
+	  if (Inst->mayReadOrWriteMemory())
+		  return true;
+
+	  return false;
+  }
+
+  static void addRoots(ScopStmt *Stmt, BasicBlock *BB, SmallVectorImpl<VirtualInstruction> &RootInsts) {
+  	for (auto  &Inst : *BB) {
+			if (isRoot(&Inst))
+				RootInsts.emplace_back(Stmt, &Inst);
+		}
+	}
+
+  static void addRoots(ScopStmt *Stmt,SmallVectorImpl<VirtualInstruction> &RootInsts,SmallVectorImpl<MemoryAccess*> &RootAccs, bool Local) {
+	  if (Stmt->isBlockStmt()) {
+			addRoots(Stmt, Stmt->getBasicBlock(), RootInsts);
+	  } else {
+		  for (auto *BB : Stmt->getRegion()->blocks()) 
+			addRoots(Stmt, Stmt->getBasicBlock(), RootInsts);
+	  }
+
+	  auto *S = Stmt->getParent();
+      for (auto *MA : *Stmt) {
+		  if (!MA->isWrite())
+			  continue;
+
+		  // Writes to arrays are always used
+		  if (MA->isLatestArrayKind()) {
+			  //auto Inst = MA->getAccessInstruction();
+			  //RootInsts.emplace_back(&Stmt, Inst);
+			  RootAccs.push_back(MA);
+		  }
+
+		  // Values are roots if they are escaping
+		  if (MA->isLatestValueKind()) {
+			  if (!Local) {
+			   auto ComputingInst = cast<Instruction>( MA->getAccessValue());
+			   bool IsEscaping = false;
+			   for (auto &Use : ComputingInst->uses()) {
+				  auto User = cast<Instruction>( Use.getUser());
+				  if (!S->contains(User) ) {
+					  IsEscaping= true;
+					break;
+				  }
+			   }
+
+			   if (IsEscaping) {
+				   continue;
+			   }
+				  RootAccs.push_back(MA);
+			   }
+		  }
+
+		  // Exit phis are, by definition, escaping
+		  if (MA->isLatestExitPHIKind()) {
+			  //auto ComputingInst=  dyn_cast<Instruction>( MA->getAccessValue());
+			  //if (ComputingInst) 
+				//Worklist.emplace_back(&Stmt, ComputingInst);
+			  RootAccs.push_back(MA);
+		  }
+
+		  if (MA->isLatestPHIKind() && Local) 
+			  RootAccs.push_back(MA);
+	  }
+  }
+
+
+  static void follow(ScopStmt *Stmt, Instruction *Inst,  SmallVectorImpl<Instruction*> &InstList) {
+    VirtualInstruction VInst(Stmt,Inst);
+  }
+
   void polly:: computeStmtInstructions(ScopStmt *Stmt, SmallVectorImpl<Instruction*> &InstList)  {
+	  SmallVector<Instruction *, 16> Roots;
+
+	  for (auto *MA : *Stmt) {
+		  if (MA->isLatestValueKind() && MA->isWrite()) {
+			  Roots.push_back(MA->getAccessInstruction());
+		  }
+
+		  if (MA->isLatestArrayKind() && MA->isWrite()) {
+			  Roots.push_back( MA->getAccessInstruction());
+		  }
+
+		  if (MA->isLatestExitPHIKind() && MA->isWrite()) {
+			  for (auto Incoming : MA->getIncoming()) {
+				  auto IncomingInst = dyn_cast<Instruction>(Incoming.second);
+				  if (!IncomingInst)
+					  continue;
+				  Roots.push_back(IncomingInst);
+			  }
+		  }
+	  }
+
+	  if (Stmt->isBlockStmt()) {
+		for (auto  &Inst : *Stmt->getBasicBlock()) {
+			if (isRoot(&Inst))
+				Roots.push_back(&Inst);
+		}
+	  } else {
+		  for (auto *BB : Stmt->getRegion()->blocks()) {
+			  for (auto  &Inst : *Stmt->getBasicBlock()) {
+				  if (isRoot(&Inst))
+					  Roots.push_back(&Inst);
+			  }
+		  }
+	  }
 
 	  
+	  for ( auto *Root : Roots) {
+		  follow(Root);
+	  }
+	  
 	  DenseSet<Instruction * > Visited;
+
 
 
 	  std::reverse(InstList.begin(), InstList.end());
