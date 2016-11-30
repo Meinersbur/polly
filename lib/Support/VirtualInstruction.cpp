@@ -224,7 +224,7 @@ void ScalarDefUseChains::reset() {
 
 	  
 	  for ( auto *Root : Roots) {
-		  follow(Root);
+		  //follow(Root);
 	  }
 	  
 	  DenseSet<Instruction * > Visited;

@@ -60,7 +60,6 @@ add_polly_library(Polly
   Transform/DeLICM.cpp
   Transform/Simplify.cpp
   Support/VirtualInstruction.cpp
-  ${POLLY_HEADER_FILES}
   )
 
 if (GPU_CODEGEN)

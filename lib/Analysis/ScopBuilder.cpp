@@ -28,6 +28,8 @@ using namespace polly;
 
 STATISTIC(ScopFound, "Number of valid Scops");
 STATISTIC(RichScopFound, "Number of Scops containing a loop");
+STATISTIC(InfeasibleScops,
+          "Number of SCoPs with statically infeasible context.");
 
 // If the loop is nonaffine/boxed, return the first non-boxed surrounding loop
 // for Polly. If the loop is affine, return the loop itself. Do not call
@@ -57,7 +59,7 @@ void ScopBuilder::buildPHIAccesses(PHINode *PHI, Region *NonAffineSubRegion,
   // the region. If it is not it can only be in the exit block of the region.
   // In this case we model the operands but not the PHI itself.
   auto *Scope = LI.getLoopFor(PHI->getParent());
-  if (!IsExitBlock && canSynthesize(PHI, *scop,  &SE, Scope))
+  if (!IsExitBlock && canSynthesize(PHI, *scop, &SE, Scope))
     return;
 
   // PHI nodes are modeled as if they had been demoted prior to the SCoP
@@ -426,13 +428,10 @@ void ScopBuilder::buildAccessFunctions(Region &SR) {
 }
 
 void ScopBuilder::buildStmts(Region &SR) {
-
-
   if (scop->isNonAffineSubRegion(&SR)) {
-	  auto EntryBB = SR.getEntry();
-	  auto SurroundingLoop = LI.getLoopFor(EntryBB);
-	  SurroundingLoop =	getFirstNonBoxedLoopFor(SurroundingLoop, LI, scop->getBoxedLoops());
-    scop->addScopStmt(nullptr, &SR, SurroundingLoop);
+	  auto SurroundingLoop = LI.getLoopFor(SR.getEntry());
+	   SurroundingLoop =	getFirstNonBoxedLoopFor(SurroundingLoop, LI, scop->getBoxedLoops());
+    scop->addScopStmt(&SR, SurroundingLoop);
     return;
   }
 
@@ -441,7 +440,7 @@ void ScopBuilder::buildStmts(Region &SR) {
       buildStmts(*I->getNodeAs<Region>());
     else {
 		auto SurroundingLoop = LI.getLoopFor(I->getNodeAs<BasicBlock>());
-      scop->addScopStmt(I->getNodeAs<BasicBlock>(), nullptr,SurroundingLoop);
+      scop->addScopStmt(I->getNodeAs<BasicBlock>(), SurroundingLoop);
 	}
 }
 
@@ -566,7 +565,7 @@ void ScopBuilder::ensureValueRead(Value *V, BasicBlock *UserBB) {
   // If the instruction can be synthesized and the user is in the region we do
   // not need to add a value dependences.
   auto *Scope = LI.getLoopFor(UserBB);
-  if (canSynthesize(V, *scop,  &SE, Scope))
+  if (canSynthesize(V, *scop, &SE, Scope))
     return;
 
   // Do not build scalar dependences for required invariant loads as we will
@@ -693,6 +692,7 @@ ScopBuilder::ScopBuilder(Region *R, AssumptionCache &AC, AliasAnalysis &AA,
   DEBUG(scop->print(dbgs()));
 
   if (!scop->hasFeasibleRuntimeContext()) {
+    InfeasibleScops++;
     Msg = "SCoP ends here but was dismissed.";
     scop.reset();
   } else {

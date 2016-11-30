@@ -61,6 +61,19 @@ using namespace polly;
 
 #define DEBUG_TYPE "polly-scops"
 
+STATISTIC(AssumptionsAliasing, "Number of aliasing assumptions taken.");
+STATISTIC(AssumptionsInbounds, "Number of inbounds assumptions taken.");
+STATISTIC(AssumptionsWrapping, "Number of wrapping assumptions taken.");
+STATISTIC(AssumptionsUnsigned, "Number of unsigned assumptions taken.");
+STATISTIC(AssumptionsComplexity, "Number of too complex SCoPs.");
+STATISTIC(AssumptionsUnprofitable, "Number of unprofitable SCoPs.");
+STATISTIC(AssumptionsErrorBlock, "Number of error block assumptions taken.");
+STATISTIC(AssumptionsInfiniteLoop, "Number of bounded loop assumptions taken.");
+STATISTIC(AssumptionsInvariantLoad,
+          "Number of invariant loads assumptions taken.");
+STATISTIC(AssumptionsDelinearization,
+          "Number of delinearization assumptions taken.");
+
 // The maximal number of basic sets we allow during domain construction to
 // be created. More complex scops will result in very high compile time and
 // are also unlikely to result in good code
@@ -709,7 +722,7 @@ void MemoryAccess::assumeNoOutOfBound() {
 }
 
 void MemoryAccess::buildMemIntrinsicAccessRelation() {
-  assert(isa<MemIntrinsic>(getAccessInstruction()));
+  assert(isMemoryIntrinsic());
   assert(Subscripts.size() == 2 && Sizes.size() == 1);
 
   auto *SubscriptPWA = getPwAff(Subscripts[0]);
@@ -1868,68 +1881,17 @@ void Scop::setContext(__isl_take isl_set *NewContext) {
 
 /// Remap parameter values but keep AddRecs valid wrt. invariant loads.
 struct SCEVSensitiveParameterRewriter
-    : public SCEVVisitor<SCEVSensitiveParameterRewriter, const SCEV *> {
+    : public SCEVRewriteVisitor<SCEVSensitiveParameterRewriter> {
   ValueToValueMap &VMap;
-  ScalarEvolution &SE;
 
 public:
   SCEVSensitiveParameterRewriter(ValueToValueMap &VMap, ScalarEvolution &SE)
-      : VMap(VMap), SE(SE) {}
+      : SCEVRewriteVisitor(SE), VMap(VMap) {}
 
   static const SCEV *rewrite(const SCEV *E, ScalarEvolution &SE,
                              ValueToValueMap &VMap) {
     SCEVSensitiveParameterRewriter SSPR(VMap, SE);
     return SSPR.visit(E);
-  }
-
-  const SCEV *visit(const SCEV *E) {
-    return SCEVVisitor<SCEVSensitiveParameterRewriter, const SCEV *>::visit(E);
-  }
-
-  const SCEV *visitConstant(const SCEVConstant *E) { return E; }
-
-  const SCEV *visitTruncateExpr(const SCEVTruncateExpr *E) {
-    return SE.getTruncateExpr(visit(E->getOperand()), E->getType());
-  }
-
-  const SCEV *visitZeroExtendExpr(const SCEVZeroExtendExpr *E) {
-    return SE.getZeroExtendExpr(visit(E->getOperand()), E->getType());
-  }
-
-  const SCEV *visitSignExtendExpr(const SCEVSignExtendExpr *E) {
-    return SE.getSignExtendExpr(visit(E->getOperand()), E->getType());
-  }
-
-  const SCEV *visitAddExpr(const SCEVAddExpr *E) {
-    SmallVector<const SCEV *, 4> Operands;
-    for (int i = 0, e = E->getNumOperands(); i < e; ++i)
-      Operands.push_back(visit(E->getOperand(i)));
-    return SE.getAddExpr(Operands);
-  }
-
-  const SCEV *visitMulExpr(const SCEVMulExpr *E) {
-    SmallVector<const SCEV *, 4> Operands;
-    for (int i = 0, e = E->getNumOperands(); i < e; ++i)
-      Operands.push_back(visit(E->getOperand(i)));
-    return SE.getMulExpr(Operands);
-  }
-
-  const SCEV *visitSMaxExpr(const SCEVSMaxExpr *E) {
-    SmallVector<const SCEV *, 4> Operands;
-    for (int i = 0, e = E->getNumOperands(); i < e; ++i)
-      Operands.push_back(visit(E->getOperand(i)));
-    return SE.getSMaxExpr(Operands);
-  }
-
-  const SCEV *visitUMaxExpr(const SCEVUMaxExpr *E) {
-    SmallVector<const SCEV *, 4> Operands;
-    for (int i = 0, e = E->getNumOperands(); i < e; ++i)
-      Operands.push_back(visit(E->getOperand(i)));
-    return SE.getUMaxExpr(Operands);
-  }
-
-  const SCEV *visitUDivExpr(const SCEVUDivExpr *E) {
-    return SE.getUDivExpr(visit(E->getLHS()), visit(E->getRHS()));
   }
 
   const SCEV *visitAddRecExpr(const SCEVAddRecExpr *E) {
@@ -3025,8 +2987,13 @@ bool Scop::buildAliasChecks(AliasAnalysis &AA) {
   if (!PollyUseRuntimeAliasChecks)
     return true;
 
-  if (buildAliasGroups(AA))
+  if (buildAliasGroups(AA)) {
+    // Aliasing assumptions do not go through addAssumption but we still want to
+    // collect statistics so we do it here explicitly.
+    if (MinMaxAliasGroups.size())
+      AssumptionsAliasing++;
     return true;
+  }
 
   // If a problem occurs while building the alias groups we need to delete
   // this SCoP and pretend it wasn't valid in the first place. To this end
@@ -3604,7 +3571,8 @@ __isl_give isl_set *Scop::getNonHoistableCtx(MemoryAccess *Access,
   auto &Stmt = *Access->getStatement();
   BasicBlock *BB = Stmt.getEntryBlock();
 
-  if (Access->isScalarKind() || Access->isWrite() || !Access->isAffine())
+  if (Access->isScalarKind() || Access->isWrite() || !Access->isAffine() ||
+      Access->isMemoryIntrinsic())
     return nullptr;
 
   // Skip accesses that have an invariant base pointer which is defined but
@@ -3874,6 +3842,53 @@ bool Scop::trackAssumption(AssumptionKind Kind, __isl_keep isl_set *Set,
                            DebugLoc Loc, AssumptionSign Sign) {
   if (PollyRemarksMinimal && !isEffectiveAssumption(Set, Sign))
     return false;
+
+  // Do never emit trivial assumptions as they only clutter the output.
+  if (!PollyRemarksMinimal) {
+    isl_set *Univ = nullptr;
+    if (Sign == AS_ASSUMPTION)
+      Univ = isl_set_universe(isl_set_get_space(Set));
+
+    bool IsTrivial = (Sign == AS_RESTRICTION && isl_set_is_empty(Set)) ||
+                     (Sign == AS_ASSUMPTION && isl_set_is_equal(Univ, Set));
+    isl_set_free(Univ);
+
+    if (IsTrivial)
+      return false;
+  }
+
+  switch (Kind) {
+  case ALIASING:
+    AssumptionsAliasing++;
+    break;
+  case INBOUNDS:
+    AssumptionsInbounds++;
+    break;
+  case WRAPPING:
+    AssumptionsWrapping++;
+    break;
+  case UNSIGNED:
+    AssumptionsUnsigned++;
+    break;
+  case COMPLEXITY:
+    AssumptionsComplexity++;
+    break;
+  case PROFITABLE:
+    AssumptionsUnprofitable++;
+    break;
+  case ERRORBLOCK:
+    AssumptionsErrorBlock++;
+    break;
+  case INFINITELOOP:
+    AssumptionsInfiniteLoop++;
+    break;
+  case INVARIANTLOAD:
+    AssumptionsInvariantLoad++;
+    break;
+  case DELINEARIZATION:
+    AssumptionsDelinearization++;
+    break;
+  }
 
   auto &F = getFunction();
   auto Suffix = Sign == AS_ASSUMPTION ? " assumption:\t" : " restriction:\t";
@@ -4275,18 +4290,19 @@ mapToDimension(__isl_take isl_union_set *USet, int N) {
   return isl_multi_union_pw_aff_from_union_pw_multi_aff(Data.Res);
 }
 
-void Scop::addScopStmt(BasicBlock *BB, Region *R,Loop* SurroundingLoop) {
-  if (BB) {
-    Stmts.emplace_back(*this, *BB,SurroundingLoop);
-    auto *Stmt = &Stmts.back();
+void Scop::addScopStmt(BasicBlock *BB,Loop* SurroundingLoop) {
+  assert(BB && "Unexpected nullptr!");
+  Stmts.emplace_back(*this, *BB, SurroundingLoop);
+  auto *Stmt = &Stmts.back();
+  StmtMap[BB] = Stmt;
+}
+
+void Scop::addScopStmt(Region *R,Loop* SurroundingLoop) {
+  assert(R && "Unexpected nullptr!");
+  Stmts.emplace_back(*this, *R, SurroundingLoop);
+  auto *Stmt = &Stmts.back();
+  for (BasicBlock *BB : R->blocks())
     StmtMap[BB] = Stmt;
-  } else {
-    assert(R && "Either basic block or a region expected.");
-    Stmts.emplace_back(*this, *R,SurroundingLoop);
-    auto *Stmt = &Stmts.back();
-    for (BasicBlock *BB : R->blocks())
-      StmtMap[BB] = Stmt;
-  }
 }
 
 ScopStmt *Scop::addScopStmt(__isl_take isl_map *SourceRel,

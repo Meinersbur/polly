@@ -602,8 +602,6 @@ private:
   isl_map *NewAccessRelation;
   // @}
 
-  bool isAffine() const { return IsAffine; }
-
   __isl_give isl_basic_map *createBasicAccessMap(ScopStmt *Statement);
 
   void assumeNoOutOfBound();
@@ -751,6 +749,11 @@ public:
 
   /// Is this a write memory access?
   bool isWrite() const { return isMustWrite() || isMayWrite(); }
+
+  /// Is this a memory intrinsic access (memcpy, memset, memmove)?
+  bool isMemoryIntrinsic() const {
+    return isa<MemIntrinsic>(getAccessInstruction());
+  }
 
   /// Check if a new access relation was imported or set by a pass.
   bool hasNewAccessRelation() const { return NewAccessRelation; }
@@ -1038,6 +1041,9 @@ public:
 
   /// Print the MemoryAccess to stderr.
   void dump() const;
+
+  /// Is the memory access affine?
+  bool isAffine() const { return IsAffine; }
 };
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &OS,
@@ -1872,14 +1878,22 @@ private:
   /// @return The representing SCEV for invariant loads or @p S if none.
   const SCEV *getRepresentingInvariantLoadSCEV(const SCEV *S);
 
-  /// Create a new SCoP statement for either @p BB or @p R.
+  /// Create a new SCoP statement for @p BB.
   ///
-  /// Either @p BB or @p R should be non-null. A new statement for the non-null
-  /// argument will be created and added to the statement vector and map.
+  /// A new statement for @p BB will be created and added to the statement
+  /// vector
+  /// and map.
   ///
-  /// @param BB         The basic block we build the statement for (or null)
-  /// @param R          The region we build the statement for (or null).
-  void addScopStmt(BasicBlock *BB, Region *R, Loop* SurroundingLoop);
+  /// @param BB         The basic block we build the statement for.
+  void addScopStmt(BasicBlock *BB, Loop* SurroundingLoop);
+
+  /// Create a new SCoP statement for @p R.
+  ///
+  /// A new statement for @p R will be created and added to the statement vector
+  /// and map.
+  ///
+  /// @param R          The region we build the statement for.
+  void addScopStmt(Region *R, Loop* SurroundingLoop);
 
   /// @param Update access dimensionalities.
   ///
