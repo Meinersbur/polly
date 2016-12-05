@@ -112,7 +112,7 @@ void ScalarDefUseChains::reset() {
 
 
   static bool isRoot(Instruction *Inst) {
-	  if (isa<LoadInst>(Inst) || isa<StoreInst>(Inst))
+	  if (isa<LoadInst>(Inst) || isa<StoreInst>(Inst)) // The store is handled by its MemoryAccess. The load must be reached from the roots in order to be marked as used.
 		  return false;
 
 	  if (Inst->mayReadOrWriteMemory())
@@ -128,15 +128,28 @@ void ScalarDefUseChains::reset() {
 		}
 	}
 
-  static void addRoots(ScopStmt *Stmt,SmallVectorImpl<VirtualInstruction> &RootInsts,SmallVectorImpl<MemoryAccess*> &RootAccs, bool Local) {
+  static bool isEscaping(Scop *S, Instruction *ComputingInst) {
+			   for (auto &Use : ComputingInst->uses()) {
+				  auto User = cast<Instruction>( Use.getUser());
+				  if (!S->contains(User) ) 
+					 return true;
+				  }
+			   return false;
+  }
+
+static bool isEscaping(MemoryAccess *MA) {
+	assert(MA->isOriginalValueKind());
+	return isEscaping(MA->getStatement()->getParent(), cast<Instruction>( MA->getAccessValue()));
+}
+
+  static void addRoots(ScopStmt *Stmt, SmallVectorImpl<VirtualInstruction> &RootInsts,SmallVectorImpl<MemoryAccess*> &RootAccs, bool Local) {
 	  if (Stmt->isBlockStmt()) {
 			addRoots(Stmt, Stmt->getBasicBlock(), RootInsts);
 	  } else {
 		  for (auto *BB : Stmt->getRegion()->blocks()) 
-			addRoots(Stmt, Stmt->getBasicBlock(), RootInsts);
+			addRoots(Stmt, BB, RootInsts);
 	  }
 
-	  auto *S = Stmt->getParent();
       for (auto *MA : *Stmt) {
 		  if (!MA->isWrite())
 			  continue;
@@ -145,38 +158,24 @@ void ScalarDefUseChains::reset() {
 		  if (MA->isLatestArrayKind()) {
 			  //auto Inst = MA->getAccessInstruction();
 			  //RootInsts.emplace_back(&Stmt, Inst);
-			  RootAccs.push_back(MA);
+			  RootAccs.push_back(MA); 
 		  }
 
 		  // Values are roots if they are escaping
-		  if (MA->isLatestValueKind()) {
-			  if (!Local) {
-			   auto ComputingInst = cast<Instruction>( MA->getAccessValue());
-			   bool IsEscaping = false;
-			   for (auto &Use : ComputingInst->uses()) {
-				  auto User = cast<Instruction>( Use.getUser());
-				  if (!S->contains(User) ) {
-					  IsEscaping= true;
-					break;
-				  }
-			   }
-
-			   if (IsEscaping) {
-				   continue;
-			   }
+		  else if (MA->isLatestValueKind()) {
+			   if (Local || isEscaping(MA))
 				  RootAccs.push_back(MA);
-			   }
 		  }
 
 		  // Exit phis are, by definition, escaping
-		  if (MA->isLatestExitPHIKind()) {
+		  else if (MA->isLatestExitPHIKind()) {
 			  //auto ComputingInst=  dyn_cast<Instruction>( MA->getAccessValue());
 			  //if (ComputingInst) 
 				//Worklist.emplace_back(&Stmt, ComputingInst);
 			  RootAccs.push_back(MA);
 		  }
 
-		  if (MA->isLatestPHIKind() && Local) 
+		  else if (MA->isLatestPHIKind() && Local) 
 			  RootAccs.push_back(MA);
 	  }
   }
@@ -185,6 +184,117 @@ void ScalarDefUseChains::reset() {
   static void follow(ScopStmt *Stmt, Instruction *Inst,  SmallVectorImpl<Instruction*> &InstList) {
     VirtualInstruction VInst(Stmt,Inst);
   }
+
+
+
+  static void markReachable(Scop *S, SmallVectorImpl<VirtualInstruction> &Worklist, SmallVectorImpl<MemoryAccess*> &WorklistMA, DenseSet<VirtualInstruction > &Used , DenseSet<MemoryAccess* > &UsedMA, ScopStmt *OnlyLocal, LoopInfo *LI) {
+	 ScalarDefUseChains DefUse; DefUse.compute(S);
+	 auto *SE = S->getSE();
+
+	 auto AddToWorklist = [&]( VirtualUse VUse  ) {
+	 				  if (VUse.getMemAccess())
+					  WorklistMA.push_back(VUse.getMemAccess());
+				  if (VUse.isIntra())
+					  Worklist.emplace_back(VUse.getUser(), cast<Instruction>(VUse.getValue() ));
+	 };
+		 
+	  while (true) {
+		  if (!WorklistMA.empty()) {
+			  auto MA = WorklistMA.pop_back_val();
+			  if (!MA)
+				  continue; // Possible for read-only scalars
+
+			  if (OnlyLocal && MA->getStatement() != OnlyLocal)
+				  continue;
+
+			  auto Inserted = UsedMA.insert(MA);
+			  if (!Inserted.second)
+				  continue;
+
+			 
+
+			  auto Stmt = MA->getStatement();
+			  auto SAI = MA->getScopArrayInfo();
+		  	  auto Scope = Stmt->getSurroundingLoop();
+
+			  if (MA->isRead() && MA->isOriginalValueKind()) 
+				  WorklistMA.push_back(DefUse.getValueDef(SAI));
+			  
+			  if (MA->isRead() && MA->isOriginalAnyPHIKind()) {
+				  auto &IncomingMAs = DefUse.getPHIIncomings(SAI);
+				  WorklistMA.append(IncomingMAs.begin(), IncomingMAs.end());
+			  }
+
+			  if (MA->isRead() && MA->isOriginalArrayKind())  {
+				  assert(MemAccInst::isa (MA->getAccessInstruction()));
+				  Worklist.emplace_back(Stmt, MA->getAccessInstruction());
+			  }
+
+			  if (MA->isWrite() && MA->isOriginalValueKind()) {
+				  auto Val = MA->getAccessValue();
+				  auto VUse = VirtualUse::create(Stmt, Val,  Scope /* If it was synthesizable it would not have a write access */ , SE);
+				   AddToWorklist(VUse);
+			  }
+
+			  if (MA->isWrite() && MA->isOriginalAnyPHIKind()) {
+				  for (auto Incoming : MA->getIncoming())  {
+					   auto VUse = VirtualUse::create(Stmt, Incoming.second,  LI->getLoopFor(Incoming.first) , SE );
+					    AddToWorklist(VUse);
+				  }
+			  }
+
+			  if (MA->isWrite() && MA->isLatestArrayKind())  {
+				  if (MemAccInst::isa( MA->getAccessInstruction()))
+					 Worklist.emplace_back(Stmt, MA->getAccessInstruction());
+				  else {
+					  assert(MA->isAffine());
+					  auto VUse = VirtualUse::create(Stmt, MA->getAccessValue(), LI->getLoopFor(MA->getAccessInstruction()->getParent()), SE);
+					  AddToWorklist(VUse);
+				  }
+			  }
+
+			  continue;
+		  }
+
+		
+		  if (!Worklist.empty()) {
+			   auto VInst = Worklist.pop_back_val();
+			   auto* Stmt = VInst.getStmt();
+			   auto *Inst = VInst.getInstruction();
+		 
+			   if (OnlyLocal && Stmt!=OnlyLocal)
+				   continue;
+
+		  auto InsertResult = Used.insert(VInst);
+		   if (!InsertResult.second)
+			    continue;
+
+		   if (auto MA = VInst.getStmt()->getArrayAccessOrNULLFor(Inst)) 
+			   WorklistMA.push_back(MA);
+
+		   for (auto &Use  : VInst.operands()) {
+			   auto VUse = VInst.getVirtualUse(Use, LI);
+			    AddToWorklist(VUse);
+		   }
+
+		   continue;
+		  }
+
+		  break;
+	  } 
+  }
+
+
+   void polly::  markReachableGlobal(Scop *S, DenseSet<VirtualInstruction> &Used,DenseSet<MemoryAccess*>& UsedMA,  LoopInfo *LI) {
+	  SmallVector<VirtualInstruction, 32> Worklist;
+	  SmallVector<MemoryAccess*, 32> WorklistMA;
+
+	  for (auto &Stmt : *S) 
+		  addRoots(&Stmt, Worklist, WorklistMA, false);
+
+	markReachable(S, Worklist, WorklistMA, Used, UsedMA, nullptr, LI);
+  }
+
 
   void polly:: computeStmtInstructions(ScopStmt *Stmt, SmallVectorImpl<Instruction*> &InstList)  {
 	  SmallVector<Instruction *, 16> Roots;
@@ -215,7 +325,7 @@ void ScalarDefUseChains::reset() {
 		}
 	  } else {
 		  for (auto *BB : Stmt->getRegion()->blocks()) {
-			  for (auto  &Inst : *Stmt->getBasicBlock()) {
+			  for (auto  &Inst : *BB) {
 				  if (isRoot(&Inst))
 					  Roots.push_back(&Inst);
 			  }

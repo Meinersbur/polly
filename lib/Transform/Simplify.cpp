@@ -51,7 +51,7 @@ struct CleanupReport {
 class Simplify : public ScopPass {
 private:
   Scop *S = nullptr;
-  ScalarDefUseChains DefUse;
+  //ScalarDefUseChains DefUse;
 
   /// Hold a reference to the isl_ctx to avoid it being freed before we released
   /// all of the ISL objects.
@@ -180,13 +180,15 @@ private:
   
 
 
-  bool markAndSweep() {
+  bool markAndSweep(LoopInfo *LI) {
 	  DenseSet<VirtualInstruction > Used;
 	  DenseSet<MemoryAccess  *> UsedMA;
+
+#if 1
+	  markReachableGlobal(S, Used, UsedMA, LI);
+#else
 	  SmallVector<MemoryAccess*,32> AllMAs;
-
 	  SmallVector<VirtualInstruction, 32> Worklist;
-
 
 	  // Add roots (things that are used after the scop; aka escaping values) to worklist
 	      for (auto &Stmt : *S) {
@@ -279,8 +281,12 @@ private:
 
 		   }
 		}
-
+#endif
 	
+		  SmallVector<MemoryAccess  *, 64> AllMAs;
+		  for (auto &Stmt : *S) 
+			AllMAs.append(  Stmt.begin(), Stmt.end());
+
 			  bool Modified = false;
 			  for (auto *MA: AllMAs) {
 				  if (UsedMA.count(MA))
@@ -313,6 +319,7 @@ public:
 
   virtual void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequiredTransitive<ScopInfoRegionPass>();
+	AU.addRequired<LoopInfoWrapperPass>();
     AU.setPreservesAll();
   }
 
@@ -323,13 +330,13 @@ public:
     IslCtx = S.getSharedIslCtx();
     ScopsProcessed++;
 
-	DefUse.compute(&S);
+	//DefUse.compute(&S);
 
     DEBUG(dbgs() << "Cleaning up no-op load-store combinations...\n");
     auto Modified = cleanup();
 
 	DEBUG(dbgs() << "Cleanup unused accesses...\n");
-	if (markAndSweep())
+	if (markAndSweep( &getAnalysis<LoopInfoWrapperPass>().getLoopInfo() ))
 		Modified = true;
 
     DEBUG(dbgs() << "Removing statements...\n");
@@ -355,7 +362,7 @@ public:
 
   virtual void releaseMemory() override {
     S = nullptr;
-	DefUse.reset();
+	//DefUse.reset();
     CleanupReports.clear();
     IslCtx.reset();
   }

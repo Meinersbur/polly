@@ -36,19 +36,75 @@ namespace polly {
 		void reset();
 
 		MemoryAccess *getValueDef(const ScopArrayInfo *SAI)  { return ValueDefAccs.lookup(SAI); }
-		auto & getValueUses(const ScopArrayInfo *SAI)  {			return ValueUseAccs[SAI];		}
+		auto getValueUses(const ScopArrayInfo *SAI) -> decltype(ValueUseAccs[SAI]) {			return ValueUseAccs[SAI];		}
 
 
 				MemoryAccess *getPHIRead(const ScopArrayInfo *SAI)  { return PHIReadAccs.lookup(SAI); }
-	auto & getPHIIncomings(const ScopArrayInfo *SAI)  {			return PHIIncomingAccs[SAI];		}
+	auto  getPHIIncomings(const ScopArrayInfo *SAI)   -> decltype(PHIIncomingAccs[SAI]) {			return PHIIncomingAccs[SAI];		}
 	};
 
 	/// If InputVal is not defined in the stmt itself, return the MemoryAccess that
 /// reads the scalar. Return nullptr otherwise (if the value is defined in the
 /// scop, or is synthesizable)
-	MemoryAccess *getInputAccessOf(Value *InputVal, ScopStmt *Stmt, bool AllowArrayLoads);
+	MemoryAccess *getInputAccessOf(Value *InputVal, ScopStmt *Stmt, bool AllowArrayLoads=false);
 
 	MemoryAccess *getOutputAccessFor(Value *OutputVal, ScopStmt *Stmt);
+
+class VirtualUse {
+	enum UseType {
+		Constant,
+
+		// Definition before the SCoP.
+		ReadOnly,
+
+		// Parameters and induction variables.
+		Synthesizable,
+
+		// Definition within this Stmt.
+		IntraValue,
+
+		InterValue
+	};
+
+private:
+	ScopStmt *User;
+	Value *Val;
+
+	UseType Ty;
+	MemoryAccess *InputMA;
+
+	VirtualUse(ScopStmt *User, Value *Val, UseType Ty, MemoryAccess *InputMA): User(User), Val(Val), Ty(Ty), InputMA(InputMA) {}
+
+public:
+	static VirtualUse create(ScopStmt *User, Value *Val, Loop *Scope, ScalarEvolution *SE) {
+		if (isa<llvm::Constant>(Val))
+			return VirtualUse(User, Val, Constant, nullptr);
+
+		if (canSynthesize(Val, *User->getParent(), SE, Scope))
+			return VirtualUse(User, Val, Synthesizable, nullptr);
+
+		auto InputMA = getInputAccessOf(Val, User);
+
+		auto S = User->getParent();
+		auto Inst = cast<Instruction>(Val);
+		if (!S->contains(Inst))
+			return VirtualUse(User,Val, ReadOnly, InputMA);
+
+		if (InputMA)
+			return VirtualUse(User,Val, InterValue, InputMA);
+
+		
+		return VirtualUse(User,Val, IntraValue,nullptr);
+	}
+
+	bool isIntra() const {return  Ty==IntraValue;}
+	bool isInter() const { return Ty==InterValue; }
+
+	ScopStmt *getUser() const {return User; }
+	llvm:: Value *getValue() const {return Val;}
+	MemoryAccess *getMemAccess() const {return InputMA;}
+
+};
 
 class VirtualInstruction {
 private:
@@ -76,7 +132,16 @@ public:
 	int getNumOperands() const { return Inst->getNumOperands(); }
 	Value *getOperand(unsigned i) const { return Inst->getOperand(i);}
 
-	auto operands() const {return  Inst->operands();   }
+	auto operands() const {return  Inst->operands(); }
+
+	VirtualUse getVirtualUse(const Use &U, LoopInfo *LI) const {
+	assert(U.getUser() == Inst);
+	return VirtualUse::create(Stmt, U.get(), LI->getLoopFor(Inst->getParent()), Stmt->getParent()->getSE());
+	}
+
+	VirtualUse getVirtualUse(int i, LoopInfo *LI) const {
+		return getVirtualUse(Inst->getOperandUse(i), LI);
+	}
 
 	bool isVirtualOperand(const Use &U) const {
 		assert(U.getUser() == Inst);
@@ -132,7 +197,10 @@ public:
 };
 
 
+ void markReachableGlobal(Scop *S, DenseSet<VirtualInstruction> &Used,DenseSet<MemoryAccess*>& UsedMA,  LoopInfo *LI);
+
 void computeStmtInstructions(ScopStmt *Stmt, SmallVectorImpl<Instruction*> &InstList) ;
+
 
 
 } // namespace polly

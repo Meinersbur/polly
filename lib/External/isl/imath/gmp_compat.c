@@ -30,6 +30,11 @@
 #include <string.h>
 #include <stdio.h>
 
+#if defined(_MSC_VER)
+#include <BaseTsd.h>
+typedef SSIZE_T ssize_t;
+#endif
+
 #ifdef  NDEBUG
 #define CHECK(res) (res)
 #else
@@ -677,14 +682,6 @@ unsigned long GMPZAPI(fdiv_q_ui)(mp_int q, mp_int n, unsigned long d) {
 
   return rl;
 }
-
-#ifdef _MSC_VER
-#ifdef _WIN64
-  typedef signed __int64 ssize_t;
-#else
-  typedef signed int ssize_t;
-#endif
-#endif
 
 /* gmp: mpz_export */
 void* GMPZAPI(export)(void *rop, size_t *countp, int order, size_t size, int endian, size_t nails, mp_int op) {
