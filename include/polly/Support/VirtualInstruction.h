@@ -86,7 +86,7 @@ private:
 public:
   static VirtualUse create(ScopStmt *User, Value *Val, Loop *Scope,
                            ScalarEvolution *SE) {
-    if (isa<llvm::Constant>(Val))
+    if (isa<llvm::Constant>(Val) || isa<llvm::BasicBlock>(Val))
       return VirtualUse(User, Val, Constant, nullptr);
 
     if (canSynthesize(Val, *User->getParent(), SE, Scope))
@@ -140,7 +140,9 @@ public:
   int getNumOperands() const { return Inst->getNumOperands(); }
   Value *getOperand(unsigned i) const { return Inst->getOperand(i); }
 
-  auto operands() const { return Inst->operands(); }
+  auto operands() const -> decltype(Inst->operands()) {
+    return Inst->operands();
+  }
 
   VirtualUse getVirtualUse(const Use &U, LoopInfo *LI) const {
     assert(U.getUser() == Inst);

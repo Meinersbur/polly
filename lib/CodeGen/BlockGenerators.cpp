@@ -1240,9 +1240,9 @@ void RegionGenerator::copyStmt(ScopStmt &Stmt, LoopToScevMapT &LTS,
     Builder.SetInsertPoint(&BBCopy->front());
 
     for (auto &Inst : *BB) {
-      if (!InstSet.count(&Inst))
-        continue;
-      copyInstruction(Stmt, &Inst, RegionMap, LTS, IdToAstExp);
+      if (InstSet.count(&Inst))
+
+        copyInstruction(Stmt, &Inst, RegionMap, LTS, IdToAstExp);
     }
     // copyBB(Stmt, BB, BBCopy, RegionMap, LTS, IdToAstExp);
 

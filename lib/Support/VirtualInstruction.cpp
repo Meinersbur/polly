@@ -117,6 +117,9 @@ static bool isRoot(Instruction *Inst) {
                                                    // marked as used.
     return false;
 
+  if (isa<TerminatorInst>(Inst))
+    return true;
+
   if (Inst->mayReadOrWriteMemory())
     return true;
 
@@ -253,10 +256,8 @@ static void markReachable(Scop *S, ArrayRef<VirtualInstruction> Roots,
       if (MA->isWrite() && MA->isOriginalValueKind()) {
         auto Val = MA->getAccessValue();
         auto VUse = VirtualUse::create(
-            Stmt, Val,
-            Scope /* If it was synthesizable it would not have a write access */
-            ,
-            SE);
+            Stmt, Val, Scope,
+            SE); // If it was synthesizable it would not have a write access.
         AddToWorklist(VUse);
       }
 
