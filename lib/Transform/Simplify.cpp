@@ -181,11 +181,12 @@ private:
 
 
   bool markAndSweep(LoopInfo *LI) {
-	  DenseSet<VirtualInstruction > Used;
+	//  DenseSet<VirtualInstruction > Used;
 	  DenseSet<MemoryAccess  *> UsedMA;
+	  std::vector<VirtualInstruction> InstList;
 
 #if 1
-	  markReachableGlobal(S, Used, UsedMA, LI);
+	  markReachableGlobal(S, InstList, UsedMA, LI);
 #else
 	  SmallVector<MemoryAccess*,32> AllMAs;
 	  SmallVector<VirtualInstruction, 32> Worklist;

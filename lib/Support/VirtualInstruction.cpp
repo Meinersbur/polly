@@ -187,18 +187,30 @@ static bool isEscaping(MemoryAccess *MA) {
 
 
 
-  static void markReachable(Scop *S, SmallVectorImpl<VirtualInstruction> &Worklist, SmallVectorImpl<MemoryAccess*> &WorklistMA, DenseSet<VirtualInstruction > &Used , DenseSet<MemoryAccess* > &UsedMA, ScopStmt *OnlyLocal, LoopInfo *LI) {
+  static void markReachable(Scop *S, ArrayRef<VirtualInstruction> Roots, SmallVectorImpl<MemoryAccess*> &&WorklistMA, std::vector<VirtualInstruction > &InstList, DenseSet<MemoryAccess* > &UsedMA, ScopStmt *OnlyLocal, LoopInfo *LI) {
 	 ScalarDefUseChains DefUse; DefUse.compute(S);
 	 auto *SE = S->getSE();
 
-	 auto AddToWorklist = [&]( VirtualUse VUse  ) {
-	 				  if (VUse.getMemAccess())
-					  WorklistMA.push_back(VUse.getMemAccess());
-				  if (VUse.isIntra())
-					  Worklist.emplace_back(VUse.getUser(), cast<Instruction>(VUse.getValue() ));
+	 SmallVector<SmallVector<VirtualInstruction,4> ,16>  WorklistTree;
+	 DenseSet<VirtualInstruction > Used;
+
+	 WorklistTree.emplace_back();
+	 auto &Root = WorklistTree.front();
+	 Root.emplace_back();
+	 Root.append(Roots.begin(), Roots.end());
+
+	 auto AddToWorklist = [&](VirtualUse VUse) {
+	 		if (VUse.getMemAccess())
+			WorklistMA.push_back(VUse.getMemAccess());
+		if (VUse.isIntra()) {
+			auto &Leaf = WorklistTree.back();
+			Leaf.emplace_back(VUse.getUser(), cast<Instruction>(VUse.getValue() ));
+		}
 	 };
 		 
 	  while (true) {
+		  auto &Leaf = WorklistTree.back();
+
 		  if (!WorklistMA.empty()) {
 			  auto MA = WorklistMA.pop_back_val();
 			  if (!MA)
@@ -226,8 +238,9 @@ static bool isEscaping(MemoryAccess *MA) {
 			  }
 
 			  if (MA->isRead() && MA->isOriginalArrayKind())  {
-				  assert(MemAccInst::isa (MA->getAccessInstruction()));
-				  Worklist.emplace_back(Stmt, MA->getAccessInstruction());
+				  assert(MemAccInst::isa(MA->getAccessInstruction()));
+				  //Worklist.emplace_back(Stmt, MA->getAccessInstruction());
+				  Leaf.emplace_back(Stmt, MA->getAccessInstruction());
 			  }
 
 			  if (MA->isWrite() && MA->isOriginalValueKind()) {
@@ -245,7 +258,8 @@ static bool isEscaping(MemoryAccess *MA) {
 
 			  if (MA->isWrite() && MA->isLatestArrayKind())  {
 				  if (MemAccInst::isa( MA->getAccessInstruction()))
-					 Worklist.emplace_back(Stmt, MA->getAccessInstruction());
+					 // Worklist.emplace_back(Stmt, MA->getAccessInstruction());
+					  Leaf.emplace_back(Stmt, MA->getAccessInstruction());
 				  else {
 					  assert(MA->isAffine());
 					  auto VUse = VirtualUse::create(Stmt, MA->getAccessValue(), LI->getLoopFor(MA->getAccessInstruction()->getParent()), SE);
@@ -256,9 +270,27 @@ static bool isEscaping(MemoryAccess *MA) {
 			  continue;
 		  }
 
+	
 		
-		  if (!Worklist.empty()) {
-			   auto VInst = Worklist.pop_back_val();
+
+		{
+			   auto VInst = Leaf.pop_back_val();
+			   if (Leaf.empty()) {
+			WorklistTree.pop_back();
+
+			   if (WorklistTree.empty())
+				   break;
+
+			   InstList.push_back(VInst);
+
+			   continue;
+			   }
+
+			   WorklistTree.emplace_back();
+			   auto &NewLeaf = WorklistTree.back();
+			   NewLeaf.push_back(VInst);
+
+
 			   auto* Stmt = VInst.getStmt();
 			   auto *Inst = VInst.getInstruction();
 		 
@@ -281,21 +313,22 @@ static bool isEscaping(MemoryAccess *MA) {
 		  }
 
 		  break;
-	  } 
+	  } std::reverse(InstList.begin(), InstList.end()); // Reverse PostOrder
   }
 
 
-   void polly::  markReachableGlobal(Scop *S, DenseSet<VirtualInstruction> &Used,DenseSet<MemoryAccess*>& UsedMA,  LoopInfo *LI) {
+   void polly::markReachableGlobal(Scop *S, std::vector<VirtualInstruction> &InstList,DenseSet<MemoryAccess*>& UsedMA,  LoopInfo *LI) {
 	  SmallVector<VirtualInstruction, 32> Worklist;
 	  SmallVector<MemoryAccess*, 32> WorklistMA;
 
 	  for (auto &Stmt : *S) 
 		  addRoots(&Stmt, Worklist, WorklistMA, false);
 
-	markReachable(S, Worklist, WorklistMA, Used, UsedMA, nullptr, LI);
+	markReachable(S, Worklist, std::move( WorklistMA),InstList, UsedMA, nullptr, LI);
   }
 
 
+#if 0
   void polly:: computeStmtInstructions(ScopStmt *Stmt, SmallVectorImpl<Instruction*> &InstList)  {
 	  SmallVector<Instruction *, 16> Roots;
 
@@ -343,3 +376,4 @@ static bool isEscaping(MemoryAccess *MA) {
 
 	  std::reverse(InstList.begin(), InstList.end());
   }
+#endif

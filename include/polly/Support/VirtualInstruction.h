@@ -197,9 +197,9 @@ public:
 };
 
 
- void markReachableGlobal(Scop *S, DenseSet<VirtualInstruction> &Used,DenseSet<MemoryAccess*>& UsedMA,  LoopInfo *LI);
+ void markReachableGlobal(Scop *S, std::vector<VirtualInstruction> &InstList,DenseSet<MemoryAccess*>& UsedMA,  LoopInfo *LI);
 
-void computeStmtInstructions(ScopStmt *Stmt, SmallVectorImpl<Instruction*> &InstList) ;
+//void computeStmtInstructions(ScopStmt *Stmt, SmallVectorImpl<Instruction*> &InstList) ;
 
 
 
