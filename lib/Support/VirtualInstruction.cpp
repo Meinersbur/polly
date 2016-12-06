@@ -312,8 +312,13 @@ static void markReachable(Scop *S, ArrayRef<VirtualInstruction> Roots,
       auto &NewLeaf = WorklistTree.back();
       NewLeaf.push_back(VInst);
 
-      if (auto MA = VInst.getStmt()->getArrayAccessOrNULLFor(Inst))
+      for (auto *MA : *VInst.getStmt()) {
+        if (MA->isOriginalScalarKind())
+          continue;
+        if (MA->getAccessInstruction() != Inst)
+          continue;
         WorklistMA.push_back(MA);
+      }
 
       for (auto &Use : VInst.operands()) {
         auto VUse = VInst.getVirtualUse(Use, LI);
