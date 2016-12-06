@@ -2976,7 +2976,7 @@ private:
 				  // Dummy access, to be replaced anyway.
 				  Subscripts.push_back(nullptr);
 			   }
-			   Access =  new MemoryAccess(TargetStmt, nullptr, MemoryAccess::READ,  SAI->getBasePtr() , Inst->getType(), true, {}, Sizes , Inst, ScopArrayInfo::MK_Array, RA->getBaseName() );
+			   Access =  new MemoryAccess(TargetStmt,  LI, MemoryAccess::READ,  SAI->getBasePtr() , Inst->getType(), true, {}, Sizes , Inst, ScopArrayInfo::MK_Array, RA->getBaseName() );
 			   S->addAccessFunction(Access);
 			  TargetStmt->addAccess(Access);
 				}

@@ -286,20 +286,19 @@ static bool isEscaping(MemoryAccess *MA) {
 			   continue;
 			   }
 
+			   		   auto* Stmt = VInst.getStmt();
+			   auto *Inst = VInst.getInstruction();
+			   			   if (OnlyLocal && Stmt!=OnlyLocal)
+				   continue;
+
+						   	  auto InsertResult = Used.insert(VInst);
+		   if (!InsertResult.second)
+			    continue;
+
+		   // This will also cause VInst to be appended to InstList.
 			   WorklistTree.emplace_back();
 			   auto &NewLeaf = WorklistTree.back();
 			   NewLeaf.push_back(VInst);
-
-
-			   auto* Stmt = VInst.getStmt();
-			   auto *Inst = VInst.getInstruction();
-		 
-			   if (OnlyLocal && Stmt!=OnlyLocal)
-				   continue;
-
-		  auto InsertResult = Used.insert(VInst);
-		   if (!InsertResult.second)
-			    continue;
 
 		   if (auto MA = VInst.getStmt()->getArrayAccessOrNULLFor(Inst)) 
 			   WorklistMA.push_back(MA);
@@ -313,7 +312,7 @@ static bool isEscaping(MemoryAccess *MA) {
 		  }
 
 		  break;
-	  } std::reverse(InstList.begin(), InstList.end()); // Reverse PostOrder
+	  }
   }
 
 
@@ -326,6 +325,18 @@ static bool isEscaping(MemoryAccess *MA) {
 
 	markReachable(S, Worklist, std::move( WorklistMA),InstList, UsedMA, nullptr, LI);
   }
+
+   
+   void polly::markReachableLocal(ScopStmt *Stmt, std::vector<VirtualInstruction> &InstList, LoopInfo *LI) {
+	  SmallVector<VirtualInstruction, 32> Worklist;
+	  SmallVector<MemoryAccess*, 32> WorklistMA;
+	  DenseSet<MemoryAccess*> UsedMA;
+	  auto *S = Stmt->getParent();
+	 
+	addRoots(Stmt, Worklist, WorklistMA, true);
+	markReachable(S, Worklist, std::move( WorklistMA), InstList, UsedMA, Stmt, LI);
+  }
+
 
 
 #if 0

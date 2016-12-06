@@ -346,8 +346,8 @@ public:
     assert(NumStmtsBefore >= S.getSize());
     auto NumRemoved = NumStmtsBefore - S.getSize();
     StmtsRemoved += NumRemoved;
-
-    if (Modified || NumRemoved)
+	 if (NumRemoved) Modified=true;
+    if (Modified)
       ScopsModified++;
 
     DEBUG(dbgs() << "\nFinal Scop:\n");

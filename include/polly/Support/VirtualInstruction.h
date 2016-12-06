@@ -198,6 +198,7 @@ public:
 
 
  void markReachableGlobal(Scop *S, std::vector<VirtualInstruction> &InstList,DenseSet<MemoryAccess*>& UsedMA,  LoopInfo *LI);
+    void markReachableLocal(ScopStmt *Stmt, std::vector<VirtualInstruction> &InstList, LoopInfo *LI) ;
 
 //void computeStmtInstructions(ScopStmt *Stmt, SmallVectorImpl<Instruction*> &InstList) ;
 

@@ -34,6 +34,7 @@
 #include "isl/ast_build.h"
 #include "isl/set.h"
 #include <deque>
+#include "polly/Support/VirtualInstruction.h"
 
 using namespace llvm;
 using namespace polly;
@@ -373,8 +374,16 @@ void BlockGenerator::copyBB(ScopStmt &Stmt, BasicBlock *BB, BasicBlock *CopyBB,
                             isl_id_to_ast_expr *NewAccesses) {
   EntryBB = &CopyBB->getParent()->getEntryBlock();
 
+  std::vector<VirtualInstruction> InstList;
+  markReachableLocal(&Stmt, InstList, &LI);
+
+    for (VirtualInstruction &VInst : InstList) { assert(VInst.getStmt() == &Stmt);
+		copyInstruction(Stmt, VInst.getInstruction(), BBMap, LTS, NewAccesses);}
+
+#if 0
   for (Instruction &Inst : *BB)
     copyInstruction(Stmt, &Inst, BBMap, LTS, NewAccesses);
+#endif
 }
 
 Value *BlockGenerator::getOrCreateAlloca(Value *ScalarBase,
