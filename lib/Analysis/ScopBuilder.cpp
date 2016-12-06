@@ -429,8 +429,9 @@ void ScopBuilder::buildAccessFunctions(Region &SR) {
 
 void ScopBuilder::buildStmts(Region &SR) {
   if (scop->isNonAffineSubRegion(&SR)) {
-	  auto SurroundingLoop = LI.getLoopFor(SR.getEntry());
-	   SurroundingLoop =	getFirstNonBoxedLoopFor(SurroundingLoop, LI, scop->getBoxedLoops());
+    auto SurroundingLoop = LI.getLoopFor(SR.getEntry());
+    SurroundingLoop =
+        getFirstNonBoxedLoopFor(SurroundingLoop, LI, scop->getBoxedLoops());
     scop->addScopStmt(&SR, SurroundingLoop);
     return;
   }
@@ -439,9 +440,9 @@ void ScopBuilder::buildStmts(Region &SR) {
     if (I->isSubRegion())
       buildStmts(*I->getNodeAs<Region>());
     else {
-		auto SurroundingLoop = LI.getLoopFor(I->getNodeAs<BasicBlock>());
+      auto SurroundingLoop = LI.getLoopFor(I->getNodeAs<BasicBlock>());
       scop->addScopStmt(I->getNodeAs<BasicBlock>(), SurroundingLoop);
-	}
+    }
 }
 
 void ScopBuilder::buildAccessFunctions(BasicBlock &BB,

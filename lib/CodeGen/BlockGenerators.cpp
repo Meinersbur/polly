@@ -22,6 +22,7 @@
 #include "polly/Support/GICHelper.h"
 #include "polly/Support/SCEVValidator.h"
 #include "polly/Support/ScopHelper.h"
+#include "polly/Support/VirtualInstruction.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/RegionInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
@@ -34,7 +35,6 @@
 #include "isl/ast_build.h"
 #include "isl/set.h"
 #include <deque>
-#include "polly/Support/VirtualInstruction.h"
 
 using namespace llvm;
 using namespace polly;
@@ -364,10 +364,10 @@ BasicBlock *BlockGenerator::copyBB(ScopStmt &Stmt, BasicBlock *BB,
   Builder.SetInsertPoint(&CopyBB->front());
   generateScalarLoads(Stmt, LTS, BBMap, NewAccesses);
 
-    for (VirtualInstruction &VInst : InstList) { 
-		assert(VInst.getStmt() == &Stmt);
-		copyInstruction(Stmt, VInst.getInstruction(), BBMap, LTS, NewAccesses);
-	}
+  for (VirtualInstruction &VInst : InstList) {
+    assert(VInst.getStmt() == &Stmt);
+    copyInstruction(Stmt, VInst.getInstruction(), BBMap, LTS, NewAccesses);
+  }
 
   // After a basic block was copied store all scalars that escape this block in
   // their alloca.
@@ -1181,10 +1181,10 @@ void RegionGenerator::copyStmt(ScopStmt &Stmt, LoopToScevMapT &LTS,
 
   std::vector<VirtualInstruction> InstList;
   markReachableLocal(&Stmt, InstList, &LI);
-  DenseSet<Instruction*> InstSet;
+  DenseSet<Instruction *> InstSet;
   for (auto VInst : InstList) {
-	  assert(VInst.getStmt() == &Stmt);
-	  InstSet.insert(VInst.getInstruction());
+    assert(VInst.getStmt() == &Stmt);
+    InstSet.insert(VInst.getInstruction());
   }
 
   // Create a dedicated entry for the region where we can reload all demoted
@@ -1209,10 +1209,10 @@ void RegionGenerator::copyStmt(ScopStmt &Stmt, LoopToScevMapT &LTS,
   SeenBlocks.insert(EntryBB);
 
   for (auto VInst : InstList) {
-	  auto *Inst = VInst.getInstruction();
-	  if (R->contains(Inst->getParent()))
-		  continue;
-	  copyInstruction(Stmt, Inst, EntryBBMap, LTS, IdToAstExp);
+    auto *Inst = VInst.getInstruction();
+    if (R->contains(Inst->getParent()))
+      continue;
+    copyInstruction(Stmt, Inst, EntryBBMap, LTS, IdToAstExp);
   }
 
   while (!Blocks.empty()) {
@@ -1239,12 +1239,12 @@ void RegionGenerator::copyStmt(ScopStmt &Stmt, LoopToScevMapT &LTS,
     // Copy the block with the BlockGenerator.
     Builder.SetInsertPoint(&BBCopy->front());
 
-	for (auto &Inst : *BB) {
-		if (!InstSet.count(&Inst))
-			continue;
-		copyInstruction(Stmt, &Inst, RegionMap, LTS, IdToAstExp);
-	}
-    //copyBB(Stmt, BB, BBCopy, RegionMap, LTS, IdToAstExp);
+    for (auto &Inst : *BB) {
+      if (!InstSet.count(&Inst))
+        continue;
+      copyInstruction(Stmt, &Inst, RegionMap, LTS, IdToAstExp);
+    }
+    // copyBB(Stmt, BB, BBCopy, RegionMap, LTS, IdToAstExp);
 
     // In order to remap PHI nodes we store also basic block mappings.
     BlockMap[BB] = BBCopy;

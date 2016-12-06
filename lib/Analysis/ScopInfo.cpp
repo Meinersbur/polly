@@ -626,27 +626,26 @@ std::string MemoryAccess::getNewAccessRelationStr() const {
   return stringFromIslObj(NewAccessRelation);
 }
 
- bool polly::MemoryAccess::isImplicit() const {
-	if (isOriginalScalarKind())
-		return true;
-	auto *AccInst = getAccessInstruction();
-	if (!AccInst)
-		return false;
+bool polly::MemoryAccess::isImplicit() const {
+  if (isOriginalScalarKind())
+    return true;
+  auto *AccInst = getAccessInstruction();
+  if (!AccInst)
+    return false;
 #if 1
-	if (isa<LoadInst>(AccInst)) {
-		auto *Stmt = getStatement();
-		if (Stmt->isRegionStmt()) {
-			if (!Stmt->getRegion()->contains(AccInst)) {
-				return true;
-			}
-		}
-		else {
-			if (Stmt->getBasicBlock() != AccInst->getParent())
-				return true;
-		}
-	}
+  if (isa<LoadInst>(AccInst)) {
+    auto *Stmt = getStatement();
+    if (Stmt->isRegionStmt()) {
+      if (!Stmt->getRegion()->contains(AccInst)) {
+        return true;
+      }
+    } else {
+      if (Stmt->getBasicBlock() != AccInst->getParent())
+        return true;
+    }
+  }
 #endif
-	return false;
+  return false;
 }
 
 __isl_give isl_basic_map *
@@ -1611,14 +1610,14 @@ void ScopStmt::collectSurroundingLoops() {
   }
 }
 
-ScopStmt::ScopStmt(Scop &parent, Region &R,Loop *SurroundingLoop)
+ScopStmt::ScopStmt(Scop &parent, Region &R, Loop *SurroundingLoop)
     : Parent(parent), InvalidDomain(nullptr), Domain(nullptr), BB(nullptr),
       R(&R), Build(nullptr), SurroundingLoop(SurroundingLoop) {
 
   BaseName = getIslCompatibleName("Stmt_", R.getNameStr(), "");
 }
 
-ScopStmt::ScopStmt(Scop &parent, BasicBlock &bb,Loop *SurroundingLoop)
+ScopStmt::ScopStmt(Scop &parent, BasicBlock &bb, Loop *SurroundingLoop)
     : Parent(parent), InvalidDomain(nullptr), Domain(nullptr), BB(&bb),
       R(nullptr), Build(nullptr), SurroundingLoop(SurroundingLoop) {
 
@@ -1626,9 +1625,10 @@ ScopStmt::ScopStmt(Scop &parent, BasicBlock &bb,Loop *SurroundingLoop)
 }
 
 ScopStmt::ScopStmt(Scop &parent, __isl_take isl_map *SourceRel,
-                   __isl_take isl_map *TargetRel, __isl_take isl_set *NewDomain,Loop *SurroundingLoop)
+                   __isl_take isl_map *TargetRel, __isl_take isl_set *NewDomain,
+                   Loop *SurroundingLoop)
     : Parent(parent), InvalidDomain(nullptr), Domain(NewDomain), BB(nullptr),
-      R(nullptr), Build(nullptr) ,SurroundingLoop(SurroundingLoop){
+      R(nullptr), Build(nullptr), SurroundingLoop(SurroundingLoop) {
   BaseName = getIslCompatibleName("CopyStmt_", "",
                                   std::to_string(parent.getCopyStmtsNum()));
   auto *Id = isl_id_alloc(getIslCtx(), getBaseName(), this);
@@ -4450,14 +4450,14 @@ mapToDimension(__isl_take isl_union_set *USet, int N) {
   return isl_multi_union_pw_aff_from_union_pw_multi_aff(Data.Res);
 }
 
-void Scop::addScopStmt(BasicBlock *BB,Loop* SurroundingLoop) {
+void Scop::addScopStmt(BasicBlock *BB, Loop *SurroundingLoop) {
   assert(BB && "Unexpected nullptr!");
   Stmts.emplace_back(*this, *BB, SurroundingLoop);
   auto *Stmt = &Stmts.back();
   StmtMap[BB] = Stmt;
 }
 
-void Scop::addScopStmt(Region *R,Loop* SurroundingLoop) {
+void Scop::addScopStmt(Region *R, Loop *SurroundingLoop) {
   assert(R && "Unexpected nullptr!");
   Stmts.emplace_back(*this, *R, SurroundingLoop);
   auto *Stmt = &Stmts.back();
@@ -4478,7 +4478,7 @@ ScopStmt *Scop::addScopStmt(__isl_take isl_map *SourceRel,
   isl_set_free(SourceDomain);
   isl_set_free(TargetDomain);
 #endif
-  Stmts.emplace_back(*this, SourceRel, TargetRel, Domain,SurroundingLoop);
+  Stmts.emplace_back(*this, SourceRel, TargetRel, Domain, SurroundingLoop);
   CopyStmtsNum++;
   return &(Stmts.back());
 }

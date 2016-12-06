@@ -339,8 +339,6 @@ protected:
   BasicBlock *copyBB(ScopStmt &Stmt, BasicBlock *BB, ValueMapT &BBMap,
                      LoopToScevMapT &LTS, isl_id_to_ast_expr *NewAccesses);
 
-
-
   /// Return the alloca for @p ScalarBase in @p Map.
   ///
   /// If no alloca was mapped to @p ScalarBase in @p Map a new one is created

@@ -16,8 +16,9 @@ namespace {
 
 STATISTIC(ScopsProcessed, "Number of SCoPs processed");
 STATISTIC(PairsCleaned, "Number of Load-Store pairs cleaned");
-STATISTIC(PairUnequalAccRels, "Number of Load-Store pairs NOT cleaned because of different access relations");
-STATISTIC(UnusedAccs,"Number of unused accesses");
+STATISTIC(PairUnequalAccRels, "Number of Load-Store pairs NOT cleaned because "
+                              "of different access relations");
+STATISTIC(UnusedAccs, "Number of unused accesses");
 STATISTIC(StmtsRemoved, "Number of statements removed");
 STATISTIC(ScopsModified, "Number of SCoPs modified");
 
@@ -51,7 +52,7 @@ struct CleanupReport {
 class Simplify : public ScopPass {
 private:
   Scop *S = nullptr;
-  //ScalarDefUseChains DefUse;
+  // ScalarDefUseChains DefUse;
 
   /// Hold a reference to the isl_ctx to avoid it being freed before we released
   /// all of the ISL objects.
@@ -177,131 +178,131 @@ private:
     return Modified;
   }
 
-  
-
-
   bool markAndSweep(LoopInfo *LI) {
-	//  DenseSet<VirtualInstruction > Used;
-	  DenseSet<MemoryAccess  *> UsedMA;
-	  std::vector<VirtualInstruction> InstList;
+    //  DenseSet<VirtualInstruction > Used;
+    DenseSet<MemoryAccess *> UsedMA;
+    std::vector<VirtualInstruction> InstList;
 
 #if 1
-	  markReachableGlobal(S, InstList, UsedMA, LI);
+    markReachableGlobal(S, InstList, UsedMA, LI);
 #else
-	  SmallVector<MemoryAccess*,32> AllMAs;
-	  SmallVector<VirtualInstruction, 32> Worklist;
+    SmallVector<MemoryAccess *, 32> AllMAs;
+    SmallVector<VirtualInstruction, 32> Worklist;
 
-	  // Add roots (things that are used after the scop; aka escaping values) to worklist
-	      for (auto &Stmt : *S) {
+    // Add roots (things that are used after the scop; aka escaping values) to
+    // worklist
+    for (auto &Stmt : *S) {
       for (auto *MA : Stmt) {
-		  AllMAs.push_back(MA);
-		  if (!MA->isWrite())
-			  continue;
+        AllMAs.push_back(MA);
+        if (!MA->isWrite())
+          continue;
 
-		  // Writes to arrays are always used
-		  if (MA->isLatestArrayKind()) {
-			  auto Inst = MA->getAccessInstruction();
-			  Worklist.emplace_back(&Stmt, Inst);
-			  UsedMA.insert(MA);
-		  }
+        // Writes to arrays are always used
+        if (MA->isLatestArrayKind()) {
+          auto Inst = MA->getAccessInstruction();
+          Worklist.emplace_back(&Stmt, Inst);
+          UsedMA.insert(MA);
+        }
 
-		  // Values are roots if they are escaping
-		  if (MA->isLatestValueKind()) {
-			   auto ComputingInst = cast<Instruction>( MA->getAccessValue());
-			   bool IsEscaping = false;
-			   for (auto &Use : ComputingInst->uses()) {
-				  auto User = cast<Instruction>( Use.getUser());
-				  if (!S->contains(User) ) {
-					  IsEscaping= true;
-					break;
-				  }
-			   }
+        // Values are roots if they are escaping
+        if (MA->isLatestValueKind()) {
+          auto ComputingInst = cast<Instruction>(MA->getAccessValue());
+          bool IsEscaping = false;
+          for (auto &Use : ComputingInst->uses()) {
+            auto User = cast<Instruction>(Use.getUser());
+            if (!S->contains(User)) {
+              IsEscaping = true;
+              break;
+            }
+          }
 
-			   if (IsEscaping) {
-				   Worklist.emplace_back(&Stmt, ComputingInst);
-				 UsedMA.insert(MA);
-			   }
-		  }
+          if (IsEscaping) {
+            Worklist.emplace_back(&Stmt, ComputingInst);
+            UsedMA.insert(MA);
+          }
+        }
 
-		  // Exit phis are, by definition, escaping
-		  if (MA->isLatestExitPHIKind()) {
-			  auto ComputingInst=  dyn_cast<Instruction>( MA->getAccessValue());
-			  if (ComputingInst) 
-				Worklist.emplace_back(&Stmt, ComputingInst);
-			  UsedMA.insert(MA);
-		  }
+        // Exit phis are, by definition, escaping
+        if (MA->isLatestExitPHIKind()) {
+          auto ComputingInst = dyn_cast<Instruction>(MA->getAccessValue());
+          if (ComputingInst)
+            Worklist.emplace_back(&Stmt, ComputingInst);
+          UsedMA.insert(MA);
+        }
+      }
+    }
 
-	  }}
+    while (!Worklist.empty()) {
+      auto VInst = Worklist.pop_back_val();
 
+      auto InsertResult = Used.insert(VInst);
+      if (!InsertResult.second)
+        continue;
 
-		while (!Worklist.empty()) {
-		  auto VInst = Worklist.pop_back_val();
+      if (auto MA =
+              VInst.getStmt()->getArrayAccessOrNULLFor(VInst.getInstruction()))
+        UsedMA.insert(MA);
 
-		  auto InsertResult =  Used.insert(VInst);
-		   if (!InsertResult.second)
-			    continue;
+      for (auto &Use : VInst.operands()) {
+        if (!VInst.isVirtualOperand(Use))
+          continue;
 
-		   if (auto MA = VInst.getStmt()->getArrayAccessOrNULLFor(VInst.getInstruction())) 
-			   UsedMA.insert(MA);
+        auto InputMA = VInst.findInputAccess(Use.get(), true);
+        if (!InputMA) {
+          Worklist.push_back(VInst.getIntraOperand(Use));
+          continue;
+        }
 
-		   for (auto &Use  : VInst.operands()) {
-			   if (!VInst.isVirtualOperand(Use) )
-				   continue;
+        auto SAI = InputMA->getScopArrayInfo();
+        assert(InputMA->isRead());
+        UsedMA.insert(InputMA);
 
-			 auto InputMA = VInst.findInputAccess(Use.get(), true);
-			 if (!InputMA) {
-				   Worklist.push_back(VInst.getIntraOperand(Use));
-				   continue;
-			   }
+        if (InputMA->isLatestPHIKind()) {
+          for (auto *IncomingMA : DefUse.getPHIIncomings(SAI)) {
+            Worklist.emplace_back(IncomingMA->getStatement(),
+                                  cast<Instruction>(Use.get()));
+            UsedMA.insert(IncomingMA);
+          }
+        }
 
-			auto SAI = InputMA->getScopArrayInfo();
-			  assert( InputMA->isRead() );
-			  UsedMA.insert(InputMA);
+        if (InputMA->isLatestValueKind()) {
+          // search for the definition
+          auto DefMA = DefUse.getValueDef(SAI);
+          Worklist.emplace_back(DefMA->getStatement(),
+                                cast<Instruction>(Use.get()));
+          UsedMA.insert(DefMA);
+        }
 
-			  if (InputMA->isLatestPHIKind()) {
-				  for (auto *IncomingMA : DefUse.getPHIIncomings (SAI)) {
-					  Worklist.emplace_back(  IncomingMA->getStatement(), cast<Instruction> (Use.get() ) );
-					  UsedMA.insert(IncomingMA);
-				  }
-			  }
+        if (InputMA->isLatestArrayKind()) {
+          auto LI = cast<LoadInst>(Use.get());
 
-			  if (InputMA->isLatestValueKind()) {
-				  // search for the definition
-				  auto DefMA =  DefUse.getValueDef(SAI);
-				  Worklist.emplace_back(  DefMA->getStatement(), cast<Instruction> (Use.get() ) );
-				  UsedMA.insert(DefMA);
-			  }
-
-			  if (InputMA->isLatestArrayKind() ) {
-				   auto LI =  cast<LoadInst> (Use.get()) ;
-
-				   // If the access is explicit, it is just like the intra-operand case
-				   // If the access is implicit, there is no getAccessInstruction(). The pointer operand should be synthesizable such that there is no effect of this.
-				   Worklist.emplace_back(InputMA->getStatement(), LI);
-			  }
-
-		   }
-		}
+          // If the access is explicit, it is just like the intra-operand case
+          // If the access is implicit, there is no getAccessInstruction(). The
+          // pointer operand should be synthesizable such that there is no
+          // effect of this.
+          Worklist.emplace_back(InputMA->getStatement(), LI);
+        }
+      }
+    }
 #endif
-	
-		  SmallVector<MemoryAccess  *, 64> AllMAs;
-		  for (auto &Stmt : *S) 
-			AllMAs.append(  Stmt.begin(), Stmt.end());
 
-			  bool Modified = false;
-			  for (auto *MA: AllMAs) {
-				  if (UsedMA.count(MA))
-					  continue;
+    SmallVector<MemoryAccess *, 64> AllMAs;
+    for (auto &Stmt : *S)
+      AllMAs.append(Stmt.begin(), Stmt.end());
 
-				  auto Stmt = MA->getStatement();
-				  Stmt->removeSingleMemoryAccess(MA);
-				  Modified=true;
-				  UnusedAccs++;
-			  }
+    bool Modified = false;
+    for (auto *MA : AllMAs) {
+      if (UsedMA.count(MA))
+        continue;
 
-	  return Modified;
+      auto Stmt = MA->getStatement();
+      Stmt->removeSingleMemoryAccess(MA);
+      Modified = true;
+      UnusedAccs++;
+    }
+
+    return Modified;
   }
-
 
   /// Print the current state of all MemoryAccesses to @p.
   void printAccesses(llvm::raw_ostream &OS, int Indent = 0) const {
@@ -320,7 +321,7 @@ public:
 
   virtual void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequiredTransitive<ScopInfoRegionPass>();
-	AU.addRequired<LoopInfoWrapperPass>();
+    AU.addRequired<LoopInfoWrapperPass>();
     AU.setPreservesAll();
   }
 
@@ -331,14 +332,14 @@ public:
     IslCtx = S.getSharedIslCtx();
     ScopsProcessed++;
 
-	//DefUse.compute(&S);
+    // DefUse.compute(&S);
 
     DEBUG(dbgs() << "Cleaning up no-op load-store combinations...\n");
     auto Modified = cleanup();
 
-	DEBUG(dbgs() << "Cleanup unused accesses...\n");
-	if (markAndSweep( &getAnalysis<LoopInfoWrapperPass>().getLoopInfo() ))
-		Modified = true;
+    DEBUG(dbgs() << "Cleanup unused accesses...\n");
+    if (markAndSweep(&getAnalysis<LoopInfoWrapperPass>().getLoopInfo()))
+      Modified = true;
 
     DEBUG(dbgs() << "Removing statements...\n");
     auto NumStmtsBefore = S.getSize();
@@ -346,7 +347,8 @@ public:
     assert(NumStmtsBefore >= S.getSize());
     auto NumRemoved = NumStmtsBefore - S.getSize();
     StmtsRemoved += NumRemoved;
-	 if (NumRemoved) Modified=true;
+    if (NumRemoved)
+      Modified = true;
     if (Modified)
       ScopsModified++;
 
@@ -363,7 +365,7 @@ public:
 
   virtual void releaseMemory() override {
     S = nullptr;
-	//DefUse.reset();
+    // DefUse.reset();
     CleanupReports.clear();
     IslCtx.reset();
   }
@@ -374,5 +376,7 @@ char Simplify::ID;
 
 Pass *polly::createSimplifyPass() { return new Simplify(); }
 
-INITIALIZE_PASS_BEGIN(Simplify, "polly-simplify", "Polly - Simplify", false,                      false)
-INITIALIZE_PASS_END(Simplify, "polly-simplify", "Polly - Simplify", false,                    false)
+INITIALIZE_PASS_BEGIN(Simplify, "polly-simplify", "Polly - Simplify", false,
+                      false)
+INITIALIZE_PASS_END(Simplify, "polly-simplify", "Polly - Simplify", false,
+                    false)

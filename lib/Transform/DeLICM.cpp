@@ -162,9 +162,6 @@ STATISTIC(KnownScopsModified, "Number of SCoPs optimized");
 #undef DEBUG_TYPE
 #define DEBUG_TYPE "polly-delicm"
 
-
-
-
 /// Return the range elements that are lexicographically smaller.
 ///
 /// @param Map    { Space[] -> Scatter[] }
@@ -639,8 +636,6 @@ void simplify(IslPtr<isl_union_map> &Map) {
   Map = give(isl_union_map_coalesce(Map.take()));
 }
 
-
-
 /// Try to find a 'natural' extension of a mapped to elements outside its
 /// domain.
 ///
@@ -663,43 +658,60 @@ IslPtr<isl_union_map> expandMapping(IslPtr<isl_union_map> Relevant,
 
 /// Input: { Domain[] -> [Range1[] -> Range2[]] }
 /// Output: { [Domain[] -> Range1[]] -> [Domain[] -> Range2[]] }
-IslPtr<isl_map> isl_map_distribute_domain(IslPtr<isl_map> Map ) {
-	auto Space = give( isl_map_get_space(Map.keep()) );
-	auto DomainSpace  = give(isl_space_domain(Space.copy())); assert(DomainSpace);
-	auto DomainDims = isl_space_dim(DomainSpace.keep(), isl_dim_set);
-		auto RangeSpace  = give(isl_space_unwrap( isl_space_range(Space.copy())));
-		auto Range1Space =  give(isl_space_domain(RangeSpace.copy())); assert(Range1Space);
-			auto Range1Dims = isl_space_dim(Range1Space.keep(), isl_dim_set);
-		auto Range2Space =  give(isl_space_range(RangeSpace.copy())); assert(Range2Space);
-			auto Range2Dims = isl_space_dim(Range2Space.keep(), isl_dim_set);
+IslPtr<isl_map> isl_map_distribute_domain(IslPtr<isl_map> Map) {
+  auto Space = give(isl_map_get_space(Map.keep()));
+  auto DomainSpace = give(isl_space_domain(Space.copy()));
+  assert(DomainSpace);
+  auto DomainDims = isl_space_dim(DomainSpace.keep(), isl_dim_set);
+  auto RangeSpace = give(isl_space_unwrap(isl_space_range(Space.copy())));
+  auto Range1Space = give(isl_space_domain(RangeSpace.copy()));
+  assert(Range1Space);
+  auto Range1Dims = isl_space_dim(Range1Space.keep(), isl_dim_set);
+  auto Range2Space = give(isl_space_range(RangeSpace.copy()));
+  assert(Range2Space);
+  auto Range2Dims = isl_space_dim(Range2Space.keep(), isl_dim_set);
 
-	auto OutputSpace = give( isl_space_map_from_domain_and_range( isl_space_wrap (isl_space_map_from_domain_and_range(DomainSpace.copy(),  Range1Space.copy() ) ) , isl_space_wrap( isl_space_map_from_domain_and_range(DomainSpace.copy(),  Range2Space.copy() )) ));
+  auto OutputSpace = give(isl_space_map_from_domain_and_range(
+      isl_space_wrap(isl_space_map_from_domain_and_range(DomainSpace.copy(),
+                                                         Range1Space.copy())),
+      isl_space_wrap(isl_space_map_from_domain_and_range(DomainSpace.copy(),
+                                                         Range2Space.copy()))));
 
-	auto Translator = give(isl_basic_map_universe( isl_space_map_from_domain_and_range(isl_space_wrap( Space.copy()),isl_space_wrap( OutputSpace.copy()) ) ));
-	
-	for (unsigned i =0; i < DomainDims; i+=1 ) {
-	Translator = give(	isl_basic_map_equate( Translator.take(), isl_dim_in, i, isl_dim_out,    i ));
-		Translator = give(	isl_basic_map_equate( Translator.take(), isl_dim_in, i, isl_dim_out, DomainDims + Range1Dims +    i ));
-	}
-		for (unsigned i =0; i < Range1Dims; i+=1 ) {
-			Translator = give(	isl_basic_map_equate( Translator.take(), isl_dim_in, DomainDims+i, isl_dim_out,DomainDims+    i ));
-		}
-				for (unsigned i =0; i < Range2Dims; i+=1 ) {
-			Translator = give(	isl_basic_map_equate( Translator.take(), isl_dim_in, DomainDims+Range1Dims+i, isl_dim_out,DomainDims+  Range1Dims +DomainDims+  i ));
-		}
+  auto Translator =
+      give(isl_basic_map_universe(isl_space_map_from_domain_and_range(
+          isl_space_wrap(Space.copy()), isl_space_wrap(OutputSpace.copy()))));
 
-				return give( isl_set_unwrap( isl_set_apply(isl_map_wrap(Map.copy()), isl_map_from_basic_map(Translator.copy()))));
+  for (unsigned i = 0; i < DomainDims; i += 1) {
+    Translator = give(
+        isl_basic_map_equate(Translator.take(), isl_dim_in, i, isl_dim_out, i));
+    Translator =
+        give(isl_basic_map_equate(Translator.take(), isl_dim_in, i, isl_dim_out,
+                                  DomainDims + Range1Dims + i));
+  }
+  for (unsigned i = 0; i < Range1Dims; i += 1) {
+    Translator =
+        give(isl_basic_map_equate(Translator.take(), isl_dim_in, DomainDims + i,
+                                  isl_dim_out, DomainDims + i));
+  }
+  for (unsigned i = 0; i < Range2Dims; i += 1) {
+    Translator = give(isl_basic_map_equate(
+        Translator.take(), isl_dim_in, DomainDims + Range1Dims + i, isl_dim_out,
+        DomainDims + Range1Dims + DomainDims + i));
+  }
+
+  return give(isl_set_unwrap(isl_set_apply(
+      isl_map_wrap(Map.copy()), isl_map_from_basic_map(Translator.copy()))));
 }
 
-IslPtr<isl_union_map> isl_union_map_distribute_domain(IslPtr<isl_union_map> UMap ) {
-	  auto Result = give(isl_union_map_empty(isl_union_map_get_space(UMap.keep())));
+IslPtr<isl_union_map>
+isl_union_map_distribute_domain(IslPtr<isl_union_map> UMap) {
+  auto Result = give(isl_union_map_empty(isl_union_map_get_space(UMap.keep())));
   foreachElt(UMap, [=, &Result](IslPtr<isl_map> Map) {
-	  auto Distributed = isl_map_distribute_domain(Map);
-    Result = give(isl_union_map_add_map(Result.take(), Distributed.copy()  ));
+    auto Distributed = isl_map_distribute_domain(Map);
+    Result = give(isl_union_map_add_map(Result.take(), Distributed.copy()));
   });
   return Result;
 }
-
 
 /// Determine whether an access touches at most one element.
 ///
@@ -812,9 +824,6 @@ IslPtr<isl_union_map> filterKnownValInst(NonowningIslPtr<isl_union_map> UMap) {
   });
   return Result;
 }
-
-
-
 
 /// Represent the knowledge of the contents any array elements in any zone or
 /// the knowledge we would add when mapping a scalar to an array element.
@@ -1173,22 +1182,14 @@ public:
 
 void Knowledge::dump() const { print(llvm::errs()); }
 
-
-
 /// Base class for algorithms based on zones, like DeLICM.
 class ZoneAlgorithm {
 protected:
-
-
-
 private:
   /// Cached reaching definitions for each ScopStmt.
   ///
   /// Use getScalarReachingDefinition() to get its contents.
   DenseMap<ScopStmt *, IslPtr<isl_map>> ScalarReachDefZone;
-
-
-
 
 protected:
   /// The isl_ctx used for all computations.
@@ -1906,7 +1907,6 @@ private:
 
   ScalarDefUseChains DefUse;
 
-
   /// Determine whether to knowledges are conflicting each other.
   ///
   /// @see Knowledge::isConflicting
@@ -1987,12 +1987,13 @@ private:
 
     // Find all uses.
     for (auto *MA : DefUse.getValueUses(SAI))
-      Reads = give(isl_union_set_add_set(Reads.take(), getDomainFor(MA).take()));
+      Reads =
+          give(isl_union_set_add_set(Reads.take(), getDomainFor(MA).take()));
 
     // { DomainRead[] -> Scatter[] }
     auto ReadSchedule = getScatterFor(Reads);
 
-    auto *DefMA =  DefUse.getValueDef(SAI);
+    auto *DefMA = DefUse.getValueDef(SAI);
     assert(DefMA);
 
     // { DomainDef[] }
@@ -2041,14 +2042,14 @@ private:
     auto PHIWriteScatter = EmptyUnionMap;
 
     // Collect all incoming block timepoint.
-    for (auto *MA :  DefUse.getPHIIncomings(SAI)) {
+    for (auto *MA : DefUse.getPHIIncomings(SAI)) {
       auto Scatter = getScatterFor(MA);
       PHIWriteScatter =
           give(isl_union_map_add_map(PHIWriteScatter.take(), Scatter.take()));
     }
 
     // { DomainPHIRead[] -> Scatter[] }
-    auto PHIReadScatter = getScatterFor(DefUse.getPHIRead (SAI));
+    auto PHIReadScatter = getScatterFor(DefUse.getPHIRead(SAI));
 
     // { DomainPHIRead[] -> Scatter[] }
     auto BeforeRead = beforeScatter(PHIReadScatter, true);
@@ -2081,7 +2082,7 @@ private:
   bool tryMapValue(const ScopArrayInfo *SAI, IslPtr<isl_map> TargetElt) {
     assert(SAI->isValueKind());
 
-    auto *DefMA = DefUse.getValueDef (SAI);
+    auto *DefMA = DefUse.getValueDef(SAI);
     assert(DefMA->isValueKind());
     assert(DefMA->isMustWrite());
     auto *V = DefMA->getAccessValue();
@@ -2190,7 +2191,7 @@ private:
       SecondaryAccs.push_back(MA);
     }
 
-    auto *WA =  DefUse.getValueDef (SAI);
+    auto *WA = DefUse.getValueDef(SAI);
     WA->setNewAccessRelation(DefTarget.copy());
     applyLifetime(Proposed);
 
@@ -2233,7 +2234,7 @@ private:
     auto Result = EmptyUnionMap;
 
     // Collect the incoming values.
-    for (auto *MA :  DefUse.getPHIIncomings (SAI)) {
+    for (auto *MA : DefUse.getPHIIncomings(SAI)) {
       // { DomainWrite[] -> ValInst[] }
       IslPtr<isl_map> ValInst;
       auto *WriteStmt = MA->getStatement();
@@ -2270,7 +2271,7 @@ private:
   ///
   /// @return true if the PHI scalar has been mapped.
   bool tryMapPHI(const ScopArrayInfo *SAI, IslPtr<isl_map> TargetElt) {
-    auto *PHIRead = DefUse.getPHIRead (SAI);
+    auto *PHIRead = DefUse.getPHIRead(SAI);
     assert(PHIRead->isPHIKind());
     assert(PHIRead->isRead());
 
@@ -2311,7 +2312,7 @@ private:
         give(isl_union_map_domain(ExpandedTargetWrites.copy()));
     auto UniverseWritesDom = give(isl_union_set_empty(ParamSpace.copy()));
 
-    for (auto *MA :  DefUse.getPHIIncomings (SAI))
+    for (auto *MA : DefUse.getPHIIncomings(SAI))
       UniverseWritesDom = give(isl_union_set_add_set(UniverseWritesDom.take(),
                                                      getDomainFor(MA).take()));
 
@@ -2390,7 +2391,7 @@ private:
               Knowledge Proposed) {
     // Redirect the PHI incoming writes.
     SmallVector<MemoryAccess *, 4> SecondaryAccs;
-    for (auto *MA :  DefUse.getPHIIncomings(SAI)) {
+    for (auto *MA : DefUse.getPHIIncomings(SAI)) {
       // { DomainWrite[] }
       auto Domain = getDomainFor(MA);
 
@@ -2405,12 +2406,13 @@ private:
     }
 
     // Redirect the PHI read.
-    auto *PHIRead =  DefUse.getPHIRead(SAI);
+    auto *PHIRead = DefUse.getPHIRead(SAI);
     PHIRead->setNewAccessRelation(ReadTarget.copy());
     applyLifetime(Proposed);
 
     MappedPHIScalars++;
-    MapReports.emplace_back(SAI, PHIRead, SecondaryAccs, std::move(ReadTarget),     std::move(Lifetime), std::move(Proposed));
+    MapReports.emplace_back(SAI, PHIRead, SecondaryAccs, std::move(ReadTarget),
+                            std::move(Lifetime), std::move(Proposed));
   }
 
   /// Search and map scalars to memory overwritten by @p TargetStoreMA.
@@ -2511,7 +2513,7 @@ private:
       // Try to map MK_PHI scalars.
       if (SAI->isPHIKind() && tryMapPHI(SAI, EltTarget)) {
         // Add inputs of all incoming statements to the worklist.
-        for (auto *PHIWrite :DefUse.getPHIIncomings (SAI))
+        for (auto *PHIWrite : DefUse.getPHIIncomings(SAI))
           ProcessAllIncoming(PHIWrite->getStatement());
 
         AnyMapped = true;
@@ -2545,8 +2547,6 @@ private:
     Zone.print(OS, Indent + 4);
     OS.indent(Indent) << "}\n";
   }
-
- 
 
   /// Compute when an array element is alive (Its value will be read in the
   /// future) and its value at that time.
@@ -2639,7 +2639,8 @@ public:
     }
 
     DeLICMAnalyzed++;
-    OriginalZone =   Knowledge(std::move(EltLifetime), true, std::move(EltWritten));
+    OriginalZone =
+        Knowledge(std::move(EltLifetime), true, std::move(EltWritten));
     DEBUG(dbgs() << "Computed Zone:\n"; OriginalZone.print(dbgs(), 4));
 
     Zone = OriginalZone;
@@ -2830,7 +2831,7 @@ private:
   SmallVector<KnownReport, 8> KnownReports;
 
   LoopInfo *LI;
-  //ScalarEvolution *SE;
+  // ScalarEvolution *SE;
 
   /// Redirect a read MemoryAccess to an array element that we have proven to
   /// contain the same value.
@@ -2863,174 +2864,187 @@ private:
                               std::move(RequiredValue));
   }
 
-  struct SCEVGetUnknowns  {
-	   std::vector<llvm::Value*> Unknowns;
+  struct SCEVGetUnknowns {
+    std::vector<llvm::Value *> Unknowns;
 
-	  void visit(const SCEV *S) {
-		  if (isa<SCEVUnknown> (S) )
-	Unknowns.push_back(  cast <SCEVUnknown>(S)->getValue());
-	  }
+    void visit(const SCEV *S) {
+      if (isa<SCEVUnknown>(S))
+        Unknowns.push_back(cast<SCEVUnknown>(S)->getValue());
+    }
 
-
-	  bool isDone() {return false;} 
-	  bool follow(const SCEV *S) {return true;}
+    bool isDone() { return false; }
+    bool follow(const SCEV *S) { return true; }
   };
 
-	  std::vector<llvm::Value*> getUnknowns(const SCEV *Root) {
-	  SCEVGetUnknowns Visitor;
-  visitAll(Root, Visitor);
-  return std::move(Visitor.Unknowns);
+  std::vector<llvm::Value *> getUnknowns(const SCEV *Root) {
+    SCEVGetUnknowns Visitor;
+    visitAll(Root, Visitor);
+    return std::move(Visitor.Unknowns);
   }
 
+  bool canForwardTree(llvm::Value *UseVal, ScopStmt *UseStmt, Loop *UseLoop,
+                      // { DomainUse[] -> Scatter[] }
+                      IslPtr<isl_map> UseScatter, ScopStmt *TargetStmt,
+                      // { DomainUse[] -> DomainTarget[] }
+                      IslPtr<isl_map> UseToTargetMapping, int Depth, bool DoIt,
+                      MemoryAccess *&ReuseMe) {
 
-	
+    // parameters, constants and induction variables
+    if (canSynthesize(UseVal, *S, S->getSE(), UseLoop))
+      return true;
+    if (isa<Constant>(UseVal))
+      return true;
 
-  bool canForwardTree(llvm::Value *UseVal, ScopStmt * UseStmt,   Loop *UseLoop, 
-	  // { DomainUse[] -> Scatter[] }
-	  IslPtr<isl_map> UseScatter, 
-	  ScopStmt *TargetStmt, 
-	  // { DomainUse[] -> DomainTarget[] } 
-	  IslPtr<isl_map> UseToTargetMapping,      int Depth ,      bool DoIt,    MemoryAccess *&ReuseMe) {
+    auto Inst = cast<Instruction>(UseVal);
 
-	   // parameters, constants and induction variables
-	   if (canSynthesize(UseVal, *S, S->getSE(), UseLoop))  
-			return true;
-	   if (isa<Constant>(UseVal))
-		   return true;
+    // Read-only values
+    if (!S->contains(Inst)) {
+      if (DoIt) {
+        auto *Access = new MemoryAccess(
+            TargetStmt, nullptr, MemoryAccess::READ, Inst, Inst->getType(),
+            true, {}, {}, Inst, ScopArrayInfo::MK_Array, Inst->getName());
+        S->addAccessFunction(Access);
+        TargetStmt->addAccess(Access);
+      }
+      return true;
+    }
 
-	   auto Inst = cast<Instruction>(UseVal);
+    if (Inst->mayHaveSideEffects() &&
+        !isa<LoadInst>(Inst)) // isSafeToSpeculativelyExecute()???
+      return false;
 
-	   // Read-only values
-	   if (!S->contains(Inst)) {
-		   if (DoIt) {
-			   auto *Access = new MemoryAccess(TargetStmt, nullptr, MemoryAccess::READ,  Inst, Inst->getType(), true,     {},   {} , Inst, ScopArrayInfo::MK_Array, Inst->getName() );
-			   S->addAccessFunction(Access);
-			  TargetStmt->addAccess(Access);
-		   }
-		   return true;
-	   }
+    auto DefStmt = S->getStmtFor(Inst);
+    assert(DefStmt);
+    auto DefLoop = LI->getLoopFor(Inst->getParent());
 
-	   if (Inst->mayHaveSideEffects() && !isa<LoadInst>(Inst)) // isSafeToSpeculativelyExecute()???
-		   return false;
+    // { DomainDef[] -> Scatter[] }
+    IslPtr<isl_map> DefScatter;
 
+    // { DomainDef[] -> DomainTarget[] }
+    IslPtr<isl_map> DefToTargetMapping;
 
-		auto DefStmt= S->getStmtFor(Inst); assert(DefStmt); 
-		    auto DefLoop =  LI->getLoopFor(Inst->getParent());
+    if (UseStmt == DefStmt) {
+      DefScatter = UseScatter;
+      DefToTargetMapping = UseToTargetMapping;
+    } else {
 
-			// { DomainDef[] -> Scatter[] }
-		IslPtr<isl_map> DefScatter;
+      // { DomainDef[] -> Scatter[] }
+      DefScatter = getScatterFor(DefStmt);
 
-		// { DomainDef[] -> DomainTarget[] }
-			IslPtr<isl_map>DefToTargetMapping;
+      // { Scatter[] -> DomainDef[] }
+      auto ReachDef = getScalarReachingDefinition(DefStmt);
 
-		if (UseStmt == DefStmt) {
-			DefScatter = UseScatter; DefToTargetMapping = UseToTargetMapping;
-		} else {
-				
+      // { DomainUse[] -> DomainDef[] }
+      auto DefToUseMapping =
+          give(isl_map_apply_range(UseScatter.copy(), ReachDef.copy()));
 
-		// { DomainDef[] -> Scatter[] }
-		DefScatter =  getScatterFor(DefStmt);
+      // { DomainDef[] -> DomainTarget[] }
+      DefToTargetMapping = give(isl_map_apply_domain(
+          isl_map_reverse(UseToTargetMapping.copy()), DefToUseMapping.copy()));
+    }
 
-		// { Scatter[] -> DomainDef[] }
-		auto ReachDef =  getScalarReachingDefinition (DefStmt);
+    if (auto LI = dyn_cast<LoadInst>(Inst)) {
+      if (!canForwardTree(LI->getPointerOperand(), DefStmt, DefLoop, DefScatter,
+                          TargetStmt, UseToTargetMapping, Depth + 1, DoIt,
+                          ReuseMe))
+        return false;
 
-		// { DomainUse[] -> DomainDef[] }
-		auto DefToUseMapping =  give(isl_map_apply_range(UseScatter.copy(), ReachDef.copy()));
+      auto *RA = &DefStmt->getArrayAccessFor(LI);
 
-		// { DomainDef[] -> DomainTarget[] }
-		DefToTargetMapping = give( isl_map_apply_domain(isl_map_reverse(UseToTargetMapping.copy()), DefToUseMapping.copy() ));
-		}
+      // { DomainDef[] -> ValInst[] }
+      auto ExpectedVal = makeValInst(UseVal, DefStmt);
 
+      // { DomainTarget[] -> ValInst[] }
+      auto ToExpectedVal = give(
+          isl_map_apply_domain(ExpectedVal.copy(), DefToTargetMapping.copy()));
 
-	    if (auto LI = dyn_cast<LoadInst>(Inst)) {
-			if (!canForwardTree(LI->getPointerOperand(),DefStmt, DefLoop, DefScatter, TargetStmt,UseToTargetMapping ,Depth +1,DoIt, ReuseMe ))
-				return false;
+      // { DomainTo[] -> Element[] }
+      auto SameVal =
+          containsSameValue(ToExpectedVal, getScatterFor(TargetStmt));
+      if (!SameVal)
+        return false;
+      if (DoIt) {
+        MemoryAccess *Access;
+        if (Depth == 0 && ReuseMe) {
+          Access = ReuseMe;
+          ReuseMe = nullptr;
+        } else {
+          auto ArrayId =
+              give(isl_map_get_tuple_id(SameVal.keep(), isl_dim_out));
+          auto SAI = reinterpret_cast<ScopArrayInfo *>(
+              isl_id_get_user(ArrayId.keep()));
+          SmallVector<const SCEV *, 4> Sizes;
+          Sizes.reserve(SAI->getNumberOfDimensions());
+          SmallVector<const SCEV *, 4> Subscripts;
+          Subscripts.reserve(SAI->getNumberOfDimensions());
+          for (unsigned i = 0; i < SAI->getNumberOfDimensions(); i += 1) {
+            auto DimSize = SAI->getDimensionSize(i);
+            Sizes.push_back(DimSize);
 
-			auto *RA = &DefStmt->getArrayAccessFor(LI);
-		
+            // Dummy access, to be replaced anyway.
+            Subscripts.push_back(nullptr);
+          }
+          Access = new MemoryAccess(TargetStmt, LI, MemoryAccess::READ,
+                                    SAI->getBasePtr(), Inst->getType(), true,
+                                    {}, Sizes, Inst, ScopArrayInfo::MK_Array,
+                                    RA->getBaseName());
+          S->addAccessFunction(Access);
+          TargetStmt->addAccess(Access);
+        }
+        Access->setNewAccessRelation(SameVal.copy());
+      }
+      return true;
+    }
 
-			// { DomainDef[] -> ValInst[] }
-			auto ExpectedVal = makeValInst(UseVal, DefStmt);
+    if (Inst->mayHaveSideEffects())
+      return false;
 
-			// { DomainTarget[] -> ValInst[] }
-			auto ToExpectedVal =  give(isl_map_apply_domain(  ExpectedVal.copy(),  DefToTargetMapping.copy()   ));
-			
-			// { DomainTo[] -> Element[] }
-			auto SameVal = containsSameValue(ToExpectedVal, getScatterFor(TargetStmt));
-			if (!SameVal)
-				return false;
-			if (DoIt) {
-				MemoryAccess *Access;
-				if (Depth==0 && ReuseMe) {
-					Access = ReuseMe;
-					ReuseMe=nullptr;
-				} else {
-			  auto  ArrayId = give(	isl_map_get_tuple_id(SameVal.keep(), isl_dim_out ));
-			  auto SAI = reinterpret_cast< ScopArrayInfo*>(isl_id_get_user(ArrayId.keep()));
-			  SmallVector<const SCEV*, 4> Sizes;Sizes.reserve(SAI->getNumberOfDimensions());
-			   SmallVector<const SCEV*, 4> Subscripts;Subscripts.reserve(SAI->getNumberOfDimensions());
-			  for (unsigned i =0 ; i<SAI->getNumberOfDimensions();i+=1) {
-				  auto DimSize = SAI->getDimensionSize(i);
-				  Sizes.push_back(DimSize);
-				  
-				  // Dummy access, to be replaced anyway.
-				  Subscripts.push_back(nullptr);
-			   }
-			   Access =  new MemoryAccess(TargetStmt,  LI, MemoryAccess::READ,  SAI->getBasePtr() , Inst->getType(), true, {}, Sizes , Inst, ScopArrayInfo::MK_Array, RA->getBaseName() );
-			   S->addAccessFunction(Access);
-			  TargetStmt->addAccess(Access);
-				}
-				Access->setNewAccessRelation(SameVal.copy());
-			}
-			return true;
-		}
-
-	   if (Inst->mayHaveSideEffects())
-		  return false;
-
-	  for (auto OpVal : Inst->operand_values()) {
-		  if (!canForwardTree(OpVal, DefStmt, DefLoop, DefScatter,  TargetStmt,  DefToTargetMapping,  Depth +1, DoIt, ReuseMe)) 
-			  return false;
-		}
-		return true;
+    for (auto OpVal : Inst->operand_values()) {
+      if (!canForwardTree(OpVal, DefStmt, DefLoop, DefScatter, TargetStmt,
+                          DefToTargetMapping, Depth + 1, DoIt, ReuseMe))
+        return false;
+    }
+    return true;
   }
 
-  Loop* getOutermostLoopFor(ScopStmt *Stmt) {
-	 return  LI->getLoopFor(Stmt->getEntryBlock());
+  Loop *getOutermostLoopFor(ScopStmt *Stmt) {
+    return LI->getLoopFor(Stmt->getEntryBlock());
   }
 
   bool tryForwardTree(MemoryAccess *RA) {
-	  assert(RA->isLatestScalarKind());
+    assert(RA->isLatestScalarKind());
 
-	  auto Stmt = RA->getStatement();
-	  auto InLoop = Stmt->getSurroundingLoop();
-	  auto DomSpace = give(Stmt->getDomainSpace());
-	  auto Identity = give( isl_map_identity( isl_space_map_from_domain_and_range(DomSpace.copy(), DomSpace.copy())   ));
-	  auto Scatter= getScatterFor(Stmt);
+    auto Stmt = RA->getStatement();
+    auto InLoop = Stmt->getSurroundingLoop();
+    auto DomSpace = give(Stmt->getDomainSpace());
+    auto Identity = give(isl_map_identity(
+        isl_space_map_from_domain_and_range(DomSpace.copy(), DomSpace.copy())));
+    auto Scatter = getScatterFor(Stmt);
 
-	  if (!canForwardTree(RA->getAccessValue(), Stmt, InLoop,Scatter, Stmt,Identity,0, false, RA ))
-		  return false;
+    if (!canForwardTree(RA->getAccessValue(), Stmt, InLoop, Scatter, Stmt,
+                        Identity, 0, false, RA))
+      return false;
 
-	  bool Success = canForwardTree(RA->getAccessValue(),Stmt, InLoop,Scatter,  Stmt,Identity,0, true, RA );
-	  assert(Success && "If it says it can do it, it must be able to do it");
+    bool Success = canForwardTree(RA->getAccessValue(), Stmt, InLoop, Scatter,
+                                  Stmt, Identity, 0, true, RA);
+    assert(Success && "If it says it can do it, it must be able to do it");
 
-	  // Remove if not been reused.
-	  if (RA)
-	   Stmt->removeSingleMemoryAccess(RA);
+    // Remove if not been reused.
+    if (RA)
+      Stmt->removeSingleMemoryAccess(RA);
 
-
-	  return true;
+    return true;
   }
 
   // { Domain[] -> Element[] }
-    IslPtr<isl_map> containsSameValue(
-		// { Domain[] -> ValInst[] }
-		IslPtr<isl_map> ValInst, 
-		// { Domain[] -> Scatter[] }
-		IslPtr<isl_map> Sched) {
-	  
-	  // { Domain[] }
-	  auto Domain = give(isl_map_domain(ValInst.copy()));
+  IslPtr<isl_map> containsSameValue(
+      // { Domain[] -> ValInst[] }
+      IslPtr<isl_map> ValInst,
+      // { Domain[] -> Scatter[] }
+      IslPtr<isl_map> Sched) {
+
+    // { Domain[] }
+    auto Domain = give(isl_map_domain(ValInst.copy()));
 
     // { Element[] -> [Zone[] -> ValInst[]] }
     auto MustKnownCurried = give(isl_union_map_curry(Known.copy()));
@@ -3060,17 +3074,17 @@ private:
     // { DomainUser[] -> Element[] }
     // List of array elements that do contain the same ValInst[] at when the
     // read access takes place.
-    auto MustKnownMap = give(isl_union_map_reverse(isl_union_set_unwrap(isl_union_map_domain(isl_union_map_uncurry(MustKnownInst.take())))));
+    auto MustKnownMap = give(isl_union_map_reverse(isl_union_set_unwrap(
+        isl_union_map_domain(isl_union_map_uncurry(MustKnownInst.take())))));
     simplify(MustKnownMap);
 
-
-
-	IslPtr<isl_map> Result;
+    IslPtr<isl_map> Result;
 
     // MemoryAccesses can read only elements from a single array (not: { Dom[0]
     // -> A[0]; Dom[1] -> B[1] }). Look through all arrays until we find one
     // that contains exactly the wanted values.
-    foreachEltWithBreak(MustKnownMap, [&, this](IslPtr<isl_map> Map) -> isl_stat {
+    foreachEltWithBreak(MustKnownMap, [&,
+                                       this](IslPtr<isl_map> Map) -> isl_stat {
       // Get the array this is accessing.
       auto ArrayId = give(isl_map_get_tuple_id(Map.keep(), isl_dim_out));
       auto SAI = static_cast<ScopArrayInfo *>(isl_id_get_user(ArrayId.keep()));
@@ -3095,7 +3109,7 @@ private:
       return isl_stat_error; // break
     });
 
-	return Result;
+    return Result;
   }
 
   /// Find array elements that contain the same value as @p RA reads and try to
@@ -3137,7 +3151,8 @@ private:
     // { DomainUser[] -> Element[] }
     // List of array elements that do contain the same ValInst[] at when the
     // read access takes place.
-    auto MustKnownMap = give(isl_union_map_reverse(isl_union_set_unwrap(isl_union_map_domain(isl_union_map_uncurry(MustKnownInst.take())))));
+    auto MustKnownMap = give(isl_union_map_reverse(isl_union_set_unwrap(
+        isl_union_map_domain(isl_union_map_uncurry(MustKnownInst.take())))));
     simplify(MustKnownMap);
 
     bool Modified = false;
@@ -3145,7 +3160,8 @@ private:
     // MemoryAccesses can read only elements from a single array (not: { Dom[0]
     // -> A[0]; Dom[1] -> B[1] }). Look through all arrays until we find one
     // that contains exactly the wanted values.
-    foreachEltWithBreak(MustKnownMap, [&,  this](IslPtr<isl_map> Map) -> isl_stat {
+    foreachEltWithBreak(MustKnownMap, [&,
+                                       this](IslPtr<isl_map> Map) -> isl_stat {
       // Get the array this is accessing.
       auto ArrayId = give(isl_map_get_tuple_id(Map.keep(), isl_dim_out));
       auto SAI = static_cast<ScopArrayInfo *>(isl_id_get_user(ArrayId.keep()));
@@ -3214,55 +3230,70 @@ public:
   ///
   /// @return { [Element[] -> Zone[]] -> ValInst[] }
   IslPtr<isl_union_map> computeKnownFromLoad() const {
-	
-	// { Scatter[] }
-	auto ScatterUniverse =  give( isl_union_set_from_set( isl_set_universe(  ScatterSpace.copy()))) ;
 
-	// { Element[] }
-	auto AllAccessedElts =  give( isl_union_set_union(isl_union_map_range( AllReads.copy()), isl_union_map_range( AllWrites.copy())));
+    // { Scatter[] }
+    auto ScatterUniverse =
+        give(isl_union_set_from_set(isl_set_universe(ScatterSpace.copy())));
 
-		// { Element[] -> Scatter[] }
-	auto EltZoneUniverse = give( isl_union_map_from_domain_and_range(AllAccessedElts.copy(),ScatterUniverse.copy() ));
+    // { Element[] }
+    auto AllAccessedElts =
+        give(isl_union_set_union(isl_union_map_range(AllReads.copy()),
+                                 isl_union_map_range(AllWrites.copy())));
 
-	// This assumes there are no "holes" in isl_union_map_domain(WriteReachDefZone); alternatively, compute the zone before the first write or that are not written at all.
-		// { Element[] -> Scatter[] }
-	auto NonReachDef = give( isl_union_set_subtract( isl_union_map_wrap(EltZoneUniverse.copy()), isl_union_map_domain(WriteReachDefZone.copy()) ));
+    // { Element[] -> Scatter[] }
+    auto EltZoneUniverse = give(isl_union_map_from_domain_and_range(
+        AllAccessedElts.copy(), ScatterUniverse.copy()));
 
-	// { [Element[] -> Zone[]] -> ReachDefId[] }
-	auto DefZone = give( isl_union_map_union(WriteReachDefZone.copy(), isl_union_map_from_domain(NonReachDef.copy())) );
+    // This assumes there are no "holes" in
+    // isl_union_map_domain(WriteReachDefZone); alternatively, compute the zone
+    // before the first write or that are not written at all.
+    // { Element[] -> Scatter[] }
+    auto NonReachDef = give(
+        isl_union_set_subtract(isl_union_map_wrap(EltZoneUniverse.copy()),
+                               isl_union_map_domain(WriteReachDefZone.copy())));
 
+    // { [Element[] -> Zone[]] -> ReachDefId[] }
+    auto DefZone = give(
+        isl_union_map_union(WriteReachDefZone.copy(),
+                            isl_union_map_from_domain(NonReachDef.copy())));
 
+    // { [Element[] -> Scatter[]] -> Element[] }
+    auto EltZoneElt = give(isl_union_map_domain_map(EltZoneUniverse.copy()));
 
-		// { [Element[] -> Scatter[]] -> Element[] }
-	auto EltZoneElt = give(isl_union_map_domain_map( EltZoneUniverse.copy()));
+    // { [Element[] -> Zone[]] -> [Element[] -> ReachDefId[]] }
+    auto DefZoneEltDefId =
+        give(isl_union_map_range_product(EltZoneElt.copy(), DefZone.copy()));
 
-		// { [Element[] -> Zone[]] -> [Element[] -> ReachDefId[]] }
-	auto DefZoneEltDefId = give(isl_union_map_range_product( EltZoneElt.copy(),DefZone.copy()  ));
+    // { [Element[] -> Zone[]] -> [ReachDefId[] -> Element[]] }
+    auto DefZoneDefidElt =
+        give(isl_union_map_range_product(DefZone.copy(), EltZoneElt.copy()));
 
-		// { [Element[] -> Zone[]] -> [ReachDefId[] -> Element[]] }
-	auto DefZoneDefidElt = give(isl_union_map_range_product(DefZone.copy() , EltZoneElt.copy() ));
+    // { Element[] -> [Zone[] -> ReachDefId[]] }
+    auto EltDefZone = give(isl_union_map_curry(DefZone.copy()));
 
-	// { Element[] -> [Zone[] -> ReachDefId[]] }
-	auto EltDefZone = give( isl_union_map_curry(DefZone.copy()));
+    // { [Element[] -> Zone[] -> [Element[] -> ReachDefId[]] }
+    auto EltZoneEltDefid = isl_union_map_distribute_domain(EltDefZone);
 
-	// { [Element[] -> Zone[] -> [Element[] -> ReachDefId[]] }
-	auto EltZoneEltDefid = isl_union_map_distribute_domain(EltDefZone);
+    // { [Element[] -> Scatter[]] -> DomainRead[] }
+    auto Reads = give(isl_union_map_reverse(
+        isl_union_map_range_product(AllReads.copy(), Schedule.copy())));
 
-	 // { [Element[] -> Scatter[]] -> DomainRead[] } 
-	 auto Reads = give( isl_union_map_reverse( isl_union_map_range_product( AllReads.copy(), Schedule.copy())));
+    // { [Element[] -> Scatter[]] -> [Element[] -> DomainRead[]] }
+    auto ReadsElt =
+        give(isl_union_map_range_product(EltZoneElt.copy(), Reads.copy()));
 
-	 // { [Element[] -> Scatter[]] -> [Element[] -> DomainRead[]] } 
-	 auto ReadsElt = give(isl_union_map_range_product(EltZoneElt.copy(), Reads.copy() ));
+    // { [Element[] -> Scatter[]] -> ValInst[] }
+    auto ScatterKnown =
+        give(isl_union_map_apply_range(ReadsElt.copy(), AllReadValInst.copy()));
 
-	 // { [Element[] -> Scatter[]] -> ValInst[] } 
-	 auto ScatterKnown = give(isl_union_map_apply_range(ReadsElt.copy(),  AllReadValInst.copy()));
+    // { [Element[] -> ReachDefId[]] -> ValInst[] }
+    auto DefidKnown = give(isl_union_map_reverse(isl_union_map_apply_domain(
+        DefZoneEltDefId.copy(), ScatterKnown.copy())));
 
-	  // { [Element[] -> ReachDefId[]] -> ValInst[] } 
-	 auto DefidKnown = give(isl_union_map_reverse(isl_union_map_apply_domain(DefZoneEltDefId.copy(), ScatterKnown.copy())));
-
-	// { [Element[] -> Zone[]] -> ValInst[] } 
-	auto DefZoneKnown = give(isl_union_map_apply_range(DefZoneEltDefId.copy(), DefidKnown.copy() ));
-	return DefZoneKnown;
+    // { [Element[] -> Zone[]] -> ValInst[] }
+    auto DefZoneKnown = give(
+        isl_union_map_apply_range(DefZoneEltDefId.copy(), DefidKnown.copy()));
+    return DefZoneKnown;
   }
 
   /// If there are loads of an array element before the first write, use these
@@ -3352,7 +3383,7 @@ public:
     KnownAnalyzed++;
     DEBUG(dbgs() << "Known from must writes: " << MustKnown << "\n");
     DEBUG(dbgs() << "Known from load: " << KnownFromLoad << "\n");
-    //DEBUG(dbgs() << "Known from init: " << KnownFromInit << "\n");
+    // DEBUG(dbgs() << "Known from init: " << KnownFromInit << "\n");
     DEBUG(dbgs() << "All known: " << Known << "\n");
 
     // If maxops is enabled and Known is nullptr, we exceeded the operations
@@ -3360,25 +3391,23 @@ public:
     return KnownMaxOps == 0 || !!Known;
   }
 
-
-
   /// Try to redirect all scalar reads in the scop that to array elements that
   /// contain the same value.
   void collapseKnown() {
     assert(Known);
     bool Modified = false;
 
-	for (auto &Stmt : *S) {
-		for (auto *RA : Stmt) {
-			        if (!RA->isLatestScalarKind())
+    for (auto &Stmt : *S) {
+      for (auto *RA : Stmt) {
+        if (!RA->isLatestScalarKind())
           continue;
-			if (!RA->isRead())
-				continue;
+        if (!RA->isRead())
+          continue;
 
-			if (tryForwardTree(RA))
-				Modified = true;
-		}
-	}
+        if (tryForwardTree(RA))
+          Modified = true;
+      }
+    }
 
 #if 0
     for (auto &Stmt : *S) {
@@ -3400,19 +3429,17 @@ public:
       KnownScopsModified++;
   }
 
-  void collectInsts(ScopStmt *Stmt, SmallVectorImpl<Instruction*> &List) {
-	  		if (!Stmt->isRegionStmt()) {
-					for (auto &Inst : *Stmt->getBasicBlock())
-			List.push_back(&Inst);
-					return;
-		}
+  void collectInsts(ScopStmt *Stmt, SmallVectorImpl<Instruction *> &List) {
+    if (!Stmt->isRegionStmt()) {
+      for (auto &Inst : *Stmt->getBasicBlock())
+        List.push_back(&Inst);
+      return;
+    }
 
-			for (auto *BB : Stmt->getRegion()->blocks()) 
-						for (auto &Inst : *BB)
-			List.push_back(&Inst);
+    for (auto *BB : Stmt->getRegion()->blocks())
+      for (auto &Inst : *BB)
+        List.push_back(&Inst);
   }
-
-
 
   /// Print the analysis result, performed transformations and the scop after
   /// the transformation.
@@ -3447,8 +3474,9 @@ private:
   std::unique_ptr<KnownImpl> Impl;
 
   void collapseToKnown(Scop &S) {
-    Impl = make_unique<KnownImpl>(&S, &getAnalysis<LoopInfoWrapperPass>().getLoopInfo());
-	
+    Impl = make_unique<KnownImpl>(
+        &S, &getAnalysis<LoopInfoWrapperPass>().getLoopInfo());
+
     if (!Impl->computeKnown())
       return;
 
@@ -3465,7 +3493,7 @@ public:
   virtual void getAnalysisUsage(AnalysisUsage &AU) const override {
     // TODO: preserve only ScopInfo and dependencies
     AU.addRequiredTransitive<ScopInfoRegionPass>();
-	AU.addRequired<LoopInfoWrapperPass>();
+    AU.addRequired<LoopInfoWrapperPass>();
     AU.setPreservesAll();
   }
 

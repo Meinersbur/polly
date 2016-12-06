@@ -414,8 +414,8 @@ class MemoryAccess {
   friend class ScopStmt;
 
 public:
-	bool isImplicit() const;
-	bool isExplicit() const{return !isImplicit();}
+  bool isImplicit() const;
+  bool isExplicit() const { return !isImplicit(); }
 
   /// The access type of a memory access
   ///
@@ -1120,10 +1120,10 @@ public:
   const ScopStmt &operator=(const ScopStmt &) = delete;
 
   /// Create the ScopStmt from a BasicBlock.
-  ScopStmt(Scop &parent, BasicBlock &bb,Loop *SurroundingLoop);
+  ScopStmt(Scop &parent, BasicBlock &bb, Loop *SurroundingLoop);
 
   /// Create an overapproximating ScopStmt for the region @p R.
-  ScopStmt(Scop &parent, Region &R,Loop *SurroundingLoop);
+  ScopStmt(Scop &parent, Region &R, Loop *SurroundingLoop);
 
   /// Create a copy statement.
   ///
@@ -1133,7 +1133,8 @@ public:
   /// @param Domain     The original domain under which copy statement whould
   ///                   be executed.
   ScopStmt(Scop &parent, __isl_take isl_map *SourceRel,
-           __isl_take isl_map *TargetRel, __isl_take isl_set *Domain,Loop *SurroundingLoop);
+           __isl_take isl_map *TargetRel, __isl_take isl_set *Domain,
+           Loop *SurroundingLoop);
 
   /// Initialize members after all MemoryAccesses have been added.
   void init(LoopInfo &LI);
@@ -1224,7 +1225,7 @@ private:
 
   std::string BaseName;
 
-    Loop *SurroundingLoop;
+  Loop *SurroundingLoop;
 
   /// Build the statement.
   //@{
@@ -1248,7 +1249,7 @@ private:
 public:
   ~ScopStmt();
 
-  Loop *getSurroundingLoop() const {return SurroundingLoop;}
+  Loop *getSurroundingLoop() const { return SurroundingLoop; }
 
   /// Get an isl_ctx pointer.
   isl_ctx *getIslCtx() const;
@@ -1895,7 +1896,7 @@ private:
   /// and map.
   ///
   /// @param BB         The basic block we build the statement for.
-  void addScopStmt(BasicBlock *BB, Loop* SurroundingLoop);
+  void addScopStmt(BasicBlock *BB, Loop *SurroundingLoop);
 
   /// Create a new SCoP statement for @p R.
   ///
@@ -1903,7 +1904,7 @@ private:
   /// and map.
   ///
   /// @param R          The region we build the statement for.
-  void addScopStmt(Region *R, Loop* SurroundingLoop);
+  void addScopStmt(Region *R, Loop *SurroundingLoop);
 
   /// Update access dimensionalities.
   ///
