@@ -339,21 +339,7 @@ protected:
   BasicBlock *copyBB(ScopStmt &Stmt, BasicBlock *BB, ValueMapT &BBMap,
                      LoopToScevMapT &LTS, isl_id_to_ast_expr *NewAccesses);
 
-  /// Copy the given basic block.
-  ///
-  /// @param Stmt      The statement to code generate.
-  /// @param BB        The basic block to code generate.
-  /// @param BBCopy    The new basic block to generate code in.
-  /// @param BBMap     A mapping from old values to their new values in this
-  /// block.
-  /// @param LTS         A map from old loops to new induction variables as
-  ///                    SCEVs.
-  /// @param NewAccesses A map from memory access ids to new ast expressions,
-  ///                    which may contain new access expressions for certain
-  ///                    memory accesses.
-  void copyBB(ScopStmt &Stmt, BasicBlock *BB, BasicBlock *BBCopy,
-              ValueMapT &BBMap, LoopToScevMapT &LTS,
-              isl_id_to_ast_expr *NewAccesses);
+
 
   /// Return the alloca for @p ScalarBase in @p Map.
   ///

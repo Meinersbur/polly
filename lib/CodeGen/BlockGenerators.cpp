@@ -357,33 +357,22 @@ BasicBlock *BlockGenerator::splitBB(BasicBlock *BB) {
 BasicBlock *BlockGenerator::copyBB(ScopStmt &Stmt, BasicBlock *BB,
                                    ValueMapT &BBMap, LoopToScevMapT &LTS,
                                    isl_id_to_ast_expr *NewAccesses) {
+  std::vector<VirtualInstruction> InstList;
+  markReachableLocal(&Stmt, InstList, &LI);
+
   BasicBlock *CopyBB = splitBB(BB);
   Builder.SetInsertPoint(&CopyBB->front());
   generateScalarLoads(Stmt, LTS, BBMap, NewAccesses);
 
-  copyBB(Stmt, BB, CopyBB, BBMap, LTS, NewAccesses);
+    for (VirtualInstruction &VInst : InstList) { 
+		assert(VInst.getStmt() == &Stmt);
+		copyInstruction(Stmt, VInst.getInstruction(), BBMap, LTS, NewAccesses);
+	}
 
   // After a basic block was copied store all scalars that escape this block in
   // their alloca.
   generateScalarStores(Stmt, LTS, BBMap, NewAccesses);
   return CopyBB;
-}
-
-void BlockGenerator::copyBB(ScopStmt &Stmt, BasicBlock *BB, BasicBlock *CopyBB,
-                            ValueMapT &BBMap, LoopToScevMapT &LTS,
-                            isl_id_to_ast_expr *NewAccesses) {
-  EntryBB = &CopyBB->getParent()->getEntryBlock();
-
-  std::vector<VirtualInstruction> InstList;
-  markReachableLocal(&Stmt, InstList, &LI);
-
-    for (VirtualInstruction &VInst : InstList) { assert(VInst.getStmt() == &Stmt);
-		copyInstruction(Stmt, VInst.getInstruction(), BBMap, LTS, NewAccesses);}
-
-#if 0
-  for (Instruction &Inst : *BB)
-    copyInstruction(Stmt, &Inst, BBMap, LTS, NewAccesses);
-#endif
 }
 
 Value *BlockGenerator::getOrCreateAlloca(Value *ScalarBase,
@@ -1190,6 +1179,14 @@ void RegionGenerator::copyStmt(ScopStmt &Stmt, LoopToScevMapT &LTS,
   // The region represented by the statement.
   Region *R = Stmt.getRegion();
 
+  std::vector<VirtualInstruction> InstList;
+  markReachableLocal(&Stmt, InstList, &LI);
+  DenseSet<Instruction*> InstSet;
+  for (auto VInst : InstList) {
+	  assert(VInst.getStmt() == &Stmt);
+	  InstSet.insert(VInst.getInstruction());
+  }
+
   // Create a dedicated entry for the region where we can reload all demoted
   // inputs.
   BasicBlock *EntryBB = R->getEntry();
@@ -1210,6 +1207,13 @@ void RegionGenerator::copyStmt(ScopStmt &Stmt, LoopToScevMapT &LTS,
   SmallSetVector<BasicBlock *, 8> SeenBlocks;
   Blocks.push_back(EntryBB);
   SeenBlocks.insert(EntryBB);
+
+  for (auto VInst : InstList) {
+	  auto *Inst = VInst.getInstruction();
+	  if (R->contains(Inst->getParent()))
+		  continue;
+	  copyInstruction(Stmt, Inst, EntryBBMap, LTS, IdToAstExp);
+  }
 
   while (!Blocks.empty()) {
     BasicBlock *BB = Blocks.front();
@@ -1234,7 +1238,13 @@ void RegionGenerator::copyStmt(ScopStmt &Stmt, LoopToScevMapT &LTS,
 
     // Copy the block with the BlockGenerator.
     Builder.SetInsertPoint(&BBCopy->front());
-    copyBB(Stmt, BB, BBCopy, RegionMap, LTS, IdToAstExp);
+
+	for (auto &Inst : *BB) {
+		if (!InstSet.count(&Inst))
+			continue;
+		copyInstruction(Stmt, &Inst, RegionMap, LTS, IdToAstExp);
+	}
+    //copyBB(Stmt, BB, BBCopy, RegionMap, LTS, IdToAstExp);
 
     // In order to remap PHI nodes we store also basic block mappings.
     BlockMap[BB] = BBCopy;
