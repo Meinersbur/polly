@@ -360,13 +360,25 @@ BasicBlock *BlockGenerator::copyBB(ScopStmt &Stmt, BasicBlock *BB,
   std::vector<VirtualInstruction> InstList;
   markReachableLocal(&Stmt, InstList, &LI);
 
+  DenseSet<Instruction *> InstSet;
+  for (auto VInst : InstList) {
+    assert(VInst.getStmt() == &Stmt);
+    InstSet.insert(VInst.getInstruction());
+  }
+
   BasicBlock *CopyBB = splitBB(BB);
   Builder.SetInsertPoint(&CopyBB->front());
   generateScalarLoads(Stmt, LTS, BBMap, NewAccesses);
 
   for (VirtualInstruction &VInst : InstList) {
     assert(VInst.getStmt() == &Stmt);
-    copyInstruction(Stmt, VInst.getInstruction(), BBMap, LTS, NewAccesses);
+    if (VInst.getInstruction()->getParent() != BB)
+      copyInstruction(Stmt, VInst.getInstruction(), BBMap, LTS, NewAccesses);
+  }
+
+  for (auto &Inst : *BB) {
+    if (InstSet.count(&Inst))
+      copyInstruction(Stmt, &Inst, BBMap, LTS, NewAccesses);
   }
 
   // After a basic block was copied store all scalars that escape this block in
@@ -1241,7 +1253,6 @@ void RegionGenerator::copyStmt(ScopStmt &Stmt, LoopToScevMapT &LTS,
 
     for (auto &Inst : *BB) {
       if (InstSet.count(&Inst))
-
         copyInstruction(Stmt, &Inst, RegionMap, LTS, IdToAstExp);
     }
     // copyBB(Stmt, BB, BBCopy, RegionMap, LTS, IdToAstExp);
