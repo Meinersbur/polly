@@ -102,6 +102,9 @@ public:
     if (!S->contains(Inst))
       return VirtualUse(User, Val, ReadOnly, InputMA);
 
+    if (isa<PHINode>(Inst) && Inst->getParent() == User->getEntryBlock())
+      return VirtualUse(User, Val, IntraValue, nullptr);
+
     if (InputMA)
       return VirtualUse(User, Val, InterValue, InputMA);
 
@@ -156,7 +159,7 @@ public:
   VirtualUse getVirtualUse(int i, LoopInfo *LI) const {
     return getVirtualUse(Inst->getOperandUse(i), LI);
   }
-
+#if 0
   bool isVirtualOperand(const Use &U) const {
     assert(U.getUser() == Inst);
     auto Op = U.get();
@@ -206,6 +209,7 @@ public:
   }
 
   MemoryAccess *getInterOperandOutput() const { return findOutputAccess(Inst); }
+#endif
 };
 
 void markReachableGlobal(Scop *S, std::vector<VirtualInstruction> &InstList,

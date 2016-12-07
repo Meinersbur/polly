@@ -314,7 +314,7 @@ static void markReachable(Scop *S, ArrayRef<VirtualInstruction> Roots,
 
     // if (isa<PHINode>(Inst)  && Stmt->getEntryBlock() == Inst->getParent()) {
     //	  auto SAI = S->getScopArrayInfo(Inst, ScopArrayInfo::MK_PHI);
-    //assert(SAI);
+    // assert(SAI);
     //	  auto MA = DefUse.getPHIRead(SAI);
     //	  WorklistMA.push_back(MA);
     // } else {

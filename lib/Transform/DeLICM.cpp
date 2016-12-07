@@ -2750,6 +2750,7 @@ public:
     if (!Impl)
       return;
 
+    OS << "DeLICM result:\n";
     assert(Impl->getScop() == &S);
     Impl->print(OS);
   }
