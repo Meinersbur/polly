@@ -94,6 +94,9 @@ public:
 
     auto InputMA = getInputAccessOf(Val, User);
 
+    if (isa<Argument>(Val))
+      return VirtualUse(User, Val, ReadOnly, InputMA);
+
     auto S = User->getParent();
     auto Inst = cast<Instruction>(Val);
     if (!S->contains(Inst))
