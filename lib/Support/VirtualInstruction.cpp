@@ -85,8 +85,8 @@ MemoryAccess *polly::getInputAccessOf(Value *InputVal, ScopStmt *Stmt,
   for (auto *MA : *Stmt) {
     if (!MA->isRead())
       continue;
-    if (!(MA->isLatestScalarKind() ||
-          (AllowArrayLoads && MA->isLatestArrayKind())))
+    if (!(MA->isOriginalScalarKind() ||
+          (AllowArrayLoads && MA->isOriginalArrayKind())))
       continue;
 
     if (MA->getAccessValue() == InputVal)
@@ -99,7 +99,7 @@ MemoryAccess *polly::getOutputAccessFor(Value *OutputVal, ScopStmt *Stmt) {
   for (auto *MA : *Stmt) {
     if (!MA->isWrite())
       continue;
-    if (!MA->isLatestValueKind())
+    if (!MA->isOriginalValueKind())
       continue;
 
     assert(MA->getAccessValue() == MA->getBaseAddr());
@@ -245,19 +245,19 @@ static void markReachable(Scop *S, ArrayRef<VirtualInstruction> Roots,
       if (MA->isRead() && MA->isOriginalAnyPHIKind()) {
         auto &IncomingMAs = DefUse.getPHIIncomings(SAI);
         WorklistMA.append(IncomingMAs.begin(), IncomingMAs.end());
+        // Leaf.emplace_back(Stmt, MA->getAccessInstruction());
       }
 
       if (MA->isRead() && MA->isOriginalArrayKind()) {
-        assert(MemAccInst::isa(MA->getAccessInstruction()));
+        // assert(MemAccInst::isa(MA->getAccessInstruction()));
         // Worklist.emplace_back(Stmt, MA->getAccessInstruction());
-        Leaf.emplace_back(Stmt, MA->getAccessInstruction());
+        // Leaf.emplace_back(Stmt, MA->getAccessInstruction());
       }
 
       if (MA->isWrite() && MA->isOriginalValueKind()) {
         auto Val = MA->getAccessValue();
-        auto VUse = VirtualUse::create(
-            Stmt, Val, Scope,
-            SE); // If it was synthesizable it would not have a write access.
+        // If it was synthesizable it would not have a write access.
+        auto VUse = VirtualUse::create(Stmt, Val, Scope, SE);
         AddToWorklist(VUse);
       }
 
@@ -269,7 +269,7 @@ static void markReachable(Scop *S, ArrayRef<VirtualInstruction> Roots,
         }
       }
 
-      if (MA->isWrite() && MA->isLatestArrayKind()) {
+      if (MA->isWrite() && MA->isOriginalArrayKind()) {
         if (MemAccInst::isa(MA->getAccessInstruction()))
           // Worklist.emplace_back(Stmt, MA->getAccessInstruction());
           Leaf.emplace_back(Stmt, MA->getAccessInstruction());
@@ -284,51 +284,58 @@ static void markReachable(Scop *S, ArrayRef<VirtualInstruction> Roots,
 
       continue;
     }
+    // TODO: Order roots by original order, after all root instructions are
+    // known
+    auto VInst = Leaf.pop_back_val();
+    if (Leaf.empty()) {
+      WorklistTree.pop_back();
 
-    {
-      auto VInst = Leaf.pop_back_val();
-      if (Leaf.empty()) {
-        WorklistTree.pop_back();
+      if (WorklistTree.empty())
+        break;
 
-        if (WorklistTree.empty())
-          break;
-
-        InstList.push_back(VInst);
-
-        continue;
-      }
-
-      auto *Stmt = VInst.getStmt();
-      auto *Inst = VInst.getInstruction();
-      if (OnlyLocal && Stmt != OnlyLocal)
-        continue;
-
-      auto InsertResult = Used.insert(VInst);
-      if (!InsertResult.second)
-        continue;
-
-      // This will also cause VInst to be appended to InstList.
-      WorklistTree.emplace_back();
-      auto &NewLeaf = WorklistTree.back();
-      NewLeaf.push_back(VInst);
-
-      for (auto *MA : *VInst.getStmt()) {
-        if (MA->isOriginalScalarKind())
-          continue;
-        if (MA->getAccessInstruction() != Inst)
-          continue;
-        WorklistMA.push_back(MA);
-      }
-
-      for (auto &Use : VInst.operands()) {
-        auto VUse = VInst.getVirtualUse(Use, LI);
-        AddToWorklist(VUse);
-      }
+      InstList.push_back(VInst);
 
       continue;
     }
 
-    break;
+    auto *Stmt = VInst.getStmt();
+    auto *Inst = VInst.getInstruction();
+    if (OnlyLocal && Stmt != OnlyLocal)
+      continue;
+
+    auto InsertResult = Used.insert(VInst);
+    if (!InsertResult.second)
+      continue;
+
+    // This will also cause VInst to be appended to InstList.
+    WorklistTree.emplace_back();
+    auto &NewLeaf = WorklistTree.back();
+    NewLeaf.push_back(VInst);
+
+    // if (isa<PHINode>(Inst)  && Stmt->getEntryBlock() == Inst->getParent()) {
+    //	  auto SAI = S->getScopArrayInfo(Inst, ScopArrayInfo::MK_PHI);
+    //assert(SAI);
+    //	  auto MA = DefUse.getPHIRead(SAI);
+    //	  WorklistMA.push_back(MA);
+    // } else {
+    bool hasMA = false;
+    for (auto *MA : *Stmt) {
+      if (MA->isOriginalScalarKind() &&
+          !(isa<PHINode>(Inst) && MA->isRead() && MA->isPHIKind()))
+        continue;
+      if (MA->getAccessInstruction() != Inst)
+        continue;
+      WorklistMA.push_back(MA);
+      hasMA = true;
+    }
+
+    if (isa<PHINode>(Inst) && hasMA)
+      continue;
+
+    for (auto &Use : VInst.operands()) {
+      auto VUse = VInst.getVirtualUse(Use, LI);
+      AddToWorklist(VUse);
+    }
   }
 }
 
