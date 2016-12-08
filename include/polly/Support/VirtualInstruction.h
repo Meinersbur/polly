@@ -58,6 +58,7 @@ MemoryAccess *getInputAccessOf(Value *InputVal, ScopStmt *Stmt,
 MemoryAccess *getOutputAccessFor(Value *OutputVal, ScopStmt *Stmt);
 
 class VirtualUse {
+public:
   enum UseType {
     Constant,
 
@@ -117,6 +118,8 @@ public:
   ScopStmt *getUser() const { return User; }
   llvm::Value *getValue() const { return Val; }
   MemoryAccess *getMemAccess() const { return InputMA; }
+
+  UseType getType() const { return Ty; }
 };
 
 class VirtualInstruction {
@@ -159,57 +162,6 @@ public:
   VirtualUse getVirtualUse(int i, LoopInfo *LI) const {
     return getVirtualUse(Inst->getOperandUse(i), LI);
   }
-#if 0
-  bool isVirtualOperand(const Use &U) const {
-    assert(U.getUser() == Inst);
-    auto Op = U.get();
-
-    if (isa<Constant>(Op))
-      return false;
-
-    auto S = getScop();
-    return !canSynthesize(Op, *S, S->getSE(), Stmt->getSurroundingLoop());
-  }
-
-  bool isInterScopOperand(const Use &U) const {
-    assert(U.getUser() == Inst);
-    auto Op = U.get();
-    if (isa<Constant>(Op))
-      return false;
-    return findInputAccess(Op, false);
-  }
-
-  bool isIntraOperand(const Use &U) const {
-    return isVirtualOperand(U) && !isInterScopOperand(U);
-  }
-
-  VirtualInstruction getIntraOperand(const Use &U) const {
-    assert(isIntraOperand(U));
-    return {Stmt, cast<Instruction>(U.get())};
-  }
-
-  VirtualInstruction getInterOperand(const Use &U) const {
-    assert(isInterScopOperand(U));
-    auto OpInst = cast<Instruction>(U.get());
-    auto S = Stmt->getParent()->getStmtFor(OpInst);
-    assert(S);
-    return {S, OpInst};
-  }
-
-  VirtualInstruction getVirtualOperand(const Use &U) const {
-    if (isInterScopOperand(U))
-      return getInterOperand(U);
-    return getIntraOperand(U);
-  }
-
-  MemoryAccess *getInterOperandInput(const Use &U) const {
-    auto MA = findInputAccess(U.get(), false);
-    assert(MA && "Must be an inter-Stmt use");
-    return MA;
-  }
-
-  MemoryAccess *getInterOperandOutput() const { return findOutputAccess(Inst); }
-#endif
 };
 
 void markReachableGlobal(Scop *S, std::vector<VirtualInstruction> &InstList,

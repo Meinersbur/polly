@@ -49,6 +49,11 @@ static cl::opt<bool> DebugPrinting(
     cl::desc("Add printf calls that show the values loaded/stored."),
     cl::Hidden, cl::init(false), cl::ZeroOrMore, cl::cat(PollyCategory));
 
+static cl::opt<bool> UseVirtualStmts("polly-codegen-virtual-statements",
+                                     cl::desc("Use virtual statements"),
+                                     cl::Hidden, cl::init(true), cl::ZeroOrMore,
+                                     cl::cat(PollyCategory));
+
 BlockGenerator::BlockGenerator(
     PollyIRBuilder &B, LoopInfo &LI, ScalarEvolution &SE, DominatorTree &DT,
     ScalarAllocaMapTy &ScalarMap, ScalarAllocaMapTy &PHIOpMap,
@@ -357,27 +362,32 @@ BasicBlock *BlockGenerator::splitBB(BasicBlock *BB) {
 BasicBlock *BlockGenerator::copyBB(ScopStmt &Stmt, BasicBlock *BB,
                                    ValueMapT &BBMap, LoopToScevMapT &LTS,
                                    isl_id_to_ast_expr *NewAccesses) {
-  std::vector<VirtualInstruction> InstList;
-  markReachableLocal(&Stmt, InstList, &LI);
-
-  DenseSet<Instruction *> InstSet;
-  for (auto VInst : InstList) {
-    assert(VInst.getStmt() == &Stmt);
-    InstSet.insert(VInst.getInstruction());
-  }
-
   BasicBlock *CopyBB = splitBB(BB);
   Builder.SetInsertPoint(&CopyBB->front());
   generateScalarLoads(Stmt, LTS, BBMap, NewAccesses);
 
-  for (VirtualInstruction &VInst : InstList) {
-    assert(VInst.getStmt() == &Stmt);
-    if (VInst.getInstruction()->getParent() != BB)
-      copyInstruction(Stmt, VInst.getInstruction(), BBMap, LTS, NewAccesses);
-  }
+  if (UseVirtualStmts) {
+    std::vector<VirtualInstruction> InstList;
+    markReachableLocal(&Stmt, InstList, &LI);
 
-  for (auto &Inst : *BB) {
-    if (InstSet.count(&Inst))
+    DenseSet<Instruction *> InstSet;
+    for (auto VInst : InstList) {
+      assert(VInst.getStmt() == &Stmt);
+      InstSet.insert(VInst.getInstruction());
+    }
+
+    for (VirtualInstruction &VInst : InstList) {
+      assert(VInst.getStmt() == &Stmt);
+      if (VInst.getInstruction()->getParent() != BB)
+        copyInstruction(Stmt, VInst.getInstruction(), BBMap, LTS, NewAccesses);
+    }
+
+    for (auto &Inst : *BB) {
+      if (InstSet.count(&Inst))
+        copyInstruction(Stmt, &Inst, BBMap, LTS, NewAccesses);
+    }
+  } else {
+    for (Instruction &Inst : *BB)
       copyInstruction(Stmt, &Inst, BBMap, LTS, NewAccesses);
   }
 
@@ -1191,14 +1201,6 @@ void RegionGenerator::copyStmt(ScopStmt &Stmt, LoopToScevMapT &LTS,
   // The region represented by the statement.
   Region *R = Stmt.getRegion();
 
-  std::vector<VirtualInstruction> InstList;
-  markReachableLocal(&Stmt, InstList, &LI);
-  DenseSet<Instruction *> InstSet;
-  for (auto VInst : InstList) {
-    assert(VInst.getStmt() == &Stmt);
-    InstSet.insert(VInst.getInstruction());
-  }
-
   // Create a dedicated entry for the region where we can reload all demoted
   // inputs.
   BasicBlock *EntryBB = R->getEntry();
@@ -1220,11 +1222,21 @@ void RegionGenerator::copyStmt(ScopStmt &Stmt, LoopToScevMapT &LTS,
   Blocks.push_back(EntryBB);
   SeenBlocks.insert(EntryBB);
 
-  for (auto VInst : InstList) {
-    auto *Inst = VInst.getInstruction();
-    if (R->contains(Inst->getParent()))
-      continue;
-    copyInstruction(Stmt, Inst, EntryBBMap, LTS, IdToAstExp);
+  DenseSet<Instruction *> InstSet;
+  if (UseVirtualStmts) {
+    std::vector<VirtualInstruction> InstList;
+    markReachableLocal(&Stmt, InstList, &LI);
+    for (auto VInst : InstList) {
+      assert(VInst.getStmt() == &Stmt);
+      InstSet.insert(VInst.getInstruction());
+    }
+
+    for (auto VInst : InstList) {
+      auto *Inst = VInst.getInstruction();
+      if (R->contains(Inst->getParent()))
+        continue;
+      copyInstruction(Stmt, Inst, EntryBBMap, LTS, IdToAstExp);
+    }
   }
 
   while (!Blocks.empty()) {
@@ -1252,10 +1264,9 @@ void RegionGenerator::copyStmt(ScopStmt &Stmt, LoopToScevMapT &LTS,
     Builder.SetInsertPoint(&BBCopy->front());
 
     for (auto &Inst : *BB) {
-      if (InstSet.count(&Inst))
+      if (!UseVirtualStmts || InstSet.count(&Inst))
         copyInstruction(Stmt, &Inst, RegionMap, LTS, IdToAstExp);
     }
-    // copyBB(Stmt, BB, BBCopy, RegionMap, LTS, IdToAstExp);
 
     // In order to remap PHI nodes we store also basic block mappings.
     BlockMap[BB] = BBCopy;

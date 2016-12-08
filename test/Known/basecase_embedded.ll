@@ -1,6 +1,5 @@
 ; RUN: opt %loadPolly -polly-flatten-schedule -polly-known -analyze < %s | FileCheck %s
 
-
 define void @func(double* noalias nonnull %A, double* noalias nonnull %B) {
 entry:
   br label %outer.for
@@ -12,8 +11,8 @@ outer.for:
 
 
     body1:
-      %val = fadd double 1.2, 1.3
       %A_idx = getelementptr inbounds double, double* %A, i32 %j
+      %val = load double, double* %A_idx
       store double %val, double* %A_idx
       br label %body2
       
@@ -62,16 +61,18 @@ return:
 ; CHECK-NEXT:     { Stmt_body1[i0] -> [2i0] }
 ; CHECK-NEXT:     { Stmt_body2[i0] -> [1 + 2i0] }
 ; CHECK-NEXT: }
-; CHECK:      Known zone: { [MemRef_A[i0] -> [i1{{\]\]}} -> [Stmt_body1[i0] -> Val_val[{{\]\]}} : 0 <= i0 <= 4 and i1 > 2i0; [MemRef_B[i0] -> [i1{{\]\]}} -> [Stmt_body1[i0] -> Val_val[{{\]\]}} : 0 <= i0 <= 4 and i1 >= 2 + 2i0 }
+; CHECK:      Known zone: { [MemRef_A[i0] -> [i1{{\]\]}} -> [Stmt_body1[i0] -> Val_val[{{\]\]}} : 0 <= i0 <= 4; [MemRef_B[i0] -> [i1{{\]\]}} -> [Stmt_body1[i0] -> Val_val[{{\]\]}} : 0 <= i0 <= 4 and i1 >= 2 + 2i0 }
 ; CHECK:      Redirected knowns {
-; CHECK-NEXT:     Redirect Stmt_body2 MK_Value Use MemRef_val [new: { Stmt_body2[i0] -> MemRef_A[i0] : 0 <= i0 <= 4 }] {
-; CHECK-NEXT:         Expects   : { Stmt_body2[i0] -> [Stmt_body1[i0] -> Val_val[{{\]\]}} : 0 <= i0 <= 4 }
+; CHECK-NEXT:     Redirect Stmt_body1 MK_Array Load %val from { Stmt_body1[i0] -> MemRef_A[i0] } {
+; CHECK-NEXT:         Expects   : { Stmt_body2[i0] -> [Stmt_body1[i0] -> Val_val[{{\]\]}} : 0 <= i0 <= 3; Stmt_body2[4] -> [Stmt_body1[4] -> Val_val[{{\]\]}} }
 ; CHECK-NEXT:         Candidates: { Stmt_body2[i0] -> MemRef_A[i0] : 0 <= i0 <= 4 }
 ; CHECK-NEXT:         Chosen    : { Stmt_body2[i0] -> MemRef_A[i0] : 0 <= i0 <= 4 }
 ; CHECK-NEXT:     }
 ; CHECK-NEXT: }
 ; CHECK:      After accesses {
 ; CHECK-NEXT:     Stmt_body1
+; CHECK-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 0]
+; CHECK-NEXT:                 { Stmt_body1[i0] -> MemRef_A[i0] };
 ; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 0]
 ; CHECK-NEXT:                 { Stmt_body1[i0] -> MemRef_A[i0] };
 ; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 1]

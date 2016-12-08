@@ -157,6 +157,7 @@ STATISTIC(KnownOutOfQuota,
           "Analyses aborted because max_operations was reached");
 STATISTIC(KnownIncompatible, "Number of SCoPs incompatible for analysis");
 STATISTIC(MappedKnown, "Number of deviated scalar loads to known content");
+STATISTIC(MappedReadOnly, "Number of rematerialized read-only vars");
 STATISTIC(KnownScopsModified, "Number of SCoPs optimized");
 
 #undef DEBUG_TYPE
@@ -2889,27 +2890,34 @@ private:
                       // { DomainUse[] -> DomainTarget[] }
                       IslPtr<isl_map> UseToTargetMapping, int Depth, bool DoIt,
                       MemoryAccess *&ReuseMe) {
+    // Don't handle PHIs (yet)
+    if (isa<PHINode>(UseVal))
+      return false;
 
-    // parameters, constants and induction variables
-    if (canSynthesize(UseVal, *S, S->getSE(), UseLoop))
+    auto VUse = VirtualUse::create(UseStmt, UseVal, UseLoop, S->getSE());
+
+    switch (VUse.getType()) {
+    case VirtualUse::Constant:
+    case VirtualUse::Synthesizable:
       return true;
-    if (isa<Constant>(UseVal))
-      return true;
 
-    auto Inst = cast<Instruction>(UseVal);
-
-    // Read-only values
-    if (!S->contains(Inst)) {
+    case VirtualUse::ReadOnly:
       if (DoIt) {
         auto *Access = new MemoryAccess(
-            TargetStmt, nullptr, MemoryAccess::READ, Inst, Inst->getType(),
-            true, {}, {}, Inst, ScopArrayInfo::MK_Array, Inst->getName());
+            TargetStmt, nullptr, MemoryAccess::READ, UseVal, UseVal->getType(),
+            true, {}, {}, UseVal, ScopArrayInfo::MK_Array, UseVal->getName());
         S->addAccessFunction(Access);
         TargetStmt->addAccess(Access);
+        MappedReadOnly++;
       }
       return true;
+
+    case VirtualUse::IntraValue:
+    case VirtualUse::InterValue:
+      break;
     }
 
+    auto Inst = cast<Instruction>(UseVal);
     if (Inst->mayHaveSideEffects() &&
         !isa<LoadInst>(Inst)) // isSafeToSpeculativelyExecute()???
       return false;
@@ -2959,9 +2967,10 @@ private:
       auto ToExpectedVal = give(
           isl_map_apply_domain(ExpectedVal.copy(), DefToTargetMapping.copy()));
 
+      IslPtr<isl_union_map> Candidates;
       // { DomainTo[] -> Element[] }
-      auto SameVal =
-          containsSameValue(ToExpectedVal, getScatterFor(TargetStmt));
+      auto SameVal = containsSameValue(ToExpectedVal, getScatterFor(TargetStmt),
+                                       Candidates);
       if (!SameVal)
         return false;
       if (DoIt) {
@@ -2993,6 +3002,10 @@ private:
           TargetStmt->addAccess(Access);
         }
         Access->setNewAccessRelation(SameVal.copy());
+
+        MappedKnown++;
+        KnownReports.emplace_back(RA, std::move(Candidates), std::move(SameVal),
+                                  std::move(ToExpectedVal));
       }
       return true;
     }
@@ -3004,6 +3017,12 @@ private:
       if (!canForwardTree(OpVal, DefStmt, DefLoop, DefScatter, TargetStmt,
                           DefToTargetMapping, Depth + 1, DoIt, ReuseMe))
         return false;
+    }
+
+    if (DoIt) {
+      auto *MA = VUse.getMemAccess();
+      if (MA)
+        UseStmt->removeSingleMemoryAccess(MA);
     }
     return true;
   }
@@ -3042,7 +3061,7 @@ private:
       // { Domain[] -> ValInst[] }
       IslPtr<isl_map> ValInst,
       // { Domain[] -> Scatter[] }
-      IslPtr<isl_map> Sched) {
+      IslPtr<isl_map> Sched, IslPtr<isl_union_map> &MustKnownMap) {
 
     // { Domain[] }
     auto Domain = give(isl_map_domain(ValInst.copy()));
@@ -3075,7 +3094,7 @@ private:
     // { DomainUser[] -> Element[] }
     // List of array elements that do contain the same ValInst[] at when the
     // read access takes place.
-    auto MustKnownMap = give(isl_union_map_reverse(isl_union_set_unwrap(
+    MustKnownMap = give(isl_union_map_reverse(isl_union_set_unwrap(
         isl_union_map_domain(isl_union_map_uncurry(MustKnownInst.take())))));
     simplify(MustKnownMap);
 
