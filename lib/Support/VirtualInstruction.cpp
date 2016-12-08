@@ -189,11 +189,6 @@ static void addRoots(ScopStmt *Stmt,
   }
 }
 
-static void follow(ScopStmt *Stmt, Instruction *Inst,
-                   SmallVectorImpl<Instruction *> &InstList) {
-  VirtualInstruction VInst(Stmt, Inst);
-}
-
 static void markReachable(Scop *S, ArrayRef<VirtualInstruction> Roots,
                           SmallVectorImpl<MemoryAccess *> &&WorklistMA,
                           std::vector<VirtualInstruction> &InstList,
@@ -365,52 +360,29 @@ void polly::markReachableLocal(ScopStmt *Stmt,
   markReachable(S, Worklist, std::move(WorklistMA), InstList, UsedMA, Stmt, LI);
 }
 
-#if 0
-  void polly:: computeStmtInstructions(ScopStmt *Stmt, SmallVectorImpl<Instruction*> &InstList)  {
-	  SmallVector<Instruction *, 16> Roots;
+VirtualUse polly::VirtualUse::create(ScopStmt *User, Value *Val, Loop *Scope,
+                                     ScalarEvolution *SE) {
+  if (isa<llvm::Constant>(Val) || isa<llvm::BasicBlock>(Val))
+    return VirtualUse(User, Val, Constant, nullptr);
 
-	  for (auto *MA : *Stmt) {
-		  if (MA->isLatestValueKind() && MA->isWrite()) {
-			  Roots.push_back(MA->getAccessInstruction());
-		  }
+  if (canSynthesize(Val, *User->getParent(), SE, Scope))
+    return VirtualUse(User, Val, Synthesizable, nullptr);
 
-		  if (MA->isLatestArrayKind() && MA->isWrite()) {
-			  Roots.push_back( MA->getAccessInstruction());
-		  }
+  auto InputMA = getInputAccessOf(Val, User);
 
-		  if (MA->isLatestExitPHIKind() && MA->isWrite()) {
-			  for (auto Incoming : MA->getIncoming()) {
-				  auto IncomingInst = dyn_cast<Instruction>(Incoming.second);
-				  if (!IncomingInst)
-					  continue;
-				  Roots.push_back(IncomingInst);
-			  }
-		  }
-	  }
+  if (isa<Argument>(Val))
+    return VirtualUse(User, Val, ReadOnly, InputMA);
 
-	  if (Stmt->isBlockStmt()) {
-		for (auto  &Inst : *Stmt->getBasicBlock()) {
-			if (isRoot(&Inst))
-				Roots.push_back(&Inst);
-		}
-	  } else {
-		  for (auto *BB : Stmt->getRegion()->blocks()) {
-			  for (auto  &Inst : *BB) {
-				  if (isRoot(&Inst))
-					  Roots.push_back(&Inst);
-			  }
-		  }
-	  }
+  auto S = User->getParent();
+  auto Inst = cast<Instruction>(Val);
+  if (!S->contains(Inst))
+    return VirtualUse(User, Val, ReadOnly, InputMA);
 
-	  
-	  for ( auto *Root : Roots) {
-		  //follow(Root);
-	  }
-	  
-	  DenseSet<Instruction * > Visited;
+  if (isa<PHINode>(Inst) && Inst->getParent() == User->getEntryBlock())
+    return VirtualUse(User, Val, IntraValue, nullptr);
 
+  if (InputMA)
+    return VirtualUse(User, Val, InterValue, InputMA);
 
-
-	  std::reverse(InstList.begin(), InstList.end());
-  }
-#endif
+  return VirtualUse(User, Val, IntraValue, nullptr);
+}

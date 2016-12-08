@@ -2889,7 +2889,7 @@ private:
                       IslPtr<isl_map> UseScatter, ScopStmt *TargetStmt,
                       // { DomainUse[] -> DomainTarget[] }
                       IslPtr<isl_map> UseToTargetMapping, int Depth, bool DoIt,
-                      MemoryAccess *&ReuseMe) {
+                      MemoryAccess *&ReuseMe, MemoryAccess *DontRemove) {
     // Don't handle PHIs (yet)
     if (isa<PHINode>(UseVal))
       return false;
@@ -2955,7 +2955,7 @@ private:
     if (auto LI = dyn_cast<LoadInst>(Inst)) {
       if (!canForwardTree(LI->getPointerOperand(), DefStmt, DefLoop, DefScatter,
                           TargetStmt, UseToTargetMapping, Depth + 1, DoIt,
-                          ReuseMe))
+                          ReuseMe, DontRemove))
         return false;
 
       auto *RA = &DefStmt->getArrayAccessFor(LI);
@@ -3015,13 +3015,15 @@ private:
 
     for (auto OpVal : Inst->operand_values()) {
       if (!canForwardTree(OpVal, DefStmt, DefLoop, DefScatter, TargetStmt,
-                          DefToTargetMapping, Depth + 1, DoIt, ReuseMe))
+                          DefToTargetMapping, Depth + 1, DoIt, ReuseMe,
+                          DontRemove))
         return false;
     }
 
     if (DoIt) {
       auto *MA = VUse.getMemAccess();
-      if (MA)
+      // FIXME: Don't remove if already removed
+      if (MA && MA != DontRemove)
         UseStmt->removeSingleMemoryAccess(MA);
     }
     return true;
@@ -3042,11 +3044,11 @@ private:
     auto Scatter = getScatterFor(Stmt);
 
     if (!canForwardTree(RA->getAccessValue(), Stmt, InLoop, Scatter, Stmt,
-                        Identity, 0, false, RA))
+                        Identity, 0, false, RA, RA))
       return false;
 
     bool Success = canForwardTree(RA->getAccessValue(), Stmt, InLoop, Scatter,
-                                  Stmt, Identity, 0, true, RA);
+                                  Stmt, Identity, 0, true, RA, RA);
     assert(Success && "If it says it can do it, it must be able to do it");
 
     // Remove if not been reused.

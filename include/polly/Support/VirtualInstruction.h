@@ -86,31 +86,7 @@ private:
 
 public:
   static VirtualUse create(ScopStmt *User, Value *Val, Loop *Scope,
-                           ScalarEvolution *SE) {
-    if (isa<llvm::Constant>(Val) || isa<llvm::BasicBlock>(Val))
-      return VirtualUse(User, Val, Constant, nullptr);
-
-    if (canSynthesize(Val, *User->getParent(), SE, Scope))
-      return VirtualUse(User, Val, Synthesizable, nullptr);
-
-    auto InputMA = getInputAccessOf(Val, User);
-
-    if (isa<Argument>(Val))
-      return VirtualUse(User, Val, ReadOnly, InputMA);
-
-    auto S = User->getParent();
-    auto Inst = cast<Instruction>(Val);
-    if (!S->contains(Inst))
-      return VirtualUse(User, Val, ReadOnly, InputMA);
-
-    if (isa<PHINode>(Inst) && Inst->getParent() == User->getEntryBlock())
-      return VirtualUse(User, Val, IntraValue, nullptr);
-
-    if (InputMA)
-      return VirtualUse(User, Val, InterValue, InputMA);
-
-    return VirtualUse(User, Val, IntraValue, nullptr);
-  }
+                           ScalarEvolution *SE);
 
   bool isIntra() const { return Ty == IntraValue; }
   bool isInter() const { return Ty == InterValue; }
