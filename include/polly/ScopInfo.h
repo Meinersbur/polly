@@ -655,6 +655,7 @@ private:
   /// Create the access relation for the underlying memory intrinsic.
   void buildMemIntrinsicAccessRelation();
 
+public:
   /// Assemble the access relation from all available information.
   ///
   /// In particular, used the information passes in the constructor and the
@@ -663,6 +664,7 @@ private:
   /// @param SAI Info object for the accessed array.
   void buildAccessRelation(const ScopArrayInfo *SAI);
 
+private:
   /// Carry index overflows of dimensions with constant size to the next higher
   /// dimension.
   ///

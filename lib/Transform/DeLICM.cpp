@@ -2902,10 +2902,12 @@ private:
       return true;
 
     case VirtualUse::ReadOnly:
-      if (DoIt) {
+      if (DoIt && !getInputAccessOf(UseVal, TargetStmt)) {
         auto *Access = new MemoryAccess(
             TargetStmt, nullptr, MemoryAccess::READ, UseVal, UseVal->getType(),
-            true, {}, {}, UseVal, ScopArrayInfo::MK_Array, UseVal->getName());
+            true, {}, {}, UseVal, ScopArrayInfo::MK_Value, UseVal->getName());
+        Access->buildAccessRelation(
+            VUse.getMemAccess()->getOriginalScopArrayInfo());
         S->addAccessFunction(Access);
         TargetStmt->addAccess(Access);
         MappedReadOnly++;
@@ -3419,6 +3421,8 @@ public:
     assert(Known);
     bool Modified = false;
 
+    SmallVector<MemoryAccess *, 16> Accs;
+
     for (auto &Stmt : *S) {
       for (auto *RA : Stmt) {
         if (!RA->isLatestScalarKind())
@@ -3426,10 +3430,13 @@ public:
         if (!RA->isRead())
           continue;
 
-        if (tryForwardTree(RA))
-          Modified = true;
+        Accs.push_back(RA);
       }
     }
+
+    for (auto *RA : Accs)
+      if (tryForwardTree(RA))
+        Modified = true;
 
 #if 0
     for (auto &Stmt : *S) {
