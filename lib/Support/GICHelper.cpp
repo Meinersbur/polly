@@ -221,7 +221,7 @@ DEFINE_ISLPTR(union_set)
 DEFINE_ISLPTR(aff)
 DEFINE_ISLPTR(multi_aff)
 DEFINE_ISLPTR(pw_aff)
-// DEFINE_ISLPTR(union_pw_aff) /* There is no isl_union_pw_aff_dump() */
+DEFINE_ISLPTR(union_pw_aff)
 DEFINE_ISLPTR(multi_union_pw_aff)
 DEFINE_ISLPTR(union_pw_multi_aff)
 }
