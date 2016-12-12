@@ -37,13 +37,11 @@ return:
 ; CHECK-NEXT:     { Stmt_body1[i0] -> [2i0] }
 ; CHECK-NEXT:     { Stmt_body2[i0] -> [1 + 2i0] }
 ; CHECK-NEXT: }
-; CHECK:      Known zone: { [MemRef_A[i0] -> [i1{{\]\]}} -> [Stmt_body1[i0] -> Val_val[{{\]\]}} : 0 <= i0 <= 4 and i1 > 2i0; [MemRef_B[i0] -> [i1{{\]\]}} -> [Stmt_body1[i0] -> Val_val[{{\]\]}} : 0 <= i0 <= 4 and i1 >= 2 + 2i0 }
+; CHECK:      Known zone: { [MemRef_B[i0] -> [i1{{\]\]}} -> [Stmt_body1[i0] -> Val_val[{{\]\]}} : 0 <= i0 <= 4 and i1 >= 2 + 2i0 }
 ; CHECK:      Redirected knowns {
 ; CHECK-NEXT: }
 ; CHECK:      After accesses {
 ; CHECK-NEXT:     Stmt_body1
-; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 0]
-; CHECK-NEXT:                 { Stmt_body1[i0] -> MemRef_A[i0] };
 ; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 1]
 ; CHECK-NEXT:                 { Stmt_body1[i0] -> MemRef_val[] };
 ; CHECK-NEXT:     Stmt_body2
