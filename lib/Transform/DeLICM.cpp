@@ -109,6 +109,7 @@
 
 #include "polly/DeLICM.h"
 #include "polly/Options.h"
+#include "polly/ScopBuilder.h"
 #include "polly/ScopInfo.h"
 #include "polly/ScopPass.h"
 #include "polly/Support/VirtualInstruction.h"
@@ -2902,7 +2903,8 @@ private:
       return true;
 
     case VirtualUse::ReadOnly:
-      if (DoIt && !getInputAccessOf(UseVal, TargetStmt)) {
+      if (DoIt && ModelReadOnlyScalars &&
+          !getInputAccessOf(UseVal, TargetStmt)) {
         auto *SAI = S->getOrCreateScopArrayInfo(UseVal, UseVal->getType(), {},
                                                 ScopArrayInfo::MK_Value);
         auto *Access = new MemoryAccess(

@@ -42,10 +42,14 @@ static Loop *getFirstNonBoxedLoopFor(Loop *L, LoopInfo &LI,
   return L;
 }
 
-static cl::opt<bool> ModelReadOnlyScalars(
+namespace polly {
+bool ModelReadOnlyScalars;
+} // namespace polly
+static cl::opt<bool, true> XModelReadOnlyScalars(
     "polly-analyze-read-only-scalars",
     cl::desc("Model read-only scalar values in the scop description"),
-    cl::Hidden, cl::ZeroOrMore, cl::init(true), cl::cat(PollyCategory));
+    cl::location(ModelReadOnlyScalars), cl::Hidden, cl::ZeroOrMore,
+    cl::init(true), cl::cat(PollyCategory));
 
 void ScopBuilder::buildPHIAccesses(PHINode *PHI, Region *NonAffineSubRegion,
                                    bool IsExitBlock) {
