@@ -2903,11 +2903,12 @@ private:
 
     case VirtualUse::ReadOnly:
       if (DoIt && !getInputAccessOf(UseVal, TargetStmt)) {
+        auto *SAI = S->getOrCreateScopArrayInfo(UseVal, UseVal->getType(), {},
+                                                ScopArrayInfo::MK_Value);
         auto *Access = new MemoryAccess(
             TargetStmt, nullptr, MemoryAccess::READ, UseVal, UseVal->getType(),
             true, {}, {}, UseVal, ScopArrayInfo::MK_Value, UseVal->getName());
-        Access->buildAccessRelation(
-            VUse.getMemAccess()->getOriginalScopArrayInfo());
+        Access->buildAccessRelation(SAI);
         S->addAccessFunction(Access);
         TargetStmt->addAccess(Access);
         MappedReadOnly++;
