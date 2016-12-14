@@ -2063,6 +2063,7 @@ private:
     // { DomainPHIRead[] -> Scatter[] }
     auto PHIWriteTimes =
         give(isl_map_intersect_range(BeforeRead.take(), WriteTimes.take()));
+    simplify(PHIWriteTimes);
     auto LastPerPHIWrites = give(isl_map_lexmax(PHIWriteTimes.take()));
 
     // { DomainPHIRead[] -> DomainPHIWrite[] }
