@@ -306,16 +306,17 @@ void ScopArrayInfo::print(raw_ostream &OS, bool SizeAsPwAff,
 
   if (Oneline) {
     switch (getKind()) {
-    case MK_Array:
+    case MemoryKind::Array:
+      OS << " Array";
       break;
-    case MK_Value:
-      OS << " MK_Value";
+    case MemoryKind::Value:
+      OS << " Value";
       return;
-    case MK_PHI:
-      OS << " MK_PHI";
+    case MemoryKind::PHI:
+      OS << " PHI";
       return;
-    case MK_ExitPHI:
-      OS << " MK_Array";
+    case MemoryKind::ExitPHI:
+      OS << " Array";
       return;
     }
   }
@@ -1015,17 +1016,17 @@ void MemoryAccess::print(raw_ostream &OS, bool Oneline) const {
 
     auto OrigKind = getOriginalKind();
     switch (OrigKind) {
-    case ScopArrayInfo::MK_Value:
-      OS << " MK_Value";
+    case MemoryKind::Value:
+      OS << " Value";
       if (isWrite()) {
         OS << " Define " << getScopArrayInfo()->getName() << " as ";
         getAccessValue()->printAsOperand(OS, false);
       } else
         OS << " Use " << getScopArrayInfo()->getName();
       break;
-    case ScopArrayInfo::MK_PHI:
-    case ScopArrayInfo::MK_ExitPHI:
-      OS << (OrigKind == ScopArrayInfo::MK_ExitPHI ? " MK_ExitPHI" : " MK_PHI");
+    case MemoryKind::PHI:
+    case MemoryKind::ExitPHI:
+      OS << (OrigKind == MemoryKind::ExitPHI ? " ExitPHI" : " PHI");
       if (isWrite()) {
         OS << " Incoming " << getScopArrayInfo()->getName() << " value ";
         bool First = true;
@@ -1040,8 +1041,8 @@ void MemoryAccess::print(raw_ostream &OS, bool Oneline) const {
         getAccessInstruction()->printAsOperand(OS, false);
       }
       break;
-    case ScopArrayInfo::MK_Array:
-      OS << " MK_Array";
+    case MemoryKind::Array:
+      OS << " Array";
       if (isWrite()) {
         OS << " Store ";
         getAccessValue()->printAsOperand(OS, false);
@@ -4462,7 +4463,7 @@ void Scop::addScopStmt(Region *R, Loop *SurroundingLoop) {
 
 ScopStmt *Scop::addScopStmt(__isl_take isl_map *SourceRel,
                             __isl_take isl_map *TargetRel,
-                            __isl_take isl_set *Domain, Loop *SurroundingLoop) {
+                            __isl_take isl_set *Domain) {
 #ifndef NDEBUG
   isl_set *SourceDomain = isl_map_domain(isl_map_copy(SourceRel));
   isl_set *TargetDomain = isl_map_domain(isl_map_copy(TargetRel));
@@ -4473,7 +4474,7 @@ ScopStmt *Scop::addScopStmt(__isl_take isl_map *SourceRel,
   isl_set_free(SourceDomain);
   isl_set_free(TargetDomain);
 #endif
-  Stmts.emplace_back(*this, SourceRel, TargetRel, Domain, SurroundingLoop);
+  Stmts.emplace_back(*this, SourceRel, TargetRel, Domain, nullptr);
   CopyStmtsNum++;
   return &(Stmts.back());
 }

@@ -16,8 +16,9 @@ namespace {
 
 STATISTIC(ScopsProcessed, "Number of SCoPs processed");
 STATISTIC(PairsCleaned, "Number of Load-Store pairs cleaned");
-STATISTIC(PairUnequalAccRels, "Number of Load-Store pairs NOT cleaned because "
-                              "of different access relations");
+STATISTIC(PairUnequalAccRels,
+          "Number of Load-Store pairs NOT cleaned because "
+          "of different access relations");
 STATISTIC(UnusedAccs, "Number of unused accesses");
 STATISTIC(StmtsRemoved, "Number of statements removed");
 STATISTIC(ScopsModified, "Number of SCoPs modified");

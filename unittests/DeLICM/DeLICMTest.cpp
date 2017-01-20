@@ -86,18 +86,18 @@ TEST(DeLICM, ReachingDefinitionZone) {
       "{ Dom1[] -> Elt[]; Dom2[] -> Elt[] }", false, false,
       "{ [Elt[] -> [i]] -> Dom1[] : 0 < i < 10; [Elt[] -> [i]] -> Dom2[] : 10 "
       "< i }"));
-  EXPECT_TRUE(
-      checkComputeReachingDefinition("{ Dom1[] -> [0]; Dom2[] -> [10] }",
-                                     "{ Dom1[] -> Elt[]; Dom2[] -> Elt[] }",
-                                     false, true, "{ [Elt[] -> [i]] -> Dom1[] "
-                                                  ": 0 < i <= 10; [Elt[] -> "
-                                                  "[i]] -> Dom2[] : 10 < i }"));
-  EXPECT_TRUE(
-      checkComputeReachingDefinition("{ Dom1[] -> [0]; Dom2[] -> [10] }",
-                                     "{ Dom1[] -> Elt[]; Dom2[] -> Elt[] }",
-                                     true, true, "{ [Elt[] -> [i]] -> Dom1[] "
-                                                 ": 0 <= i <= 10; [Elt[] -> "
-                                                 "[i]] -> Dom2[] : 10 <= i }"));
+  EXPECT_TRUE(checkComputeReachingDefinition(
+      "{ Dom1[] -> [0]; Dom2[] -> [10] }",
+      "{ Dom1[] -> Elt[]; Dom2[] -> Elt[] }", false, true,
+      "{ [Elt[] -> [i]] -> Dom1[] "
+      ": 0 < i <= 10; [Elt[] -> "
+      "[i]] -> Dom2[] : 10 < i }"));
+  EXPECT_TRUE(checkComputeReachingDefinition(
+      "{ Dom1[] -> [0]; Dom2[] -> [10] }",
+      "{ Dom1[] -> Elt[]; Dom2[] -> Elt[] }", true, true,
+      "{ [Elt[] -> [i]] -> Dom1[] "
+      ": 0 <= i <= 10; [Elt[] -> "
+      "[i]] -> Dom2[] : 10 <= i }"));
 
   EXPECT_TRUE(checkComputeReachingDefinition(
       "{ Dom1[] -> [0]; Dom2[] -> [10] }",
@@ -109,12 +109,12 @@ TEST(DeLICM, ReachingDefinitionZone) {
       "{ Dom[i] -> [i] }", "{ Dom[i] -> Elt[]; Dom2[] -> Elt[] }", true, false,
       "{ [Elt[] -> [i]] -> Dom[i] }"));
 
-  EXPECT_TRUE(
-      checkComputeReachingDefinition("{ Dom[1] -> [0]; Dom[2] -> [10] }",
-                                     "{ Dom[1] -> Elt[]; Dom[2] -> Elt[] }",
-                                     false, true, "{ [Elt[] -> [i]] -> Dom[1] "
-                                                  ": 0 < i <= 10; [Elt[] -> "
-                                                  "[i]] -> Dom[2] : 10 < i }"));
+  EXPECT_TRUE(checkComputeReachingDefinition(
+      "{ Dom[1] -> [0]; Dom[2] -> [10] }",
+      "{ Dom[1] -> Elt[]; Dom[2] -> Elt[] }", false, true,
+      "{ [Elt[] -> [i]] -> Dom[1] "
+      ": 0 < i <= 10; [Elt[] -> "
+      "[i]] -> Dom[2] : 10 < i }"));
 
   EXPECT_TRUE(checkComputeReachingDefinition(
       "{ Stmt_reduction_for[i] -> [3i] : 0 <= i <= 4 }",
@@ -209,14 +209,16 @@ TEST(DeLICM, ArrayPerWriteLifetimeZone) {
   EXPECT_TRUE(checkComputeArrayLifetime(
       "{ Def1[] -> [0]; Read[] -> [10]; Def2[] -> [20] }",
       "{ Def1[] -> A[]; Def2[] -> A[] }", "{ Read[] -> A[] }", indef, true,
-      true, true, "{ [A[] -> Def1[]] -> [i] : 0 <= i <= 10; [A[] -> "
-                  "Def2[]] -> [i] : 20 <= i }"));
+      true, true,
+      "{ [A[] -> Def1[]] -> [i] : 0 <= i <= 10; [A[] -> "
+      "Def2[]] -> [i] : 20 <= i }"));
 
   EXPECT_TRUE(checkComputeArrayLifetime(
       "{ Def1[] -> [0]; Def2[] -> [10]; Read[] -> [10] }",
       "{ Def1[] -> A[]; Def2[] -> A[] }", "{ Read[] -> A[] }", false, true,
-      true, true, "{ [A[] -> Def1[]] -> [i] : 0 <= i <= 10; [A[] -> "
-                  "Def2[]] -> [i] : 10 <= i }"));
+      true, true,
+      "{ [A[] -> Def1[]] -> [i] : 0 <= i <= 10; [A[] -> "
+      "Def2[]] -> [i] : 10 <= i }"));
   EXPECT_TRUE(checkComputeArrayLifetime(
       "{ Def1[] -> [0]; Def2[] -> [10]; Read[] -> [10] }",
       "{ Def1[] -> A[]; Def2[] -> A[] }", "{ Read[] -> A[] }", true, true, true,
@@ -254,20 +256,24 @@ TEST(DeLICM, ReachingOverwrite) {
 
   EXPECT_TRUE(checkComputeReachingOverwrite(
       "{ Write[0] -> [0]; Write[1] -> [10] }", "{ Write[i] -> Elt[]; }", false,
-      false, "{ [Elt[] -> [i]] -> Write[0] : i < 0 ; [Elt[] -> [i]] -> "
-             "Write[1] : 0 < i < 10 }"));
+      false,
+      "{ [Elt[] -> [i]] -> Write[0] : i < 0 ; [Elt[] -> [i]] -> "
+      "Write[1] : 0 < i < 10 }"));
   EXPECT_TRUE(checkComputeReachingOverwrite(
       "{ Write[0] -> [0]; Write[1] -> [10] }", "{ Write[i] -> Elt[]; }", false,
-      true, "{ [Elt[] -> [i]] -> Write[0] : i <= 0 ; [Elt[] -> [i]] -> "
-            "Write[1] : 0 < i <= 10 }"));
+      true,
+      "{ [Elt[] -> [i]] -> Write[0] : i <= 0 ; [Elt[] -> [i]] -> "
+      "Write[1] : 0 < i <= 10 }"));
   EXPECT_TRUE(checkComputeReachingOverwrite(
       "{ Write[0] -> [0]; Write[1] -> [10] }", "{ Write[i] -> Elt[]; }", true,
-      false, "{ [Elt[] -> [i]] -> Write[0] : i < 0 ; [Elt[] -> [i]] -> "
-             "Write[1] : 0 <= i < 10 }"));
+      false,
+      "{ [Elt[] -> [i]] -> Write[0] : i < 0 ; [Elt[] -> [i]] -> "
+      "Write[1] : 0 <= i < 10 }"));
   EXPECT_TRUE(checkComputeReachingOverwrite(
       "{ Write[0] -> [0]; Write[1] -> [10] }", "{ Write[i] -> Elt[]; }", true,
-      true, "{ [Elt[] -> [i]] -> Write[0] : i <= 0 ; [Elt[] -> [i]] -> "
-            "Write[1] : 0 <= i <= 10 }"));
+      true,
+      "{ [Elt[] -> [i]] -> Write[0] : i <= 0 ; [Elt[] -> [i]] -> "
+      "Write[1] : 0 <= i <= 10 }"));
 }
 
 bool checkComputeArrayUnused(const char *ScheduleStr, const char *WritesStr,
@@ -398,8 +404,9 @@ bool checkIsConflictingNonsymmetric(
   if (ExistingUndef) {
     ExistingDefined =
         give(isl_union_set_union(ExistingDefined.take(), ExistingUndef.copy()));
-    ExistingLifetime = give(isl_union_map_union(
-        ExistingLifetime.take(), isl_union_map_from_domain_and_range(
+    ExistingLifetime =
+        give(isl_union_map_union(ExistingLifetime.take(),
+                                 isl_union_map_from_domain_and_range(
                                      ExistingUndef.copy(), UndefUSet.copy())));
   }
 
@@ -415,8 +422,9 @@ bool checkIsConflictingNonsymmetric(
   if (ProposedUndef) {
     ProposedDefined =
         give(isl_union_set_union(ProposedDefined.take(), ProposedUndef.copy()));
-    ProposedLifetime = give(isl_union_map_union(
-        ProposedLifetime.take(), isl_union_map_from_domain_and_range(
+    ProposedLifetime =
+        give(isl_union_map_union(ProposedLifetime.take(),
+                                 isl_union_map_from_domain_and_range(
                                      ProposedUndef.copy(), UndefUSet.copy())));
   }
 

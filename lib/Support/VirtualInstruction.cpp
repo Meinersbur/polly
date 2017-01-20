@@ -39,9 +39,10 @@ void ScalarDefUseChains::compute(Scop *S) {
 
       if (MA->isOriginalAnyPHIKind() && MA->isRead()) {
         auto *SAI = MA->getScopArrayInfo();
-        assert(!PHIReadAccs.count(SAI) && "There must be exactly one read "
-                                          "per PHI (that's where the PHINode "
-                                          "is)");
+        assert(!PHIReadAccs.count(SAI) &&
+               "There must be exactly one read "
+               "per PHI (that's where the PHINode "
+               "is)");
         PHIReadAccs[SAI] = MA;
       }
 

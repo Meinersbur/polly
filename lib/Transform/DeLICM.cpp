@@ -1054,10 +1054,10 @@ public:
             ExistingOverlapKnown.copy(), ProposedOverlapKnown.copy()));
         auto ProposedConflict = give(isl_union_map_subtract(
             ProposedOverlapKnown.copy(), ExistingOverlapKnown.copy()));
-        OS->indent(Indent + 2) << "Existing wants: " << ExistingConflict
-                               << '\n';
-        OS->indent(Indent + 2) << "Proposed wants: " << ProposedConflict
-                               << '\n';
+        OS->indent(Indent + 2)
+            << "Existing wants: " << ExistingConflict << '\n';
+        OS->indent(Indent + 2)
+            << "Proposed wants: " << ProposedConflict << '\n';
       }
       return true;
     }
@@ -2907,10 +2907,10 @@ private:
       if (DoIt && ModelReadOnlyScalars &&
           !getInputAccessOf(UseVal, TargetStmt)) {
         auto *SAI = S->getOrCreateScopArrayInfo(UseVal, UseVal->getType(), {},
-                                                ScopArrayInfo::MK_Value);
+                                                MemoryKind::Value);
         auto *Access = new MemoryAccess(
             TargetStmt, nullptr, MemoryAccess::READ, UseVal, UseVal->getType(),
-            true, {}, {}, UseVal, ScopArrayInfo::MK_Value, UseVal->getName());
+            true, {}, {}, UseVal, MemoryKind::Value, UseVal->getName());
         Access->buildAccessRelation(SAI);
         S->addAccessFunction(Access);
         TargetStmt->addAccess(Access);
@@ -3002,7 +3002,7 @@ private:
           }
           Access = new MemoryAccess(TargetStmt, LI, MemoryAccess::READ,
                                     SAI->getBasePtr(), Inst->getType(), true,
-                                    {}, Sizes, Inst, ScopArrayInfo::MK_Array,
+                                    {}, Sizes, Inst, MemoryKind::Array,
                                     RA->getBaseName());
           S->addAccessFunction(Access);
           TargetStmt->addAccess(Access);
@@ -3104,31 +3104,34 @@ private:
     // MemoryAccesses can read only elements from a single array (not: { Dom[0]
     // -> A[0]; Dom[1] -> B[1] }). Look through all arrays until we find one
     // that contains exactly the wanted values.
-    foreachEltWithBreak(MustKnownMap, [&,
-                                       this](IslPtr<isl_map> Map) -> isl_stat {
-      // Get the array this is accessing.
-      auto ArrayId = give(isl_map_get_tuple_id(Map.keep(), isl_dim_out));
-      auto SAI = static_cast<ScopArrayInfo *>(isl_id_get_user(ArrayId.keep()));
+    foreachEltWithBreak(
+        MustKnownMap, [&, this](IslPtr<isl_map> Map) -> isl_stat {
+          // Get the array this is accessing.
+          auto ArrayId = give(isl_map_get_tuple_id(Map.keep(), isl_dim_out));
+          auto SAI =
+              static_cast<ScopArrayInfo *>(isl_id_get_user(ArrayId.keep()));
 
-      // No support for generation of indirect array accesses.
-      if (SAI->getBasePtrOriginSAI())
-        return isl_stat_ok; // continue
+          // No support for generation of indirect array accesses.
+          if (SAI->getBasePtrOriginSAI())
+            return isl_stat_ok; // continue
 
-      // Determine whether this map contains all wanted values.
-      auto MapDom = give(isl_map_domain(Map.copy()));
-      if (!isl_set_is_subset(Domain.keep(), MapDom.keep()))
-        return isl_stat_ok; // continue
+          // Determine whether this map contains all wanted values.
+          auto MapDom = give(isl_map_domain(Map.copy()));
+          if (!isl_set_is_subset(Domain.keep(), MapDom.keep()))
+            return isl_stat_ok; // continue
 
-      // TODO: Check requirement that it maps not only to the same location,
-      // otherwise we don't gain anything; DeLICM already does this.
+          // TODO: Check requirement that it maps not only to the same location,
+          // otherwise we don't gain anything; DeLICM already does this.
 
-      // There might be multiple array elements the contain the same value, but
-      // choose only one of them. lexmin is used because it returns a one-value
-      // mapping, we currently do not care about which one.
-      // TODO: Get the simplest access function.
-      Result = give(isl_map_lexmin(Map.take()));
-      return isl_stat_error; // break
-    });
+          // There might be multiple array elements the contain the same value,
+          // but
+          // choose only one of them. lexmin is used because it returns a
+          // one-value
+          // mapping, we currently do not care about which one.
+          // TODO: Get the simplest access function.
+          Result = give(isl_map_lexmin(Map.take()));
+          return isl_stat_error; // break
+        });
 
     return Result;
   }
@@ -3181,38 +3184,41 @@ private:
     // MemoryAccesses can read only elements from a single array (not: { Dom[0]
     // -> A[0]; Dom[1] -> B[1] }). Look through all arrays until we find one
     // that contains exactly the wanted values.
-    foreachEltWithBreak(MustKnownMap, [&,
-                                       this](IslPtr<isl_map> Map) -> isl_stat {
-      // Get the array this is accessing.
-      auto ArrayId = give(isl_map_get_tuple_id(Map.keep(), isl_dim_out));
-      auto SAI = static_cast<ScopArrayInfo *>(isl_id_get_user(ArrayId.keep()));
+    foreachEltWithBreak(
+        MustKnownMap, [&, this](IslPtr<isl_map> Map) -> isl_stat {
+          // Get the array this is accessing.
+          auto ArrayId = give(isl_map_get_tuple_id(Map.keep(), isl_dim_out));
+          auto SAI =
+              static_cast<ScopArrayInfo *>(isl_id_get_user(ArrayId.keep()));
 
-      // No support for generation of indirect array accesses.
-      if (SAI->getBasePtrOriginSAI())
-        return isl_stat_ok; // continue
+          // No support for generation of indirect array accesses.
+          if (SAI->getBasePtrOriginSAI())
+            return isl_stat_ok; // continue
 
-      // Determine whether this map contains all wanted values.
-      auto Dom = getDomainFor(RA);
-      auto MapDom = give(isl_map_domain(Map.copy()));
-      if (!isl_set_is_subset(Dom.keep(), MapDom.keep()))
-        return isl_stat_ok; // continue
+          // Determine whether this map contains all wanted values.
+          auto Dom = getDomainFor(RA);
+          auto MapDom = give(isl_map_domain(Map.copy()));
+          if (!isl_set_is_subset(Dom.keep(), MapDom.keep()))
+            return isl_stat_ok; // continue
 
-      // TODO: Check requirement that it maps not only to the same location,
-      // otherwise we don't gain anything; DeLICM already does this.
+          // TODO: Check requirement that it maps not only to the same location,
+          // otherwise we don't gain anything; DeLICM already does this.
 
-      // There might be multiple array elements the contain the same value, but
-      // choose only one of them. lexmin is used because it returns a one-value
-      // mapping, we currently do not care about which one.
-      // TODO: Get the simplest access function.
-      auto Target = give(isl_map_lexmin(Map.take()));
+          // There might be multiple array elements the contain the same value,
+          // but
+          // choose only one of them. lexmin is used because it returns a
+          // one-value
+          // mapping, we currently do not care about which one.
+          // TODO: Get the simplest access function.
+          auto Target = give(isl_map_lexmin(Map.take()));
 
-      // Do the transformation which we determined is valid.
-      collapseKnownLoad(RA, std::move(Target), MustKnownMap, ValInst);
+          // Do the transformation which we determined is valid.
+          collapseKnownLoad(RA, std::move(Target), MustKnownMap, ValInst);
 
-      // We were successful and do not need to look for more candidates.
-      Modified = true;
-      return isl_stat_error; // break
-    });
+          // We were successful and do not need to look for more candidates.
+          Modified = true;
+          return isl_stat_error; // break
+        });
 
     return Modified;
   }

@@ -2069,7 +2069,7 @@ public:
   ///                   be executed.
   ScopStmt *addScopStmt(__isl_take isl_map *SourceRel,
                         __isl_take isl_map *TargetRel,
-                        __isl_take isl_set *Domain, Loop *SurroundingLoop);
+                        __isl_take isl_set *Domain);
 
   /// Add the access function to all MemoryAccess objects of the Scop
   ///        created in this pass.
