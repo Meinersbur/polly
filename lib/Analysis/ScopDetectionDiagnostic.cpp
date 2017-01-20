@@ -44,8 +44,10 @@ using namespace llvm;
 llvm::Statistic RejectStatistics[] = {
     SCOP_STAT(CFG, ""),
     SCOP_STAT(InvalidTerminator, "Unsupported terminator instruction"),
-    SCOP_STAT(IrreducibleRegion, "Irreducible loops"), SCOP_STAT(LastCFG, ""),
-    SCOP_STAT(AffFunc, ""), SCOP_STAT(UndefCond, "Undefined branch condition"),
+    SCOP_STAT(IrreducibleRegion, "Irreducible loops"),
+    SCOP_STAT(LastCFG, ""),
+    SCOP_STAT(AffFunc, ""),
+    SCOP_STAT(UndefCond, "Undefined branch condition"),
     SCOP_STAT(InvalidCond, "Non-integer branch condition"),
     SCOP_STAT(UndefOperand, "Undefined operands in comparison"),
     SCOP_STAT(NonAffBranch, "Non-affine branch condition"),
@@ -60,7 +62,8 @@ llvm::Statistic RejectStatistics[] = {
     SCOP_STAT(FuncCall, "Function call with side effects"),
     SCOP_STAT(NonSimpleMemoryAccess,
               "Compilated access semantics (volatile or atomic)"),
-    SCOP_STAT(Alias, "Base address aliasing"), SCOP_STAT(Other, ""),
+    SCOP_STAT(Alias, "Base address aliasing"),
+    SCOP_STAT(Other, ""),
     SCOP_STAT(IntToPtr, "Integer to pointer conversions"),
     SCOP_STAT(Alloca, "Stack allocations"),
     SCOP_STAT(UnknownInst, "Unknown Instructions"),
@@ -306,8 +309,9 @@ bool ReportDifferentArrayElementSize::classof(const RejectReason *RR) {
 std::string ReportDifferentArrayElementSize::getEndUserMessage() const {
   llvm::StringRef BaseName = BaseValue->getName();
   std::string Name = (BaseName.size() > 0) ? BaseName : "UNKNOWN";
-  return "The array \"" + Name + "\" is accessed through elements that differ "
-                                 "in size";
+  return "The array \"" + Name +
+         "\" is accessed through elements that differ "
+         "in size";
 }
 
 //===----------------------------------------------------------------------===//

@@ -57,7 +57,7 @@ class ScopBuilder {
   std::unique_ptr<Scop> scop;
 
   // Build the SCoP for Region @p R.
-  void buildScop(Region &R, AssumptionCache &AC);
+  void buildScop(Region &R);
 
   /// Try to build a multi-dimensional fixed sized MemoryAccess from the
   /// Load/Store instruction.
@@ -173,8 +173,7 @@ class ScopBuilder {
                                 Value *BaseAddress, Type *ElemType, bool Affine,
                                 Value *AccessValue,
                                 ArrayRef<const SCEV *> Subscripts,
-                                ArrayRef<const SCEV *> Sizes,
-                                ScopArrayInfo::MemoryKind Kind);
+                                ArrayRef<const SCEV *> Sizes, MemoryKind Kind);
 
   /// Create a MemoryAccess that represents either a LoadInst or
   /// StoreInst.
@@ -188,7 +187,7 @@ class ScopBuilder {
   /// @param Sizes       The array dimension's sizes.
   /// @param AccessValue Value read or written.
   ///
-  /// @see ScopArrayInfo::MemoryKind
+  /// @see MemoryKind
   void addArrayAccess(MemAccInst MemAccInst, MemoryAccess::AccessType AccType,
                       Value *BaseAddress, Type *ElemType, bool IsAffine,
                       ArrayRef<const SCEV *> Subscripts,
@@ -201,7 +200,7 @@ class ScopBuilder {
   /// @param Inst The instruction to be written.
   ///
   /// @see ensureValueRead()
-  /// @see ScopArrayInfo::MemoryKind
+  /// @see MemoryKind
   void ensureValueWrite(Instruction *Inst);
 
   /// Ensure an llvm::Value is available in the BB's statement, creating a
@@ -211,7 +210,7 @@ class ScopBuilder {
   /// @param UserBB Where to reload the value.
   ///
   /// @see ensureValueStore()
-  /// @see ScopArrayInfo::MemoryKind
+  /// @see MemoryKind
   void ensureValueRead(Value *V, BasicBlock *UserBB);
 
   /// Create a write MemoryAccess for the incoming block of a phi node.
@@ -226,7 +225,7 @@ class ScopBuilder {
   ///                      .phiops one. Required for values escaping through a
   ///                      PHINode in the SCoP region's exit block.
   /// @see addPHIReadAccess()
-  /// @see ScopArrayInfo::MemoryKind
+  /// @see MemoryKind
   void ensurePHIWrite(PHINode *PHI, BasicBlock *IncomingBlock,
                       Value *IncomingValue, bool IsExitBlock);
 
@@ -240,13 +239,13 @@ class ScopBuilder {
   /// here.
   ///
   /// @see ensurePHIWrite()
-  /// @see ScopArrayInfo::MemoryKind
+  /// @see MemoryKind
   void addPHIReadAccess(PHINode *PHI);
 
 public:
-  explicit ScopBuilder(Region *R, AssumptionCache &AC, AliasAnalysis &AA,
-                       const DataLayout &DL, DominatorTree &DT, LoopInfo &LI,
-                       ScopDetection &SD, ScalarEvolution &SE);
+  explicit ScopBuilder(Region *R, AliasAnalysis &AA, const DataLayout &DL,
+                       DominatorTree &DT, LoopInfo &LI, ScopDetection &SD,
+                       ScalarEvolution &SE);
   ~ScopBuilder() {}
 
   /// Try to build the Polly IR of static control part on the current
