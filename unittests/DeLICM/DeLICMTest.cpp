@@ -404,9 +404,8 @@ bool checkIsConflictingNonsymmetric(
   if (ExistingUndef) {
     ExistingDefined =
         give(isl_union_set_union(ExistingDefined.take(), ExistingUndef.copy()));
-    ExistingLifetime =
-        give(isl_union_map_union(ExistingLifetime.take(),
-                                 isl_union_map_from_domain_and_range(
+    ExistingLifetime = give(isl_union_map_union(
+        ExistingLifetime.take(), isl_union_map_from_domain_and_range(
                                      ExistingUndef.copy(), UndefUSet.copy())));
   }
 
@@ -422,9 +421,8 @@ bool checkIsConflictingNonsymmetric(
   if (ProposedUndef) {
     ProposedDefined =
         give(isl_union_set_union(ProposedDefined.take(), ProposedUndef.copy()));
-    ProposedLifetime =
-        give(isl_union_map_union(ProposedLifetime.take(),
-                                 isl_union_map_from_domain_and_range(
+    ProposedLifetime = give(isl_union_map_union(
+        ProposedLifetime.take(), isl_union_map_from_domain_and_range(
                                      ProposedUndef.copy(), UndefUSet.copy())));
   }
 
