@@ -16,6 +16,7 @@
 #define POLLY_LINKALLPASSES_H
 
 #include "polly/Config/config.h"
+#include "polly/PruneUnprofitable.h"
 #include <cstdlib>
 
 namespace llvm {
@@ -88,6 +89,7 @@ struct PollyForcePassLinking {
     polly::createKnownPass();
     polly::createDeLICMPass();
     polly::createSimplifyPass();
+	polly::createPruneUnprofitablePass();
   }
 } PollyForcePassLinking; // Force link by creating a global definition.
 } // namespace

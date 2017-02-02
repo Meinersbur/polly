@@ -117,10 +117,11 @@ static cl::opt<bool>
                     cl::desc("Abort if an isl error is encountered"),
                     cl::init(true), cl::cat(PollyCategory));
 
-static cl::opt<bool> UnprofitableScalarAccs(
+bool polly:: UnprofitableScalarAccs;
+static cl::opt<bool, true> UnprofitableScalarAccsOption(
     "polly-unprofitable-scalar-accs",
     cl::desc("Count statements with scalar accesses as not optimizable"),
-    cl::Hidden, cl::init(false), cl::cat(PollyCategory));
+    cl::Hidden, cl::init(false), cl::cat(PollyCategory), cl::location(UnprofitableScalarAccs));
 
 //===----------------------------------------------------------------------===//
 
@@ -3394,7 +3395,7 @@ void Scop::init(AliasAnalysis &AA, DominatorTree &DT, LoopInfo &LI) {
 
   // Check early for profitability. Afterwards it cannot change anymore,
   // only the runtime context could become infeasible.
-  if (!isProfitable()) {
+  if (!isProfitable(!UnprofitableScalarAccs)) {
     invalidate(PROFITABLE, DebugLoc());
     return;
   }
@@ -3901,7 +3902,7 @@ __isl_give isl_set *Scop::getAssumedContext() const {
   return isl_set_copy(AssumedContext);
 }
 
-bool Scop::isProfitable() const {
+bool Scop::isProfitable(bool ScalarsAreUnprofitable) const {
   if (PollyProcessUnprofitable)
     return true;
 
@@ -3922,7 +3923,7 @@ bool Scop::isProfitable() const {
       ContainsScalarAccs |= MA->isScalarKind();
     }
 
-    if (!UnprofitableScalarAccs || (ContainsArrayAccs && !ContainsScalarAccs))
+    if (ScalarsAreUnprofitable || (ContainsArrayAccs && !ContainsScalarAccs))
       OptimizableStmtsOrLoops += Stmt.getNumIterators();
   }
 

@@ -63,6 +63,8 @@ class Scop;
 class ScopStmt;
 class ScopBuilder;
 
+extern bool UnprofitableScalarAccs;
+
 //===---------------------------------------------------------------------===//
 
 /// Enumeration of assumptions Polly can take.
@@ -2464,7 +2466,7 @@ public:
   void realignParams();
 
   /// Return true if this SCoP can be profitably optimized.
-  bool isProfitable() const;
+  bool isProfitable(bool ScalarsAreUnprofitable) const;
 
   /// Return true if the SCoP contained at least one error block.
   bool hasErrorBlock() const { return HasErrorBlock; }
