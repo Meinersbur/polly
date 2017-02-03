@@ -118,10 +118,10 @@ static cl::opt<bool>
                     cl::init(true), cl::cat(PollyCategory));
 
 bool polly:: UnprofitableScalarAccs;
-static cl::opt<bool, true> UnprofitableScalarAccsOption(
+static cl::opt<bool, true> UnprofitableScalarAccsOption( cl::location(UnprofitableScalarAccs),
     "polly-unprofitable-scalar-accs",
     cl::desc("Count statements with scalar accesses as not optimizable"),
-    cl::Hidden, cl::init(false), cl::cat(PollyCategory), cl::location(UnprofitableScalarAccs));
+    cl::Hidden, cl::init(false), cl::cat(PollyCategory));
 
 //===----------------------------------------------------------------------===//
 
