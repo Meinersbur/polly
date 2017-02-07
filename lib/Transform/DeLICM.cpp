@@ -2741,8 +2741,9 @@ public:
     // Free resources for previous scop's computation, if not yet done.
     releaseMemory();
 
-	if (UnprofitableScalarAccs)
-		  DEBUG(dbgs() << "WARNING: -polly-unprofitable-scalar-accs=true active; optimizable SCoPs might have been pruned prematurely\n");
+    if (UnprofitableScalarAccs)
+      DEBUG(dbgs() << "WARNING: -polly-unprofitable-scalar-accs=true active; "
+                      "optimizable SCoPs might have been pruned prematurely\n");
 
     IslCtx = S.getSharedIslCtx();
     collapseToUnused(S);
@@ -3534,8 +3535,9 @@ public:
     // Free resources for previous scop's computation, if not yet done.
     releaseMemory();
 
-		if (UnprofitableScalarAccs)
-		  DEBUG(dbgs() << "WARNING: -polly-unprofitable-scalar-accs=true active; optimizable SCoPs might have been pruned prematurely\n");
+    if (UnprofitableScalarAccs)
+      DEBUG(dbgs() << "WARNING: -polly-unprofitable-scalar-accs=true active; "
+                      "optimizable SCoPs might have been pruned prematurely\n");
 
     IslCtx = S.getSharedIslCtx();
     collapseToKnown(S);
@@ -3572,48 +3574,46 @@ INITIALIZE_PASS_BEGIN(Known, "polly-known",
 INITIALIZE_PASS_END(Known, "polly-known", "Polly - Scalar accesses to explicit",
                     false, false)
 
-static IslPtr<isl_union_map> computeInfluence(IslPtr<isl_union_map> Schedule,
-                                 IslPtr<isl_union_map> Writes,
-	bool BackwardInfluence,
-	bool InclPrefDef,  bool InclNextDef) {
+static IslPtr<isl_union_map>
+computeInfluence(IslPtr<isl_union_map> Schedule, IslPtr<isl_union_map> Writes,
+                 bool BackwardInfluence, bool InclPrefDef, bool InclNextDef) {
 
-	// { Scatter[] }
+  // { Scatter[] }
   auto ScatterSpace = getScatterSpace(Schedule);
 
   // { ScatterRead[] -> ScatterWrite[] }
   IslPtr<isl_map> Before;
-  if (BackwardInfluence) 
-	 Before= give(InclPrefDef ? isl_map_lex_lt(ScatterSpace.take())
-                                  : isl_map_lex_le(ScatterSpace.take()));
+  if (BackwardInfluence)
+    Before = give(InclPrefDef ? isl_map_lex_lt(ScatterSpace.take())
+                              : isl_map_lex_le(ScatterSpace.take()));
   else
-   Before = give(InclNextDef ? isl_map_lex_gt(ScatterSpace.take())
-                               : isl_map_lex_ge(ScatterSpace.take()));
-  
+    Before = give(InclNextDef ? isl_map_lex_gt(ScatterSpace.take())
+                              : isl_map_lex_ge(ScatterSpace.take()));
 
   // { ScatterWrite[] -> [ScatterRead[] -> ScatterWrite[]] }
   auto BeforeMap = give(isl_map_reverse(isl_map_range_map(Before.take())));
 
   // { Element[] -> ScatterWrite[] }
-  auto WriteAction = give(isl_union_map_apply_domain(Schedule.copy(), Writes.take()));
+  auto WriteAction =
+      give(isl_union_map_apply_domain(Schedule.copy(), Writes.take()));
 
   // { ScatterWrite[] -> Element[] }
   auto WriteActionRev = give(isl_union_map_reverse(WriteAction.copy()));
 
   // { Element[] -> [ScatterUse[] -> ScatterWrite[]] }
-  auto DefSchedBefore = give(isl_union_map_apply_domain(isl_union_map_from_map(BeforeMap.take()),  WriteActionRev.take()));
+  auto DefSchedBefore = give(isl_union_map_apply_domain(
+      isl_union_map_from_map(BeforeMap.take()), WriteActionRev.take()));
 
-  // For each element, at every point in time, map to the times of previous definitions.
-  // { [Element[] -> ScatterRead[]] -> ScatterWrite[] }
+  // For each element, at every point in time, map to the times of previous
+  // definitions. { [Element[] -> ScatterRead[]] -> ScatterWrite[] }
   auto ReachableDefs = give(isl_union_map_uncurry(DefSchedBefore.take()));
   if (BackwardInfluence)
-	  ReachableDefs = give(isl_union_map_lexmin(ReachableDefs.copy()));
+    ReachableDefs = give(isl_union_map_lexmin(ReachableDefs.copy()));
   else
-   ReachableDefs = give(isl_union_map_lexmax(ReachableDefs.copy()));
+    ReachableDefs = give(isl_union_map_lexmax(ReachableDefs.copy()));
 
-
-  	    // { [Element[] -> ScatterWrite[]] -> ScatterWrite[] }
+  // { [Element[] -> ScatterWrite[]] -> ScatterWrite[] }
   auto SelfUse = give(isl_union_map_range_map(WriteAction.take()));
-
 
   if (InclPrefDef && InclNextDef) {
     // Add the Def itself to the solution.
@@ -3629,20 +3629,17 @@ static IslPtr<isl_union_map> computeInfluence(IslPtr<isl_union_map> Schedule,
   }
 
   // { [Element[] -> ScatterRead[]] -> Domain[] }
-  auto LastReachableDefDomain= give(isl_union_map_apply_range(
+  auto LastReachableDefDomain = give(isl_union_map_apply_range(
       ReachableDefs.take(), isl_union_map_reverse(Schedule.take())));
 
   return LastReachableDefDomain;
-
 }
 
 IslPtr<isl_union_map>
 polly::computeReachingDefinition(IslPtr<isl_union_map> Schedule,
                                  IslPtr<isl_union_map> Writes, bool InclDef,
                                  bool InclRedef) {
-return computeInfluence(Schedule, Writes, false, InclDef,InclRedef );
-
-
+  return computeInfluence(Schedule, Writes, false, InclDef, InclRedef);
 
   // { Scatter[] }
   auto ScatterSpace = getScatterSpace(Schedule);
@@ -3655,23 +3652,23 @@ return computeInfluence(Schedule, Writes, false, InclDef,InclRedef );
   auto BeforeMap = give(isl_map_reverse(isl_map_range_map(Before.take())));
 
   // { Element[] -> ScatterWrite[] }
-  auto WriteAction = give(isl_union_map_apply_domain(Schedule.copy(), Writes.take()));
+  auto WriteAction =
+      give(isl_union_map_apply_domain(Schedule.copy(), Writes.take()));
 
   // { ScatterWrite[] -> Element[] }
   auto WriteActionRev = give(isl_union_map_reverse(WriteAction.copy()));
 
   // { Element[] -> [ScatterUse[] -> ScatterWrite[]] }
-  auto DefSchedBefore = give(isl_union_map_apply_domain(isl_union_map_from_map(BeforeMap.take()),  WriteActionRev.take()));
+  auto DefSchedBefore = give(isl_union_map_apply_domain(
+      isl_union_map_from_map(BeforeMap.take()), WriteActionRev.take()));
 
-  // For each element, at every point in time, map to the times of previous definitions.
-  // { [Element[] -> ScatterRead[]] -> ScatterWrite[] }
+  // For each element, at every point in time, map to the times of previous
+  // definitions. { [Element[] -> ScatterRead[]] -> ScatterWrite[] }
   auto ReachableDefs = give(isl_union_map_uncurry(DefSchedBefore.take()));
   auto LastReachableDef = give(isl_union_map_lexmax(ReachableDefs.copy()));
 
-
-  	    // { [Element[] -> ScatterWrite[]] -> ScatterWrite[] }
+  // { [Element[] -> ScatterWrite[]] -> ScatterWrite[] }
   auto SelfUse = give(isl_union_map_range_map(WriteAction.take()));
-
 
   if (InclDef && InclRedef) {
     // Add the Def itself to the solution.
@@ -3687,7 +3684,7 @@ return computeInfluence(Schedule, Writes, false, InclDef,InclRedef );
   }
 
   // { [Element[] -> ScatterRead[]] -> Domain[] }
-  auto LastReachableDefDomain= give(isl_union_map_apply_range(
+  auto LastReachableDefDomain = give(isl_union_map_apply_range(
       LastReachableDef.take(), isl_union_map_reverse(Schedule.take())));
 
   return LastReachableDefDomain;
@@ -3759,7 +3756,7 @@ IslPtr<isl_union_map>
 polly::computeReachingOverwrite(IslPtr<isl_union_map> Schedule,
                                 IslPtr<isl_union_map> Writes,
                                 bool InclPrevWrite, bool InclOverwrite) {
-		return computeInfluence(Schedule, Writes, true, InclPrevWrite,InclOverwrite );
+  return computeInfluence(Schedule, Writes, true, InclPrevWrite, InclOverwrite);
 
   assert(isl_union_map_is_bijective(Schedule.keep()) != isl_bool_false);
 
@@ -3770,25 +3767,28 @@ polly::computeReachingOverwrite(IslPtr<isl_union_map> Schedule,
   auto After = give(InclPrevWrite ? isl_map_lex_lt(ScatterSpace.take())
                                   : isl_map_lex_le(ScatterSpace.take()));
 
-    // { ScatterWrite[] -> [ScatterRead[] -> ScatterWrite[]] }
+  // { ScatterWrite[] -> [ScatterRead[] -> ScatterWrite[]] }
   auto AfterMap = give(isl_map_reverse(isl_map_range_map(After.take())));
 
   // { Element[] -> ScatterWrite[] }
-  auto WriteAction = give(isl_union_map_apply_domain(Schedule.copy(), Writes.take()));
+  auto WriteAction =
+      give(isl_union_map_apply_domain(Schedule.copy(), Writes.take()));
 
-   // { ScatterWrite[] -> Element[] }
+  // { ScatterWrite[] -> Element[] }
   auto WriteActionRev = give(isl_union_map_reverse(WriteAction.copy()));
 
- // { Element[] -> [ScatterRead[] -> ScatterWrite[]] }
-  auto DefSchedAfter = give(isl_union_map_apply_domain(isl_union_map_from_map(AfterMap.take()), WriteActionRev.take()));
+  // { Element[] -> [ScatterRead[] -> ScatterWrite[]] }
+  auto DefSchedAfter = give(isl_union_map_apply_domain(
+      isl_union_map_from_map(AfterMap.take()), WriteActionRev.take()));
 
-  // For each element, at every point in time, map to the times of next definitions.
-  // { [Element[] -> ScatterRead[]] -> ScatterWrite[] }
+  // For each element, at every point in time, map to the times of next
+  // definitions. { [Element[] -> ScatterRead[]] -> ScatterWrite[] }
   auto ReachableOverwrites = give(isl_union_map_uncurry(DefSchedAfter.take()));
-  auto NextReachableDef = give(isl_union_map_lexmin(ReachableOverwrites.take()));
+  auto NextReachableDef =
+      give(isl_union_map_lexmin(ReachableOverwrites.take()));
 
-      // { [Element[] -> ScatterWrite[]] -> ScatterWrite[] }
-    auto SelfUse = give(isl_union_map_range_map(WriteAction.take()));
+  // { [Element[] -> ScatterWrite[]] -> ScatterWrite[] }
+  auto SelfUse = give(isl_union_map_range_map(WriteAction.take()));
 
   if (InclPrevWrite && InclOverwrite) {
     // Add the overwrite itself to the solution
@@ -3799,7 +3799,8 @@ polly::computeReachingOverwrite(IslPtr<isl_union_map> Schedule,
   } else if (!InclPrevWrite && !InclOverwrite) {
     // Remove overwrite itself from the solution
 
-    NextReachableDef =  give(isl_union_map_subtract(NextReachableDef.take(), SelfUse.take()));
+    NextReachableDef =
+        give(isl_union_map_subtract(NextReachableDef.take(), SelfUse.take()));
   }
 
   // { [Element[] -> ScatterRead[]] -> Domain[] }

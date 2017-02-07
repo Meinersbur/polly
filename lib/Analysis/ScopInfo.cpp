@@ -117,9 +117,9 @@ static cl::opt<bool>
                     cl::desc("Abort if an isl error is encountered"),
                     cl::init(true), cl::cat(PollyCategory));
 
-bool polly:: UnprofitableScalarAccs;
-static cl::opt<bool, true> UnprofitableScalarAccsOption( cl::location(UnprofitableScalarAccs),
-    "polly-unprofitable-scalar-accs",
+bool polly::UnprofitableScalarAccs;
+static cl::opt<bool, true> UnprofitableScalarAccsOption(
+    cl::location(UnprofitableScalarAccs), "polly-unprofitable-scalar-accs",
     cl::desc("Count statements with scalar accesses as not optimizable"),
     cl::Hidden, cl::init(false), cl::cat(PollyCategory));
 

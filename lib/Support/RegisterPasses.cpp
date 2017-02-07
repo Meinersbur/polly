@@ -29,6 +29,7 @@
 #include "polly/LinkAllPasses.h"
 #include "polly/Options.h"
 #include "polly/PolyhedralInfo.h"
+#include "polly/PruneUnprofitable.h"
 #include "polly/ScopDetection.h"
 #include "polly/ScopInfo.h"
 #include "llvm/Analysis/CFGPrinter.h"
@@ -37,7 +38,6 @@
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Vectorize.h"
-#include "polly/PruneUnprofitable.h"
 
 using namespace llvm;
 using namespace polly;
@@ -176,11 +176,13 @@ static cl::opt<bool>
                    cl::desc("Simplify SCoP after optimizations"), cl::Hidden,
                    cl::init(false), cl::cat(PollyCategory));
 
-// TODO: Instead of enabling by command switch, can activate if any scalardep-removal pass is activated (and -polly-unprofitable-scalar-accs=false)
-static cl::opt<bool>
-    EnableLatePrune("polly-enable-late-prune",
-                   cl::desc("Bail out on unprofitable scops before rescheduling"), cl::Hidden,
-                   cl::init(false), cl::cat(PollyCategory));
+// TODO: Instead of enabling by command switch, can activate if any
+// scalardep-removal pass is activated (and
+// -polly-unprofitable-scalar-accs=false)
+static cl::opt<bool> EnableLatePrune(
+    "polly-enable-late-prune",
+    cl::desc("Bail out on unprofitable scops before rescheduling"), cl::Hidden,
+    cl::init(false), cl::cat(PollyCategory));
 
 namespace polly {
 void initializePollyPasses(PassRegistry &Registry) {
@@ -268,7 +270,7 @@ void registerPollyPasses(llvm::legacy::PassManagerBase &PM) {
     PM.add(polly::createDeadCodeElimPass());
 
   if (EnableLatePrune)
-	  PM.add(polly::createPruneUnprofitablePass());
+    PM.add(polly::createPruneUnprofitablePass());
 
   if (Target == TARGET_GPU) {
     // GPU generation provides its own scheduling optimization strategy.

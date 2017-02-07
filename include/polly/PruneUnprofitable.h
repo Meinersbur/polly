@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Mark a SCoP as unfeasible if not deemed profitable to optimize. 
+// Mark a SCoP as unfeasible if not deemed profitable to optimize.
 //
 //===----------------------------------------------------------------------===//
 
@@ -20,7 +20,7 @@ class Pass;
 } // anonymous namespace
 
 namespace polly {
-	llvm::Pass *createPruneUnprofitablePass();
+llvm::Pass *createPruneUnprofitablePass();
 } // namespace polly
 
 namespace llvm {

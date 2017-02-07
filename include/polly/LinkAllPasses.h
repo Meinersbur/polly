@@ -89,7 +89,7 @@ struct PollyForcePassLinking {
     polly::createKnownPass();
     polly::createDeLICMPass();
     polly::createSimplifyPass();
-	polly::createPruneUnprofitablePass();
+    polly::createPruneUnprofitablePass();
   }
 } PollyForcePassLinking; // Force link by creating a global definition.
 } // namespace
