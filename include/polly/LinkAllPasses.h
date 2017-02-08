@@ -16,7 +16,6 @@
 #define POLLY_LINKALLPASSES_H
 
 #include "polly/Config/config.h"
-#include "polly/PruneUnprofitable.h"
 #include <cstdlib>
 
 namespace llvm {
@@ -52,6 +51,7 @@ llvm::Pass *createFlattenSchedulePass();
 llvm::Pass *createKnownPass();
 llvm::Pass *createDeLICMPass();
 llvm::Pass *createSimplifyPass();
+llvm::Pass *createPruneUnprofitablePass();
 
 extern char &CodePreparationID;
 } // namespace polly
@@ -111,6 +111,7 @@ void initializeFlattenSchedulePass(llvm::PassRegistry &);
 void initializeKnownPass(llvm::PassRegistry &);
 void initializeDeLICMPass(llvm::PassRegistry &);
 void initializeSimplifyPass(llvm::PassRegistry &);
+void initializePruneUnprofitable(llvm::PassRegistry &);
 } // namespace llvm
 
 #endif

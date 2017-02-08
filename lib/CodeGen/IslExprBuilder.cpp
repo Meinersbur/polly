@@ -299,7 +299,7 @@ Value *IslExprBuilder::createAccessAddress(isl_ast_expr *Expr) {
     IndexOp = createMul(IndexOp, DimSize, "polly.access.mul." + BaseName);
   }
 
-#if 1
+#if 0
   auto &DL =
       Builder.GetInsertBlock()->getParent()->getParent()->getDataLayout();
   unsigned int StorageSize = DL.getTypeAllocSize(SAI->getElementType());

@@ -71,6 +71,9 @@ static cl::opt<bool> DetectParallel("polly-ast-detect-parallel",
                                     cl::init(false), cl::ZeroOrMore,
                                     cl::cat(PollyCategory));
 
+STATISTIC(ParallelLoops, "Number of parallel loops");
+STATISTIC(ReductionParallelLoops, "Number of reduction-parallel loops");
+
 namespace polly {
 /// Temporary information used when building the ast.
 struct AstBuildUserInfo {
@@ -462,9 +465,6 @@ void IslAstInfo::releaseMemory() {
     Ast = nullptr;
   }
 }
-
-STATISTIC(ParallelLoops, "Number of parallel loops");
-STATISTIC(ReductionParallelLoops, "Number of reduction-parallel loops");
 
 bool IslAstInfo::runOnScop(Scop &Scop) {
   if (Ast)

@@ -50,12 +50,12 @@ cl::OptionCategory PollyCategory("Polly Options",
 static cl::opt<bool>
     DumpBefore("polly-dump-before",
                cl::desc("Dump module before Polly transformations"),
-               cl::init(true), cl::cat(PollyCategory));
+               cl::init(false), cl::cat(PollyCategory));
 
 static cl::opt<bool>
     DumpAfter("polly-dump-after",
               cl::desc("Dump module after Polly transformations"),
-              cl::init(true), cl::cat(PollyCategory));
+              cl::init(false), cl::cat(PollyCategory));
 
 static cl::opt<bool> DumpDebug("polly-dump-debug",
                                cl::desc("Dump debug to file instead to stderr"),
@@ -225,6 +225,7 @@ void initializePollyPasses(PassRegistry &Registry) {
   initializeKnownPass(Registry);
   initializeDeLICMPass(Registry);
   initializeSimplifyPass(Registry);
+  initializePruneUnprofitablePass(Registry);
 }
 
 /// Register Polly passes such that they form a polyhedral optimizer.

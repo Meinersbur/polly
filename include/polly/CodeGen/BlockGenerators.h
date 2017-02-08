@@ -302,6 +302,7 @@ protected:
   BasicBlock *copyBB(ScopStmt &Stmt, BasicBlock *BB, ValueMapT &BBMap,
                      LoopToScevMapT &LTS, isl_id_to_ast_expr *NewAccesses);
 
+#if 0 // Don't use for virtual Stmts
   /// Copy the given basic block.
   ///
   /// @param Stmt      The statement to code generate.
@@ -317,6 +318,7 @@ protected:
   void copyBB(ScopStmt &Stmt, BasicBlock *BB, BasicBlock *BBCopy,
               ValueMapT &BBMap, LoopToScevMapT &LTS,
               isl_id_to_ast_expr *NewAccesses);
+#endif
 
   /// Generate reload of scalars demoted to memory and needed by @p Stmt.
   ///

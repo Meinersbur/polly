@@ -51,8 +51,8 @@ static cl::opt<bool> DebugPrinting(
 
 static cl::opt<bool> UseVirtualStmts("polly-codegen-virtual-statements",
                                      cl::desc("Use virtual statements"),
-                                     cl::Hidden, cl::init(true), cl::ZeroOrMore,
-                                     cl::cat(PollyCategory));
+                                     cl::Hidden, cl::init(false),
+                                     cl::ZeroOrMore, cl::cat(PollyCategory));
 
 BlockGenerator::BlockGenerator(
     PollyIRBuilder &B, LoopInfo &LI, ScalarEvolution &SE, DominatorTree &DT,
@@ -391,6 +391,7 @@ BasicBlock *BlockGenerator::copyBB(ScopStmt &Stmt, BasicBlock *BB,
   return CopyBB;
 }
 
+#if 0 // Don't use with virtual stmts
 void BlockGenerator::copyBB(ScopStmt &Stmt, BasicBlock *BB, BasicBlock *CopyBB,
                             ValueMapT &BBMap, LoopToScevMapT &LTS,
                             isl_id_to_ast_expr *NewAccesses) {
@@ -399,6 +400,7 @@ void BlockGenerator::copyBB(ScopStmt &Stmt, BasicBlock *BB, BasicBlock *CopyBB,
   for (Instruction &Inst : *BB)
     copyInstruction(Stmt, &Inst, BBMap, LTS, NewAccesses);
 }
+#endif
 
 Value *BlockGenerator::getOrCreateAlloca(const MemoryAccess &Access) {
   assert(!Access.isLatestArrayKind() && "Trying to get alloca for array kind");

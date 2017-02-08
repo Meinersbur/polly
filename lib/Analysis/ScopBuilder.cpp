@@ -421,6 +421,7 @@ void ScopBuilder::buildAccessFunctions(Region &SR) {
 }
 
 void ScopBuilder::buildStmts(Region &SR) {
+
   if (scop->isNonAffineSubRegion(&SR)) {
     auto SurroundingLoop = LI.getLoopFor(SR.getEntry());
     SurroundingLoop =
