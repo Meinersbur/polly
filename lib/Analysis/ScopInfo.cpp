@@ -317,7 +317,7 @@ void ScopArrayInfo::print(raw_ostream &OS, bool SizeAsPwAff,
       OS << " PHI";
       return;
     case MemoryKind::ExitPHI:
-      OS << " Array";
+      OS << " ExitPHI";
       return;
     }
   }
@@ -1191,6 +1191,7 @@ void MemoryAccess::setNewAccessRelation(__isl_take isl_map *NewAccess) {
   isl_space_free(NewDomainSpace);
   isl_space_free(OriginalDomainSpace);
 
+#if 0
   // Check whether there is an access for every statement instance.
   auto *StmtDomain = getStatement()->getDomain();
   StmtDomain = isl_set_intersect_params(
@@ -1200,6 +1201,7 @@ void MemoryAccess::setNewAccessRelation(__isl_take isl_map *NewAccess) {
          "Partial accesses not supported");
   isl_set_free(NewDomain);
   isl_set_free(StmtDomain);
+#endif
 
   auto *NewAccessSpace = isl_space_range(NewSpace);
   assert(isl_space_has_tuple_id(NewAccessSpace, isl_dim_set) &&
@@ -3501,11 +3503,37 @@ void Scop::assumeNoOutOfBounds() {
       Access->assumeNoOutOfBound();
 }
 
+static bool hasDbgCall(BasicBlock *BB) {
+  for (Instruction &Inst : *BB)
+    if (CallInst *CI = dyn_cast<CallInst>(&Inst)) {
+      auto CF = CI->getCalledFunction();
+      if (CF && CF->getName().startswith("dbg"))
+        return true;
+    }
+  return false;
+}
+
+static bool hasDbgCall(Region *R) {
+  for (BasicBlock *RBB : R->blocks())
+    if (hasDbgCall(RBB))
+      return true;
+  return false;
+}
+
+static bool hasDbgCall(ScopStmt *Stmt) {
+  if (!Stmt)
+    return false;
+
+  if (Stmt->isBlockStmt())
+    return hasDbgCall(Stmt->getBasicBlock());
+  return hasDbgCall(Stmt->getRegion());
+}
+
 void Scop::simplifySCoP(bool AfterHoisting) {
   for (auto StmtIt = Stmts.begin(), StmtEnd = Stmts.end(); StmtIt != StmtEnd;) {
     ScopStmt &Stmt = *StmtIt;
 
-    bool RemoveStmt = Stmt.isEmpty();
+    bool RemoveStmt = Stmt.isEmpty() && !hasDbgCall(&Stmt);
     if (!RemoveStmt)
       RemoveStmt = !DomainMap[Stmt.getEntryBlock()];
 

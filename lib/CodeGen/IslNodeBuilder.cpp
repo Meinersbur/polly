@@ -761,7 +761,7 @@ IslNodeBuilder::createNewAccesses(ScopStmt *Stmt,
 
     auto Schedule = isl_ast_build_get_schedule(Build);
 
-#ifndef NDEBUG
+#if 0
     auto Dom = Stmt->getDomain();
     auto SchedDom = isl_set_from_union_set(
         isl_union_map_domain(isl_union_map_copy(Schedule)));
@@ -769,8 +769,7 @@ IslNodeBuilder::createNewAccesses(ScopStmt *Stmt,
     Dom = isl_set_intersect_params(Dom, Stmt->getParent()->getContext());
     SchedDom =
         isl_set_intersect_params(SchedDom, Stmt->getParent()->getContext());
-    assert(isl_set_is_subset(SchedDom, AccDom) &&
-           "Access relation not defined on full schedule domain");
+    assert(isl_set_is_subset(SchedDom, AccDom) && "Access relation not defined on full schedule domain");
     assert(isl_set_is_subset(Dom, AccDom) &&
            "Access relation not defined on full domain");
     isl_set_free(AccDom);

@@ -44,7 +44,7 @@ llvm::Pass *createKnownPass();
 /// { [A[5] -> Write[]] -> [i] : 0 < i < 10 }
 ///
 /// Note: Lifetimes are expressed in terms of the preceding write. Hence, reads
-/// before the first read cannot expressed by this function.
+/// before the first read cannot be expressed by this function.
 ///
 /// @param Schedule          { Domain[] -> Scatter[] }
 ///                          The schedule of (at least) all statement instances

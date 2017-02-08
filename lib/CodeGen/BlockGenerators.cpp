@@ -358,6 +358,7 @@ BasicBlock *BlockGenerator::copyBB(ScopStmt &Stmt, BasicBlock *BB,
   BasicBlock *CopyBB = splitBB(BB);
   Builder.SetInsertPoint(&CopyBB->front());
   generateScalarLoads(Stmt, LTS, BBMap, NewAccesses);
+  generateComputedPHIs(Stmt, LTS, BBMap);
 
   if (UseVirtualStmts) {
     std::vector<VirtualInstruction> InstList;
@@ -388,6 +389,15 @@ BasicBlock *BlockGenerator::copyBB(ScopStmt &Stmt, BasicBlock *BB,
   // their alloca.
   generateScalarStores(Stmt, LTS, BBMap, NewAccesses);
   return CopyBB;
+}
+
+void BlockGenerator::copyBB(ScopStmt &Stmt, BasicBlock *BB, BasicBlock *CopyBB,
+                            ValueMapT &BBMap, LoopToScevMapT &LTS,
+                            isl_id_to_ast_expr *NewAccesses) {
+  EntryBB = &CopyBB->getParent()->getEntryBlock();
+
+  for (Instruction &Inst : *BB)
+    copyInstruction(Stmt, &Inst, BBMap, LTS, NewAccesses);
 }
 
 Value *BlockGenerator::getOrCreateAlloca(const MemoryAccess &Access) {
@@ -501,6 +511,92 @@ void BlockGenerator::generateScalarLoads(
   }
 }
 
+void BlockGenerator::generateComputedPHIs(ScopStmt &Stmt, LoopToScevMapT &LTS,
+                                          ValueMapT &BBMap) {
+  for (auto &X : Stmt.ComputedPHIs) {
+    auto *PHI = X.first;
+    auto &IncomingValues = X.second;
+    auto Build = give(Stmt.getAstBuild());
+    auto USchedule = give(isl_ast_build_get_schedule(Build.keep()));
+    auto UDomain = give(isl_union_set_from_set(Stmt.getDomain()));
+    auto USchedule2 =
+        give(isl_union_map_intersect_domain(USchedule.copy(), UDomain.copy()));
+
+    auto ScheduleValues = give(
+        isl_union_map_apply_domain(IncomingValues.copy(), USchedule2.copy()));
+
+    SmallVector<IslPtr<isl_set>, 8> RestrictDomains;
+    SmallVector<IslPtr<isl_map>, 8> Maps;
+    foreachElt(ScheduleValues, [&, this](IslPtr<isl_map> Map) {
+      Maps.push_back(Map);
+      auto Dom = give(isl_map_domain(Map.copy()));
+      RestrictDomains.push_back(Dom);
+    });
+    for (int i = RestrictDomains.size() - 1; i > 0; i--) {
+      RestrictDomains[i - 1] = give(isl_set_union(RestrictDomains[i - 1].take(),
+                                                  RestrictDomains[i].copy()));
+    }
+
+    int i = RestrictDomains.size() - 1;
+    Value *PwVal = UndefValue::get(PHI->getType());
+    for (auto &Map : reverse(Maps)) {
+      auto RangeId = give(isl_map_get_tuple_id(Map.keep(), isl_dim_out));
+      auto IncomingVal =
+          static_cast<llvm::Value *>(isl_id_get_user(RangeId.keep()));
+      // FIXME: nullptr for loop is not correct; need to pass the incoming block
+      // (or Loop*) through ComputedPHIs.
+      auto NewVal = getNewValue(Stmt, IncomingVal, BBMap, LTS, nullptr);
+
+      auto Dom = give(isl_map_domain(Map.copy()));
+      auto RestrictedBuild =
+          give(isl_ast_build_restrict(Build.copy(), RestrictDomains[i].copy()));
+      i -= 1;
+      auto IsInSet =
+          give(isl_ast_build_expr_from_set(RestrictedBuild.keep(), Dom.copy()));
+      auto *IsInSetExpr = ExprBuilder->create(IsInSet.copy());
+      IsInSetExpr = Builder.CreateICmpNE(
+          IsInSetExpr, ConstantInt::get(IsInSetExpr->getType(), 0));
+      PwVal = Builder.CreateSelect(IsInSetExpr, NewVal, PwVal);
+    }
+
+    BBMap[PHI] = PwVal;
+  }
+}
+
+Value *BlockGenerator::buildContainsCondition(ScopStmt &Stmt,
+                                              IslPtr<isl_set> Set) {
+  auto AstBuild = give(isl_ast_build_copy(Stmt.getAstBuild()));
+  // auto USchedule = give(isl_ast_build_get_schedule(AstBuild.keep()));
+  auto Domain = give(Stmt.getDomain());
+  auto UDomain = give(isl_union_set_from_set(Domain.copy()));
+  // auto USchedule2 = give(isl_union_map_intersect_domain(USchedule.copy(),
+  // UDomain.copy()));
+
+  auto USchedule = give(isl_ast_build_get_schedule(AstBuild.keep()));
+  USchedule =
+      give(isl_union_map_intersect_domain(USchedule.take(), UDomain.copy()));
+  assert(isl_union_map_is_empty(USchedule.keep()) == isl_bool_false);
+  auto Schedule = give(isl_map_from_union_map(USchedule.copy()));
+
+  // auto UScheduledDomain = give( isl_union_set_apply( UDomain.copy(),
+  // isl_ast_build_get_schedule(AstBuild.keep())) );
+  auto ScheduledDomain = give(isl_map_range(Schedule.copy()));
+  auto ScheduledSet = give(isl_set_apply(Set.copy(), Schedule.copy()));
+
+  // auto ScheduleValues =
+  // give(isl_union_map_apply_domain(IncomingValues.copy(), USchedule2.copy()));
+  //  auto NewVal = getNewValue(Stmt, IncomingVal, BBMap, LTS, nullptr);
+  auto RestrictedBuild =
+      give(isl_ast_build_restrict(AstBuild.copy(), ScheduledDomain.copy()));
+
+  auto IsInSet = give(
+      isl_ast_build_expr_from_set(RestrictedBuild.keep(), ScheduledSet.copy()));
+  auto *IsInSetExpr = ExprBuilder->create(IsInSet.copy());
+  IsInSetExpr = Builder.CreateICmpNE(
+      IsInSetExpr, ConstantInt::get(IsInSetExpr->getType(), 0));
+  return IsInSetExpr;
+}
+
 void BlockGenerator::generateScalarStores(
     ScopStmt &Stmt, LoopToScevMapT &LTS, ValueMapT &BBMap,
     __isl_keep isl_id_to_ast_expr *NewAccesses) {
@@ -514,14 +610,24 @@ void BlockGenerator::generateScalarStores(
     if (MA->isOriginalArrayKind() || MA->isRead())
       continue;
 
-#ifndef NDEBUG
-    auto *StmtDom = Stmt.getDomain();
-    auto *AccDom = isl_map_domain(MA->getAccessRelation());
-    assert(isl_set_is_subset(StmtDom, AccDom) &&
-           "Scalar must be stored in all statement instances");
-    isl_set_free(StmtDom);
-    isl_set_free(AccDom);
-#endif
+    auto StmtDom = give(Stmt.getDomain());
+    auto AccDom = give(isl_map_domain(MA->getAccessRelation()));
+    bool IsPartial =
+        isl_set_is_subset(StmtDom.keep(), AccDom.keep()) == isl_bool_false;
+
+    BasicBlock *TailBlock;
+    if (IsPartial) {
+      // AccDom = give( isl_set_gist( AccDom.take(), StmtDom.copy() ) );
+      auto *Cond = buildContainsCondition(Stmt, AccDom);
+      auto *HeadBlock = Builder.GetInsertBlock();
+      SplitBlockAndInsertIfThen(Cond, &*Builder.GetInsertPoint(), false,
+                                nullptr, &DT, &LI);
+      auto Branch = cast<BranchInst>(HeadBlock->getTerminator());
+
+      auto *ThenBlock = Branch->getSuccessor(0);
+      TailBlock = Branch->getSuccessor(1);
+      Builder.SetInsertPoint(ThenBlock, ThenBlock->getFirstInsertionPt());
+    }
 
     Value *Val = MA->getAccessValue();
     if (MA->isAnyPHIKind()) {
@@ -548,6 +654,9 @@ void BlockGenerator::generateScalarStores(
                          Builder.GetInsertBlock())) &&
            "Domination violation");
     Builder.CreateStore(Val, Address);
+
+    if (IsPartial)
+      Builder.SetInsertPoint(TailBlock);
   }
 }
 
@@ -1210,6 +1319,7 @@ void RegionGenerator::copyStmt(ScopStmt &Stmt, LoopToScevMapT &LTS,
 
   ValueMapT &EntryBBMap = RegionMaps[EntryBBCopy];
   generateScalarLoads(Stmt, LTS, EntryBBMap, IdToAstExp);
+  generateComputedPHIs(Stmt, LTS, EntryBBMap);
 
   for (auto PI = pred_begin(EntryBB), PE = pred_end(EntryBB); PI != PE; ++PI)
     if (!R->contains(*PI))

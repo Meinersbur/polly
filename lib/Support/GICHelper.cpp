@@ -231,6 +231,9 @@ DEFINE_ISLPTR(multi_pw_aff)
 DEFINE_ISLPTR(union_pw_aff)
 DEFINE_ISLPTR(multi_union_pw_aff)
 DEFINE_ISLPTR(union_pw_multi_aff)
+DEFINE_ISLPTR(point)
+DEFINE_ISLPTR(ast_expr)
+// DEFINE_ISLPTR(ast_build)
 }
 
 void polly::foreachElt(NonowningIslPtr<isl_map> Map,

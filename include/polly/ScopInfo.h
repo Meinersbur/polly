@@ -21,6 +21,7 @@
 #include "polly/ScopDetection.h"
 #include "polly/Support/SCEVAffinator.h"
 
+#include "polly/Support/GICHelper.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/Analysis/RegionPass.h"
 #include "isl/aff.h"
@@ -1189,10 +1190,12 @@ private:
   /// Mapping from instructions to (scalar) memory accesses.
   DenseMap<const Instruction *, MemoryAccessList> InstructionToAccess;
 
+public:
   /// The set of values defined elsewhere required in this ScopStmt and
   ///        their MemoryKind::Value READ MemoryAccesses.
   DenseMap<Value *, MemoryAccess *> ValueReads;
 
+private:
   /// The set of values defined in this ScopStmt that are required
   ///        elsewhere, mapped to their MemoryKind::Value WRITE MemoryAccesses.
   DenseMap<Instruction *, MemoryAccess *> ValueWrites;
@@ -1233,6 +1236,10 @@ private:
 
   Loop *SurroundingLoop;
 
+public:
+  SmallDenseMap<PHINode *, IslPtr<isl_union_map>> ComputedPHIs;
+
+private:
   /// Build the statement.
   //@{
   void buildDomain();

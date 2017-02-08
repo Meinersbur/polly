@@ -17,6 +17,8 @@
 #include "llvm/ADT/APInt.h"
 #include "llvm/Support/raw_ostream.h"
 #include "isl/aff.h"
+#include "isl/ast.h"
+#include "isl/ast_build.h"
 #include "isl/ctx.h"
 #include "isl/id.h"
 #include "isl/map.h"
@@ -29,6 +31,7 @@
 
 struct isl_schedule;
 struct isl_multi_aff;
+char *isl_ast_build_to_str(struct isl_ast_build *build);
 
 namespace llvm {
 class Value;
@@ -226,6 +229,9 @@ DECLARE_TRAITS(multi_pw_aff)
 DECLARE_TRAITS(union_pw_aff)
 DECLARE_TRAITS(multi_union_pw_aff)
 DECLARE_TRAITS(union_pw_multi_aff)
+DECLARE_TRAITS(point)
+DECLARE_TRAITS(ast_expr)
+DECLARE_TRAITS(ast_build)
 
 template <typename T> class NonowningIslPtr;
 
