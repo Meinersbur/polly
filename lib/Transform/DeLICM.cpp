@@ -231,14 +231,6 @@ STATISTIC(MapUndefinedReject,
           "Number of value maps that would require a partial access");
 
 #undef DEBUG_TYPE
-#define DEBUG_TYPE "polly-scalardeps"
-
-STATISTIC(ScalarValueDeps, "Number of scalar value dependencies");
-STATISTIC(ScalarValueLoopDeps, "Number of scalar value dependencies in loops");
-STATISTIC(ScalarPHIDeps, "Number of scalar PHI dependencies");
-STATISTIC(ScalarPHILoopDeps, "Number of scalar PHI dependencies in loops");
-
-#undef DEBUG_TYPE
 #define DEBUG_TYPE "polly-known"
 
 STATISTIC(KnownAnalyzed, "Number of successfully analyzed SCoPs");
@@ -381,68 +373,6 @@ bool isRecursiveValInstMap(NonowningIslPtr<isl_union_map> UMap) {
       return true;
   }
   return false;
-}
-
-/// Piecewise betweenScatter(IslPtr<isl_map>,IslPtr<isl_map>,bool,bool).
-IslPtr<isl_union_map> betweenScatter(IslPtr<isl_union_map> From,
-                                     IslPtr<isl_union_map> To, bool IncludeFrom,
-                                     bool IncludeTo) {
-  auto AfterFrom = afterScatter(From, !IncludeFrom);
-  auto BeforeTo = beforeScatter(To, !IncludeTo);
-
-  return give(isl_union_map_intersect(AfterFrom.take(), BeforeTo.take()));
-}
-
-/// Constructs a map that swaps two nested tuples.
-///
-/// @param FromSpace1 { Space1[] }
-/// @param FromSpace2 { Space2[] }
-///
-/// @result { [Space1[] -> Space2[]] -> [Space2[] -> Space1[]] }
-IslPtr<isl_basic_map> makeTupleSwapBasicMap(IslPtr<isl_space> FromSpace1,
-                                            IslPtr<isl_space> FromSpace2) {
-  assert(isl_space_is_set(FromSpace1.keep()) != isl_bool_false);
-  assert(isl_space_is_set(FromSpace2.keep()) != isl_bool_false);
-
-  auto Dims1 = isl_space_dim(FromSpace1.keep(), isl_dim_set);
-  auto Dims2 = isl_space_dim(FromSpace2.keep(), isl_dim_set);
-  auto FromSpace = give(isl_space_wrap(isl_space_map_from_domain_and_range(
-      FromSpace1.copy(), FromSpace2.copy())));
-  auto ToSpace = give(isl_space_wrap(isl_space_map_from_domain_and_range(
-      FromSpace2.take(), FromSpace1.take())));
-  auto MapSpace = give(
-      isl_space_map_from_domain_and_range(FromSpace.take(), ToSpace.take()));
-
-  auto Result = give(isl_basic_map_universe(MapSpace.take()));
-  for (auto i = Dims1 - Dims1; i < Dims1; i += 1) {
-    Result = give(isl_basic_map_equate(Result.take(), isl_dim_in, i,
-                                       isl_dim_out, Dims2 + i));
-  }
-  for (auto i = Dims2 - Dims2; i < Dims2; i += 1) {
-    Result = give(isl_basic_map_equate(Result.take(), isl_dim_in, Dims1 + i,
-                                       isl_dim_out, i));
-  }
-
-  return Result;
-}
-
-/// Like makeTupleSwapBasicMap(IslPtr<isl_space>,IslPtr<isl_space>), but returns
-/// an isl_map.
-IslPtr<isl_map> makeTupleSwapMap(IslPtr<isl_space> FromSpace1,
-                                 IslPtr<isl_space> FromSpace2) {
-  auto BMapResult =
-      makeTupleSwapBasicMap(std::move(FromSpace1), std::move(FromSpace2));
-  return give(isl_map_from_basic_map(BMapResult.take()));
-}
-
-/// Piecewise reverseDomain(IslPtr<isl_map>).
-IslPtr<isl_union_map> reverseDomain(NonowningIslPtr<isl_union_map> UMap) {
-  auto Result = give(isl_union_map_empty(isl_union_map_get_space(UMap.keep())));
-  foreachElt(UMap, [=, &Result](IslPtr<isl_map> Map) {
-    auto Reversed = reverseDomain(std::move(Map));
-    Result = give(isl_union_map_add_map(Result.take(), Reversed.take()));
-  });
-  return Result;
 }
 
 /// Compute the next overwrite for a scalar.
@@ -626,23 +556,6 @@ IslPtr<isl_union_map> shiftDim(IslPtr<isl_union_map> UMap, isl_dim_type Type,
     Result = give(isl_union_map_add_map(Result.take(), Shifted.take()));
   });
   return Result;
-}
-
-/// If InputVal is not defined in the stmt itself, return the MemoryAccess that
-/// reads the scalar. Return nullptr otherwise (if the value is defined in the
-/// scop, or is synthesizable)
-MemoryAccess *getInputAccessOf(Value *InputVal, ScopStmt *Stmt) {
-  for (auto *MA : *Stmt) {
-    if (!MA->isRead())
-      continue;
-    if (!MA->isLatestScalarKind())
-      continue;
-
-    assert(MA->getAccessValue() == MA->getBaseAddr());
-    if (MA->getAccessValue() == InputVal)
-      return MA;
-  }
-  return nullptr;
 }
 
 /// Try to find a 'natural' extension of a mapped to elements outside its
@@ -3172,24 +3085,6 @@ private:
                               std::move(RequiredValue));
   }
 
-  struct SCEVGetUnknowns {
-    std::vector<llvm::Value *> Unknowns;
-
-    void visit(const SCEV *S) {
-      if (isa<SCEVUnknown>(S))
-        Unknowns.push_back(cast<SCEVUnknown>(S)->getValue());
-    }
-
-    bool isDone() { return false; }
-    bool follow(const SCEV *S) { return true; }
-  };
-
-  std::vector<llvm::Value *> getUnknowns(const SCEV *Root) {
-    SCEVGetUnknowns Visitor;
-    visitAll(Root, Visitor);
-    return std::move(Visitor.Unknowns);
-  }
-
   bool canForwardTree(llvm::Value *UseVal, ScopStmt *UseStmt, Loop *UseLoop,
                       // { DomainUse[] -> Scatter[] }
                       IslPtr<isl_map> UseScatter, ScopStmt *TargetStmt,
@@ -3330,10 +3225,6 @@ private:
     }
 
     return true;
-  }
-
-  Loop *getOutermostLoopFor(ScopStmt *Stmt) {
-    return LI->getLoopFor(Stmt->getEntryBlock());
   }
 
   bool tryForwardTree(MemoryAccess *RA) {
@@ -3875,67 +3766,6 @@ INITIALIZE_PASS_BEGIN(Known, "polly-known",
                       "Polly - Scalar accesses to explicit", false, false)
 INITIALIZE_PASS_END(Known, "polly-known", "Polly - Scalar accesses to explicit",
                     false, false)
-
-static IslPtr<isl_union_map>
-computeInfluence(IslPtr<isl_union_map> Schedule, IslPtr<isl_union_map> Writes,
-                 bool BackwardInfluence, bool InclPrefDef, bool InclNextDef) {
-
-  // { Scatter[] }
-  auto ScatterSpace = getScatterSpace(Schedule);
-
-  // { ScatterRead[] -> ScatterWrite[] }
-  IslPtr<isl_map> Before;
-  if (BackwardInfluence)
-    Before = give(InclPrefDef ? isl_map_lex_lt(ScatterSpace.take())
-                              : isl_map_lex_le(ScatterSpace.take()));
-  else
-    Before = give(InclNextDef ? isl_map_lex_gt(ScatterSpace.take())
-                              : isl_map_lex_ge(ScatterSpace.take()));
-
-  // { ScatterWrite[] -> [ScatterRead[] -> ScatterWrite[]] }
-  auto BeforeMap = give(isl_map_reverse(isl_map_range_map(Before.take())));
-
-  // { Element[] -> ScatterWrite[] }
-  auto WriteAction =
-      give(isl_union_map_apply_domain(Schedule.copy(), Writes.take()));
-
-  // { ScatterWrite[] -> Element[] }
-  auto WriteActionRev = give(isl_union_map_reverse(WriteAction.copy()));
-
-  // { Element[] -> [ScatterUse[] -> ScatterWrite[]] }
-  auto DefSchedBefore = give(isl_union_map_apply_domain(
-      isl_union_map_from_map(BeforeMap.take()), WriteActionRev.take()));
-
-  // For each element, at every point in time, map to the times of previous
-  // definitions. { [Element[] -> ScatterRead[]] -> ScatterWrite[] }
-  auto ReachableDefs = give(isl_union_map_uncurry(DefSchedBefore.take()));
-  if (BackwardInfluence)
-    ReachableDefs = give(isl_union_map_lexmin(ReachableDefs.copy()));
-  else
-    ReachableDefs = give(isl_union_map_lexmax(ReachableDefs.copy()));
-
-  // { [Element[] -> ScatterWrite[]] -> ScatterWrite[] }
-  auto SelfUse = give(isl_union_map_range_map(WriteAction.take()));
-
-  if (InclPrefDef && InclNextDef) {
-    // Add the Def itself to the solution.
-
-    ReachableDefs =
-        give(isl_union_map_union(ReachableDefs.take(), SelfUse.take()));
-    ReachableDefs = give(isl_union_map_coalesce(ReachableDefs.take()));
-  } else if (!InclPrefDef && !InclNextDef) {
-
-    // Remove Def itself from the solution.
-    ReachableDefs =
-        give(isl_union_map_subtract(ReachableDefs.take(), SelfUse.take()));
-  }
-
-  // { [Element[] -> ScatterRead[]] -> Domain[] }
-  auto LastReachableDefDomain = give(isl_union_map_apply_range(
-      ReachableDefs.take(), isl_union_map_reverse(Schedule.take())));
-
-  return LastReachableDefDomain;
-}
 
 IslPtr<isl_union_map>
 polly::computeArrayLifetime(IslPtr<isl_union_map> Schedule,
