@@ -112,6 +112,7 @@
 #include "polly/ScopBuilder.h"
 #include "polly/ScopInfo.h"
 #include "polly/ScopPass.h"
+#include "polly/Support/ISLTools.h"
 #include "polly/Support/VirtualInstruction.h"
 #include "llvm/ADT/Statistic.h"
 #define DEBUG_TYPE "polly-delicm"
@@ -164,213 +165,18 @@ STATISTIC(KnownScopsModified, "Number of SCoPs optimized");
 #undef DEBUG_TYPE
 #define DEBUG_TYPE "polly-delicm"
 
-/// Return the range elements that are lexicographically smaller.
-///
-/// @param Map    { Space[] -> Scatter[] }
-/// @param Strict True for strictly lexicographically smaller elements. (exclude
-///               same timepoints from the result)
-///
-/// @return { Space[] -> Scatter[] }
-///         A map to all timepoints that happen before the timepoints the input
-///         mapped to.
-IslPtr<isl_map> beforeScatter(IslPtr<isl_map> Map, bool Strict) {
-  auto RangeSpace = give(isl_space_range(isl_map_get_space(Map.keep())));
-  auto ScatterRel = give(Strict ? isl_map_lex_gt(RangeSpace.take())
-                                : isl_map_lex_ge(RangeSpace.take()));
-  return give(isl_map_apply_range(Map.take(), ScatterRel.take()));
+IslPtr<isl_union_map> computeReachingDefinition(IslPtr<isl_union_map> Schedule,
+                                                IslPtr<isl_union_map> Writes,
+                                                bool InclDef, bool InclRedef) {
+  return computeReachingWrite(Schedule, Writes, false, InclDef, InclRedef);
 }
 
-/// Piecewise beforeScatter(IslPtr<isl_map>,bool).
-IslPtr<isl_union_map> beforeScatter(IslPtr<isl_union_map> UMap, bool Strict) {
-  auto Result = give(isl_union_map_empty(isl_union_map_get_space(UMap.keep())));
-  foreachElt(UMap, [=, &Result](IslPtr<isl_map> Map) {
-    auto After = beforeScatter(Map, Strict);
-    Result = give(isl_union_map_add_map(Result.take(), After.take()));
-  });
-  return Result;
-}
-
-/// Return the range elements that are lexicographically larger.
-///
-/// @param Map    { Space[] -> Scatter[] }
-/// @param Strict True for strictly lexicographically larger elements. (exclude
-///               same timepoints from the result)
-///
-/// @return { Space[] -> Scatter[] }
-///         A map to all timepoints that happen after the timepoints the input
-///         map originally mapped to.
-IslPtr<isl_map> afterScatter(IslPtr<isl_map> Map, bool Strict) {
-  auto RangeSpace = give(isl_space_range(isl_map_get_space(Map.keep())));
-  auto ScatterRel = give(Strict ? isl_map_lex_lt(RangeSpace.take())
-                                : isl_map_lex_le(RangeSpace.take()));
-  return give(isl_map_apply_range(Map.take(), ScatterRel.take()));
-}
-
-/// Piecewise afterScatter(IslPtr<isl_map>,bool).
-IslPtr<isl_union_map> afterScatter(NonowningIslPtr<isl_union_map> UMap,
-                                   bool Strict) {
-  auto Result = give(isl_union_map_empty(isl_union_map_get_space(UMap.keep())));
-  foreachElt(UMap, [=, &Result](IslPtr<isl_map> Map) {
-    auto After = afterScatter(Map, Strict);
-    Result = give(isl_union_map_add_map(Result.take(), After.take()));
-  });
-  return Result;
-}
-
-/// Construct a range of timepoints between two timepoints.
-///
-/// Example:
-/// From := { A[] -> [0]; B[] -> [0] }
-/// To   := {             B[] -> [10]; C[] -> [20] }
-///
-/// Result:
-/// { B[] -> [i] : 0 < i < 10 }
-///
-/// Note that A[] and C[] are not in the result because they do not have a start
-/// or end timepoint. If a start (or end) timepoint is not unique, the first
-/// (respectively last) is chosen.
-///
-/// @param From     { Space[] -> Scatter[] }
-///                 Map to start timepoints.
-/// @param To       { Space[] -> Scatter[] }
-///                 Map to end timepoints.
-/// @param InclFrom Whether to include the start timepoints to the result. In
-///                 the example, this would add { B[] -> [0] }
-/// @param InclTo   Whether to include the end timepoints to the result. In this
-///                 example, this would add { B[] -> [10] }
-///
-/// @return { Space[] -> Scatter[] }
-///         A map for each domain element of timepoints between two extreme
-///         points, or nullptr if @p From or @p To is nullptr, or the ISL max
-///         operations is exceeded.
-IslPtr<isl_map> betweenScatter(IslPtr<isl_map> From, IslPtr<isl_map> To,
-                               bool InclFrom, bool InclTo) {
-  auto AfterFrom = afterScatter(From, !InclFrom);
-  auto BeforeTo = beforeScatter(To, !InclTo);
-
-  return give(isl_map_intersect(AfterFrom.take(), BeforeTo.take()));
-}
-
-/// Piecewise betweenScatter(IslPtr<isl_map>,IslPtr<isl_map>,bool,bool).
-IslPtr<isl_union_map> betweenScatter(IslPtr<isl_union_map> From,
-                                     IslPtr<isl_union_map> To, bool IncludeFrom,
-                                     bool IncludeTo) {
-  auto AfterFrom = afterScatter(From, !IncludeFrom);
-  auto BeforeTo = beforeScatter(To, !IncludeTo);
-
-  return give(isl_union_map_intersect(AfterFrom.take(), BeforeTo.take()));
-}
-
-/// If by construction a union map is known to contain only a single map, return
-/// it.
-///
-/// This function combines isl_map_from_union_map() and
-/// isl_union_map_extract_map(). isl_map_from_union_map() fails if the map is
-/// empty because it doesn't not know which space it would be in.
-/// isl_union_map_extract_map() on the other hand does not check whether there
-/// is (at most) one isl_map in the union, ie. how it has been constructed is
-/// probably wrong.
-IslPtr<isl_map> singleton(IslPtr<isl_union_map> UMap,
-                          IslPtr<isl_space> ExpectedSpace) {
-  if (!UMap)
-    return nullptr;
-
-  if (isl_union_map_n_map(UMap.keep()) == 0)
-    return give(isl_map_empty(ExpectedSpace.take()));
-
-  auto Result = give(isl_map_from_union_map(UMap.take()));
-  assert(!Result || isl_space_has_equal_tuples(
-                        give(isl_map_get_space(Result.keep())).keep(),
-                        ExpectedSpace.keep()) == isl_bool_true);
-  return Result;
-}
-
-/// If by construction an isl_union_set is known to contain only a single
-/// isl_set, return it.
-///
-/// This function combines isl_set_from_union_set() and
-/// isl_union_set_extract_set(). isl_map_from_union_set() fails if the set is
-/// empty because it doesn't not know which space it would be in.
-/// isl_union_set_extract_set() on the other hand does not check whether there
-/// is (at most) one isl_set in the union, ie. how it has been constructed is
-/// probably wrong.
-IslPtr<isl_set> singleton(IslPtr<isl_union_set> USet,
-                          IslPtr<isl_space> ExpectedSpace) {
-  if (!USet)
-    return nullptr;
-
-  if (isl_union_set_n_set(USet.keep()) == 0)
-    return give(isl_set_empty(ExpectedSpace.copy()));
-
-  auto Result = give(isl_set_from_union_set(USet.take()));
-  assert(!Result || isl_space_has_equal_tuples(
-                        give(isl_set_get_space(Result.keep())).keep(),
-                        ExpectedSpace.keep()) == isl_bool_true);
-  return Result;
-}
-#if 0
-/// Returns whether @p Map has a mapping for at least all elements of @p Domain.
-isl_bool isMapDomainSubsetOf(IslPtr<isl_map> Map,
-                             NonowningIslPtr<isl_set> Domain) {
-  auto Subset = give(isl_map_domain(Map.take()));
-  return isl_set_is_subset(Subset.keep(), Domain.keep());
-}
-#endif
-/// Determine how many dimensions the scatter space of @p Schedule has.
-///
-/// The schedule must not be empty and have equal number of dimensions of any
-/// subspace it contains.
-///
-/// The implementation currently returns the maximum number of dimensions it
-/// encounters, if different, and 0 if none is encountered. However, most other
-/// code will most likely fail if one of these happen.
-unsigned getNumScatterDims(NonowningIslPtr<isl_union_map> Schedule) {
-  unsigned Dims = 0;
-  foreachElt(Schedule, [=, &Dims](IslPtr<isl_map> Map) {
-    Dims = std::max(Dims, isl_map_dim(Map.keep(), isl_dim_out));
-  });
-  return Dims;
-}
-
-/// Return the scatter space of a @p Schedule.
-///
-/// This is basically the range space of the schedule map, but harder to
-/// determine because it is an isl_union_map.
-IslPtr<isl_space> getScatterSpace(NonowningIslPtr<isl_union_map> Schedule) {
-  if (!Schedule)
-    return nullptr;
-  auto Dims = getNumScatterDims(Schedule);
-  auto ScatterSpace =
-      give(isl_space_set_from_params(isl_union_map_get_space(Schedule.keep())));
-  return give(isl_space_add_dims(ScatterSpace.take(), isl_dim_set, Dims));
-}
-
-/// Construct an identity map for the given domain values.
-///
-/// There is no type resembling isl_union_space, hence we have to pass an
-/// isl_union_set as the map's domain and range space.
-///
-/// @param USet           { Space[] }
-///                       The returned map's domain and range.
-/// @param RestrictDomain If true, the returned map only maps elements contained
-///                       in @p USet and no other. If false, it returns an
-///                       overapproximation with the identity maps of any space
-///                       in @p USet, not just the elements in it.
-///
-/// @return { Space[] -> Space[] }
-///         A map that maps each value of @p USet to itself.
-IslPtr<isl_union_map> makeIdentityMap(NonowningIslPtr<isl_union_set> USet,
-                                      bool RestrictDomain) {
-  auto Result = give(isl_union_map_empty(isl_union_set_get_space(USet.keep())));
-  foreachElt(USet, [=, &Result](IslPtr<isl_set> Set) {
-    auto IdentityMap = give(isl_map_identity(
-        isl_space_map_from_set(isl_set_get_space(Set.keep()))));
-    if (RestrictDomain)
-      IdentityMap =
-          give(isl_map_intersect_domain(IdentityMap.take(), Set.take()));
-    Result = give(isl_union_map_add_map(Result.take(), IdentityMap.take()));
-  });
-  return Result;
+IslPtr<isl_union_map> computeReachingOverwrite(IslPtr<isl_union_map> Schedule,
+                                               IslPtr<isl_union_map> Writes,
+                                               bool InclPrevWrite,
+                                               bool InclOverwrite) {
+  return computeReachingWrite(Schedule, Writes, true, InclPrevWrite,
+                              InclOverwrite);
 }
 
 /// Constructs a map that swaps two nested tuples.
@@ -413,20 +219,6 @@ IslPtr<isl_map> makeTupleSwapMap(IslPtr<isl_space> FromSpace1,
   auto BMapResult =
       makeTupleSwapBasicMap(std::move(FromSpace1), std::move(FromSpace2));
   return give(isl_map_from_basic_map(BMapResult.take()));
-}
-
-/// Reverse the nested map tuple in @p Map's domain.
-///
-/// @param Map { [Space1[] -> Space2[]] -> Space3[] }
-///
-/// @return { [Space2[] -> Space1[]] -> Space3[] }
-IslPtr<isl_map> reverseDomain(IslPtr<isl_map> Map) {
-  auto DomSpace =
-      give(isl_space_unwrap(isl_space_domain(isl_map_get_space(Map.keep()))));
-  auto Space1 = give(isl_space_domain(DomSpace.copy()));
-  auto Space2 = give(isl_space_range(DomSpace.take()));
-  auto Swap = makeTupleSwapMap(std::move(Space1), std::move(Space2));
-  return give(isl_map_apply_domain(Map.take(), Swap.take()));
 }
 
 /// Piecewise reverseDomain(IslPtr<isl_map>).
@@ -620,20 +412,6 @@ IslPtr<isl_union_map> shiftDim(IslPtr<isl_union_map> UMap, isl_dim_type Type,
     Result = give(isl_union_map_add_map(Result.take(), Shifted.take()));
   });
   return Result;
-}
-
-/// Simplify a map inplace.
-void simplify(IslPtr<isl_map> &Map) {
-  Map = give(isl_map_compute_divs(Map.take()));
-  Map = give(isl_map_detect_equalities(Map.take()));
-  Map = give(isl_map_coalesce(Map.take()));
-}
-
-/// Simplify a union map inplace.
-void simplify(IslPtr<isl_union_map> &Map) {
-  Map = give(isl_union_map_compute_divs(Map.take()));
-  Map = give(isl_union_map_detect_equalities(Map.take()));
-  Map = give(isl_union_map_coalesce(Map.take()));
 }
 
 /// Try to find a 'natural' extension of a mapped to elements outside its
@@ -3636,61 +3414,6 @@ computeInfluence(IslPtr<isl_union_map> Schedule, IslPtr<isl_union_map> Writes,
 }
 
 IslPtr<isl_union_map>
-polly::computeReachingDefinition(IslPtr<isl_union_map> Schedule,
-                                 IslPtr<isl_union_map> Writes, bool InclDef,
-                                 bool InclRedef) {
-  return computeInfluence(Schedule, Writes, false, InclDef, InclRedef);
-
-  // { Scatter[] }
-  auto ScatterSpace = getScatterSpace(Schedule);
-
-  // { ScatterRead[] -> ScatterWrite[] }
-  auto Before = give(InclRedef ? isl_map_lex_gt(ScatterSpace.take())
-                               : isl_map_lex_ge(ScatterSpace.take()));
-
-  // { ScatterWrite[] -> [ScatterRead[] -> ScatterWrite[]] }
-  auto BeforeMap = give(isl_map_reverse(isl_map_range_map(Before.take())));
-
-  // { Element[] -> ScatterWrite[] }
-  auto WriteAction =
-      give(isl_union_map_apply_domain(Schedule.copy(), Writes.take()));
-
-  // { ScatterWrite[] -> Element[] }
-  auto WriteActionRev = give(isl_union_map_reverse(WriteAction.copy()));
-
-  // { Element[] -> [ScatterUse[] -> ScatterWrite[]] }
-  auto DefSchedBefore = give(isl_union_map_apply_domain(
-      isl_union_map_from_map(BeforeMap.take()), WriteActionRev.take()));
-
-  // For each element, at every point in time, map to the times of previous
-  // definitions. { [Element[] -> ScatterRead[]] -> ScatterWrite[] }
-  auto ReachableDefs = give(isl_union_map_uncurry(DefSchedBefore.take()));
-  auto LastReachableDef = give(isl_union_map_lexmax(ReachableDefs.copy()));
-
-  // { [Element[] -> ScatterWrite[]] -> ScatterWrite[] }
-  auto SelfUse = give(isl_union_map_range_map(WriteAction.take()));
-
-  if (InclDef && InclRedef) {
-    // Add the Def itself to the solution.
-
-    LastReachableDef =
-        give(isl_union_map_union(LastReachableDef.take(), SelfUse.take()));
-    LastReachableDef = give(isl_union_map_coalesce(LastReachableDef.take()));
-  } else if (!InclDef && !InclRedef) {
-
-    // Remove Def itself from the solution.
-    LastReachableDef =
-        give(isl_union_map_subtract(LastReachableDef.take(), SelfUse.take()));
-  }
-
-  // { [Element[] -> ScatterRead[]] -> Domain[] }
-  auto LastReachableDefDomain = give(isl_union_map_apply_range(
-      LastReachableDef.take(), isl_union_map_reverse(Schedule.take())));
-
-  return LastReachableDefDomain;
-}
-
-IslPtr<isl_union_map>
 polly::computeArrayLifetime(IslPtr<isl_union_map> Schedule,
                             IslPtr<isl_union_map> Writes,
                             IslPtr<isl_union_map> Reads, bool ReadEltInSameInst,
@@ -3750,111 +3473,6 @@ polly::computeArrayLifetime(IslPtr<isl_union_map> Schedule,
     Result = give(isl_union_map_union(Result.take(), ExitRays.take()));
 
   return Result;
-}
-
-IslPtr<isl_union_map>
-polly::computeReachingOverwrite(IslPtr<isl_union_map> Schedule,
-                                IslPtr<isl_union_map> Writes,
-                                bool InclPrevWrite, bool InclOverwrite) {
-  return computeInfluence(Schedule, Writes, true, InclPrevWrite, InclOverwrite);
-
-  assert(isl_union_map_is_bijective(Schedule.keep()) != isl_bool_false);
-
-  // { Scatter[] }
-  auto ScatterSpace = getScatterSpace(Schedule);
-
-  // { ScatterRead[] -> ScatterWrite[] }
-  auto After = give(InclPrevWrite ? isl_map_lex_lt(ScatterSpace.take())
-                                  : isl_map_lex_le(ScatterSpace.take()));
-
-  // { ScatterWrite[] -> [ScatterRead[] -> ScatterWrite[]] }
-  auto AfterMap = give(isl_map_reverse(isl_map_range_map(After.take())));
-
-  // { Element[] -> ScatterWrite[] }
-  auto WriteAction =
-      give(isl_union_map_apply_domain(Schedule.copy(), Writes.take()));
-
-  // { ScatterWrite[] -> Element[] }
-  auto WriteActionRev = give(isl_union_map_reverse(WriteAction.copy()));
-
-  // { Element[] -> [ScatterRead[] -> ScatterWrite[]] }
-  auto DefSchedAfter = give(isl_union_map_apply_domain(
-      isl_union_map_from_map(AfterMap.take()), WriteActionRev.take()));
-
-  // For each element, at every point in time, map to the times of next
-  // definitions. { [Element[] -> ScatterRead[]] -> ScatterWrite[] }
-  auto ReachableOverwrites = give(isl_union_map_uncurry(DefSchedAfter.take()));
-  auto NextReachableDef =
-      give(isl_union_map_lexmin(ReachableOverwrites.take()));
-
-  // { [Element[] -> ScatterWrite[]] -> ScatterWrite[] }
-  auto SelfUse = give(isl_union_map_range_map(WriteAction.take()));
-
-  if (InclPrevWrite && InclOverwrite) {
-    // Add the overwrite itself to the solution
-
-    NextReachableDef =
-        give(isl_union_map_union(NextReachableDef.take(), SelfUse.take()));
-    NextReachableDef = give(isl_union_map_coalesce(NextReachableDef.take()));
-  } else if (!InclPrevWrite && !InclOverwrite) {
-    // Remove overwrite itself from the solution
-
-    NextReachableDef =
-        give(isl_union_map_subtract(NextReachableDef.take(), SelfUse.take()));
-  }
-
-  // { [Element[] -> ScatterRead[]] -> Domain[] }
-  auto NextReachableDefDomain = give(isl_union_map_apply_range(
-      NextReachableDef.take(), isl_union_map_reverse(Schedule.take())));
-
-  return NextReachableDefDomain;
-}
-
-IslPtr<isl_union_map> polly::computeArrayUnused(IslPtr<isl_union_map> Schedule,
-                                                IslPtr<isl_union_map> Writes,
-                                                IslPtr<isl_union_map> Reads,
-                                                bool ReadEltInSameInst,
-                                                bool IncludeLastRead,
-                                                bool IncludeWrite) {
-  // { Element[] -> Scatter[] }
-  auto ReadActions =
-      give(isl_union_map_apply_domain(Schedule.copy(), Reads.take()));
-  auto WriteActions =
-      give(isl_union_map_apply_domain(Schedule.copy(), Writes.copy()));
-
-  // { [Element[] -> Scatter[] }
-  auto AfterReads = afterScatter(ReadActions, ReadEltInSameInst);
-  auto WritesBeforeAnyReads =
-      give(isl_union_map_subtract(WriteActions.take(), AfterReads.take()));
-  auto BeforeWritesBeforeAnyReads =
-      beforeScatter(WritesBeforeAnyReads, !IncludeWrite);
-
-  // { [Element[] -> DomainWrite[]] -> Scatter[] }
-  auto EltDomWrites = give(isl_union_map_apply_range(
-      isl_union_map_range_map(isl_union_map_reverse(Writes.copy())),
-      Schedule.copy()));
-
-  // { [Element[] -> Scatter[]] -> DomainWrite[] }
-  auto ReachingOverwrite = computeReachingOverwrite(
-      Schedule, Writes, ReadEltInSameInst, !ReadEltInSameInst);
-
-  // { [Element[] -> Scatter[]] -> DomainWrite[] }
-  auto ReadsOverwritten = give(isl_union_map_intersect_domain(
-      ReachingOverwrite.take(), isl_union_map_wrap(ReadActions.take())));
-
-  // { [Element[] -> DomainWrite[]] -> Scatter[] }
-  auto ReadsOverwrittenRotated = give(isl_union_map_reverse(
-      isl_union_map_curry(reverseDomain(ReadsOverwritten).take())));
-  auto LastOverwrittenRead =
-      give(isl_union_map_lexmax(ReadsOverwrittenRotated.take()));
-
-  // { [Element[] -> DomainWrite[]] -> Scatter[] }
-  auto BetweenLastReadOverwrite = betweenScatter(
-      LastOverwrittenRead, EltDomWrites, IncludeLastRead, IncludeWrite);
-
-  return give(isl_union_map_union(
-      BeforeWritesBeforeAnyReads.take(),
-      isl_union_map_domain_factor_domain(BetweenLastReadOverwrite.take())));
 }
 
 bool polly::isConflicting(IslPtr<isl_union_map> ExistingLifetime,
