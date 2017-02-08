@@ -97,42 +97,90 @@ return:
 ; CHECK-NEXT:     Written : { [MemRef_A[i0] -> [14 + 15i0{{\]\]}} -> [Stmt_reduction_for[i0, 4] -> Val_phi[{{\]\]}} : 0 <= i0 <= 1 }
 ; CHECK-NEXT: }
 ; CHECK:      Mapped scalars {
-; CHECK-NEXT:     Mapping of double MemRef_phi MK_Value {
-; CHECK-NEXT:         Primary:   Stmt_reduction_for MK_Value Define MemRef_phi as %phi [new: { Stmt_reduction_for[i0, i1] -> MemRef_A[i0] : 0 <= i0 <= 1 and 0 <= i1 <= 4 }]
-; CHECK-NEXT:         Secondary: Stmt_body MK_Value Use MemRef_phi [new: { Stmt_body[i0, i1] -> MemRef_A[i0] : 0 <= i0 <= 1 and i1 >= 0 and -5i0 <= i1 <= 8 - 5i0 and i1 <= 3 }]
-; CHECK-NEXT:         Secondary: Stmt_reduction_exit MK_Value Use MemRef_phi [new: { Stmt_reduction_exit[i0] -> MemRef_A[i0] : 0 <= i0 <= 1 }]
+; CHECK-NEXT:     Mapping of MemRef_phi {
+; CHECK-NEXT:         Primary:
+; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:                 { Stmt_reduction_for[i0, i1] -> MemRef_phi[] };
+; CHECK-NEXT:            new: { Stmt_reduction_for[i0, i1] -> MemRef_A[i0] : 0 <= i0 <= 1 and 0 <= i1 <= 4 };
+; CHECK-NEXT:         Secondary:
+; CHECK-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:                 { Stmt_body[i0, i1] -> MemRef_phi[] };
+; CHECK-NEXT:            new: { Stmt_body[i0, i1] -> MemRef_A[i0] : 0 <= i0 <= 1 and i1 >= 0 and -5i0 <= i1 <= 8 - 5i0 and i1 <= 3 };
+; CHECK-NEXT:         Secondary:
+; CHECK-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:                 { Stmt_reduction_exit[i0] -> MemRef_phi[] };
+; CHECK-NEXT:            new: { Stmt_reduction_exit[i0] -> MemRef_A[i0] : 0 <= i0 <= 1 };
 ; CHECK-NEXT:         Target:    { Stmt_reduction_for[i0, i1] -> MemRef_A[i0] : 0 <= i0 <= 1 and 0 <= i1 <= 4 }
 ; CHECK-NEXT:         Lifetime:  { Stmt_reduction_for[i0, i1] -> [2 + 15i0 + 3i1] : 0 <= i0 <= 1 and 0 <= i1 <= 3; Stmt_reduction_for[1, 4] -> [29]; Stmt_reduction_for[0, 4] -> [14] }
 ; CHECK-NEXT:         Zone:
 ; CHECK-NEXT:             Lifetime: { [MemRef_A[i0] -> [i1{{\]\]}} -> [Stmt_reduction_for[i0, o1] -> Val_phi[{{\]\]}} : 3o1 = -2 - 15i0 + i1 and 0 <= i0 <= 1 and 2 + 15i0 <= i1 <= 11 + 15i0; [MemRef_A[1] -> [29{{\]\]}} -> [Stmt_reduction_for[1, 4] -> Val_phi[{{\]\]}}; [MemRef_A[0] -> [14{{\]\]}} -> [Stmt_reduction_for[0, 4] -> Val_phi[{{\]\]}} } + Undef
 ; CHECK-NEXT:             Written : { [MemRef_A[i0] -> [i1{{\]\]}} -> [Stmt_reduction_for[i0, o1] -> Val_phi[{{\]\]}} : 3o1 = -1 - 15i0 + i1 and 0 <= i0 <= 1 and 15i0 < i1 <= 13 + 15i0 }
 ; CHECK-NEXT:     }
+; CHECK-NEXT:     Mapping of MemRef_phi__phi {
+; CHECK-NEXT:         Primary:
+; CHECK-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:                 { Stmt_reduction_for[i0, i1] -> MemRef_phi__phi[] };
+; CHECK-NEXT:            new: { Stmt_reduction_for[i0, i1] -> MemRef_A[i0] : 0 <= i0 <= 1 and 0 <= i1 <= 4 };
+; CHECK-NEXT:         Secondary:
+; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:                 { Stmt_outer_for[i0] -> MemRef_phi__phi[] };
+; CHECK-NEXT:            new: { Stmt_outer_for[i0] -> MemRef_A[i0] : 0 <= i0 <= 1 };
+; CHECK-NEXT:         Secondary:
+; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:                 { Stmt_reduction_inc[i0, i1] -> MemRef_phi__phi[] };
+; CHECK-NEXT:            new: { Stmt_reduction_inc[i0, i1] -> MemRef_A[i0] : 0 <= i0 <= 1 and i1 >= 0 and -5i0 <= i1 <= 3 };
+; CHECK-NEXT:         Target:    { Stmt_reduction_for[i0, i1] -> MemRef_A[i0] : 0 <= i0 <= 1 and 0 <= i1 <= 4 }
+; CHECK-NEXT:         Lifetime:  { Stmt_reduction_for[i0, i1] -> [1 + 15i0 + 3i1] : i0 <= 1 and i1 >= 0 and -5i0 <= i1 <= 4 }
+; CHECK-NEXT:         Zone:
+; CHECK-NEXT:             Lifetime: { [MemRef_A[i0] -> [i1{{\]\]}} -> [Stmt_body[i0, o1] -> Val_add[{{\]\]}} : 3o1 = -4 - 15i0 + i1 and i0 >= 0 and 4 + 15i0 <= i1 <= 25 and i1 <= 13 + 15i0 and 15*floor((-4 - 15i0 + i1)/15) >= -13 - 15i0 + i1; [MemRef_A[1] -> [28{{\]\]}} -> [Stmt_body[1, 3] -> Val_add[{{\]\]}}; [MemRef_A[i0] -> [1 + 15i0{{\]\]}} -> Val__000000e_00[] : 0 <= i0 <= 1 } + Undef
+; CHECK-NEXT:             Written : { [MemRef_A[i0] -> [15i0{{\]\]}} -> Val__000000e_00[] : 0 <= i0 <= 1; [MemRef_A[i0] -> [i1{{\]\]}} -> [Stmt_body[i0, o1] -> Val_add[{{\]\]}} : 3o1 = -3 - 15i0 + i1 and i0 >= 0 and 3 + 15i0 <= i1 <= 24 and i1 <= 12 + 15i0; [MemRef_A[1] -> [27{{\]\]}} -> [Stmt_body[1, 3] -> Val_add[{{\]\]}} }
+; CHECK-NEXT:     }
+; CHECK-NEXT:     Mapping of MemRef_add {
+; CHECK-NEXT:         Primary:
+; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:                 { Stmt_body[i0, i1] -> MemRef_add[] };
+; CHECK-NEXT:            new: { Stmt_body[i0, i1] -> MemRef_A[i0] : 0 <= i0 <= 1 and 0 <= i1 <= 3 };
+; CHECK-NEXT:         Secondary:
+; CHECK-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:                 { Stmt_reduction_inc[i0, i1] -> MemRef_add[] };
+; CHECK-NEXT:            new: { Stmt_reduction_inc[i0, i1] -> MemRef_A[i0] : i1 >= 0 and -5i0 <= i1 <= 7 - 5i0 and i1 <= 3; Stmt_reduction_inc[1, 3] -> MemRef_A[1] };
+; CHECK-NEXT:         Target:    { Stmt_body[i0, i1] -> MemRef_A[i0] : 0 <= i0 <= 1 and 0 <= i1 <= 3 }
+; CHECK-NEXT:         Lifetime:  { Stmt_body[i0, i1] -> [3 + 15i0 + 3i1] : i0 >= 0 and 0 <= i1 <= 8 - 5i0 and i1 <= 3 }
+; CHECK-NEXT:         Zone:
+; CHECK-NEXT:             Lifetime: { [MemRef_A[i0] -> [i1{{\]\]}} -> [Stmt_body[i0, o1] -> Val_add[{{\]\]}} : 3o1 = -3 - 15i0 + i1 and 0 <= i0 <= 1 and 3 + 15i0 <= i1 <= 12 + 15i0 } + Undef
+; CHECK-NEXT:             Written : { [MemRef_A[i0] -> [i1{{\]\]}} -> [Stmt_body[i0, o1] -> Val_add[{{\]\]}} : 3o1 = -2 - 15i0 + i1 and 0 <= i0 <= 1 and 2 + 15i0 <= i1 <= 11 + 15i0 }
+; CHECK-NEXT:     }
 ; CHECK-NEXT: }
 ; CHECK:      After knowledge {
-; CHECK-NEXT:     Lifetime: { [MemRef_A[i0] -> [i1{{\]\]}} -> [Stmt_reduction_for[i0, o1] -> Val_phi[{{\]\]}} : 3o1 = -2 - 15i0 + i1 and 0 <= i0 <= 1 and 2 + 15i0 <= i1 <= 11 + 15i0; [MemRef_A[i0] -> [i1{{\]\]}} -> [Stmt_reduction_for[i0, 4] -> Val_phi[{{\]\]}} : 0 <= i0 <= 1 and i1 >= 15 + 15i0; [MemRef_A[1] -> [29{{\]\]}} -> [Stmt_reduction_for[1, 4] -> Val_phi[{{\]\]}}; [MemRef_A[0] -> [14{{\]\]}} -> [Stmt_reduction_for[0, 4] -> Val_phi[{{\]\]}}; [MemRef_A[i0] -> [i1{{\]\]}} -> Undef[] : 0 <= i0 <= 1 and ((i1 <= 13 and 3*floor((-2 + i1)/3) <= -3 + i1) or (3*floor((-2 + i1)/3) = -2 + i1 and i1 <= 1 + 15i0)); [MemRef_A[1] -> [i1{{\]\]}} -> Undef[] : 14 <= i1 <= 28 and 3*floor((-2 + i1)/3) <= -3 + i1 } + Unknown
-; CHECK-NEXT:     Written : { [MemRef_A[i0] -> [i1{{\]\]}} -> [Stmt_reduction_for[i0, o1] -> Val_phi[{{\]\]}} : 3o1 = -1 - 15i0 + i1 and 0 <= i0 <= 1 and 15i0 < i1 <= 13 + 15i0; [MemRef_A[i0] -> [14 + 15i0{{\]\]}} -> [Stmt_reduction_for[i0, 4] -> Val_phi[{{\]\]}} : 0 <= i0 <= 1 }
+; CHECK-NEXT:     Lifetime: { [MemRef_A[i0] -> [i1{{\]\]}} -> Undef[] : 0 <= i0 <= 1 and i1 <= 15i0 and ((i1 <= 13 and 3*floor((-2 + i1)/3) <= -3 + i1) or 3*floor((-2 + i1)/3) = -2 + i1); [MemRef_A[1] -> [i1{{\]\]}} -> Undef[] : 14 <= i1 <= 15 and 3*floor((-2 + i1)/3) <= -3 + i1; [MemRef_A[i0] -> [1 + 15i0{{\]\]}} -> Val__000000e_00[] : 0 <= i0 <= 1; [MemRef_A[i0] -> [i1{{\]\]}} -> [Stmt_body[i0, o1] -> Val_add[{{\]\]}} : i0 >= 0 and 3 + 15i0 <= i1 <= 13 + 15i0 and ((3o1 = -4 - 15i0 + i1 and 4 + 15i0 <= i1 <= 25 and 15*floor((-4 - 15i0 + i1)/15) >= -13 - 15i0 + i1) or (3o1 = -3 - 15i0 + i1 and i0 <= 1 and i1 <= 12 + 15i0)); [MemRef_A[1] -> [28{{\]\]}} -> [Stmt_body[1, 3] -> Val_add[{{\]\]}}; [MemRef_A[i0] -> [i1{{\]\]}} -> [Stmt_reduction_for[i0, o1] -> Val_phi[{{\]\]}} : 3o1 = -2 - 15i0 + i1 and 0 <= i0 <= 1 and 2 + 15i0 <= i1 <= 11 + 15i0; [MemRef_A[i0] -> [i1{{\]\]}} -> [Stmt_reduction_for[i0, 4] -> Val_phi[{{\]\]}} : 0 <= i0 <= 1 and i1 >= 15 + 15i0; [MemRef_A[1] -> [29{{\]\]}} -> [Stmt_reduction_for[1, 4] -> Val_phi[{{\]\]}}; [MemRef_A[0] -> [14{{\]\]}} -> [Stmt_reduction_for[0, 4] -> Val_phi[{{\]\]}} } + Unknown
+; CHECK-NEXT:     Written : { [MemRef_A[i0] -> [i1{{\]\]}} -> [Stmt_body[i0, o1] -> Val_add[{{\]\]}} : i0 >= 0 and 2 + 15i0 <= i1 <= 12 + 15i0 and ((3o1 = -3 - 15i0 + i1 and 3 + 15i0 <= i1 <= 24) or (3o1 = -2 - 15i0 + i1 and i0 <= 1 and i1 <= 11 + 15i0)); [MemRef_A[1] -> [27{{\]\]}} -> [Stmt_body[1, 3] -> Val_add[{{\]\]}}; [MemRef_A[i0] -> [15i0{{\]\]}} -> Val__000000e_00[] : 0 <= i0 <= 1; [MemRef_A[i0] -> [i1{{\]\]}} -> [Stmt_reduction_for[i0, o1] -> Val_phi[{{\]\]}} : 3o1 = -1 - 15i0 + i1 and 0 <= i0 <= 1 and 15i0 < i1 <= 13 + 15i0; [MemRef_A[i0] -> [14 + 15i0{{\]\]}} -> [Stmt_reduction_for[i0, 4] -> Val_phi[{{\]\]}} : 0 <= i0 <= 1 }
 ; CHECK-NEXT: }
 ; CHECK:      After accesses {
 ; CHECK-NEXT:     Stmt_outer_for
 ; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 1]
 ; CHECK-NEXT:                 { Stmt_outer_for[i0] -> MemRef_phi__phi[] };
+; CHECK-NEXT:            new: { Stmt_outer_for[i0] -> MemRef_A[i0] : 0 <= i0 <= 1 };
 ; CHECK-NEXT:     Stmt_reduction_for
 ; CHECK-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 1]
 ; CHECK-NEXT:                 { Stmt_reduction_for[i0, i1] -> MemRef_phi__phi[] };
+; CHECK-NEXT:            new: { Stmt_reduction_for[i0, i1] -> MemRef_A[i0] : 0 <= i0 <= 1 and 0 <= i1 <= 4 };
 ; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 1]
 ; CHECK-NEXT:                 { Stmt_reduction_for[i0, i1] -> MemRef_phi[] };
 ; CHECK-NEXT:            new: { Stmt_reduction_for[i0, i1] -> MemRef_A[i0] : 0 <= i0 <= 1 and 0 <= i1 <= 4 };
 ; CHECK-NEXT:     Stmt_body
 ; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 1]
 ; CHECK-NEXT:                 { Stmt_body[i0, i1] -> MemRef_add[] };
+; CHECK-NEXT:            new: { Stmt_body[i0, i1] -> MemRef_A[i0] : 0 <= i0 <= 1 and 0 <= i1 <= 3 };
 ; CHECK-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 1]
 ; CHECK-NEXT:                 { Stmt_body[i0, i1] -> MemRef_phi[] };
 ; CHECK-NEXT:            new: { Stmt_body[i0, i1] -> MemRef_A[i0] : 0 <= i0 <= 1 and i1 >= 0 and -5i0 <= i1 <= 8 - 5i0 and i1 <= 3 };
 ; CHECK-NEXT:     Stmt_reduction_inc
 ; CHECK-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 1]
 ; CHECK-NEXT:                 { Stmt_reduction_inc[i0, i1] -> MemRef_add[] };
+; CHECK-NEXT:            new: { Stmt_reduction_inc[i0, i1] -> MemRef_A[i0] : i1 >= 0 and -5i0 <= i1 <= 7 - 5i0 and i1 <= 3; Stmt_reduction_inc[1, 3] -> MemRef_A[1] };
 ; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 1]
 ; CHECK-NEXT:                 { Stmt_reduction_inc[i0, i1] -> MemRef_phi__phi[] };
+; CHECK-NEXT:            new: { Stmt_reduction_inc[i0, i1] -> MemRef_A[i0] : 0 <= i0 <= 1 and i1 >= 0 and -5i0 <= i1 <= 3 };
 ; CHECK-NEXT:     Stmt_reduction_exit
 ; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 0]
 ; CHECK-NEXT:                 { Stmt_reduction_exit[i0] -> MemRef_A[i0] };

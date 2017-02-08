@@ -63,7 +63,7 @@ return:
 ; CHECK-NEXT: }
 ; CHECK:      Known zone: { [MemRef_A[i0] -> [i1{{\]\]}} -> [Stmt_body1[i0] -> Val_val[{{\]\]}} : 0 <= i0 <= 4; [MemRef_B[i0] -> [i1{{\]\]}} -> [Stmt_body1[i0] -> Val_val[{{\]\]}} : 0 <= i0 <= 4 and i1 >= 2 + 2i0 }
 ; CHECK:      Redirected knowns {
-; CHECK-NEXT:     Redirect Stmt_body1 MK_Array Load %val from { Stmt_body1[i0] -> MemRef_A[i0] } {
+; CHECK-NEXT:     Redirect Stmt_body1 Array Load %val from { Stmt_body1[i0] -> MemRef_A[i0] } {
 ; CHECK-NEXT:         Expects   : { Stmt_body2[i0] -> [Stmt_body1[i0] -> Val_val[{{\]\]}} : 0 <= i0 <= 3; Stmt_body2[4] -> [Stmt_body1[4] -> Val_val[{{\]\]}} }
 ; CHECK-NEXT:         Candidates: { Stmt_body2[i0] -> MemRef_A[i0] : 0 <= i0 <= 4 }
 ; CHECK-NEXT:         Chosen    : { Stmt_body2[i0] -> MemRef_A[i0] : 0 <= i0 <= 4 }

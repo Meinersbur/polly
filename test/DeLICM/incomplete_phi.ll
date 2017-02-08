@@ -118,29 +118,53 @@ return:
 ; CHECK-NEXT:     Written : { [MemRef_C[i0] -> [11 + 12i0{{\]\]}} -> [Stmt_inner_for[i0, 3] -> Val_phi[{{\]\]}} : 0 <= i0 <= 2 }
 ; CHECK-NEXT: }
 ; CHECK:      Mapped scalars {
-; CHECK-NEXT:     Mapping of double MemRef_phi MK_Value {
-; CHECK-NEXT:         Primary:   Stmt_inner_for MK_Value Define MemRef_phi as %phi [new: { Stmt_inner_for[i0, i1] -> MemRef_C[i0] : i1 >= 0 and 4 - 4i0 <= i1 <= 11 - 4i0 and i1 <= 3; Stmt_inner_for[0, i1] -> MemRef_C[0] : 0 <= i1 <= 3 }]
-; CHECK-NEXT:         Secondary: Stmt_inner_body MK_Value Use MemRef_phi [new: { Stmt_inner_body[i0, i1] -> MemRef_C[i0] : i1 >= 0 and 4 - 4i0 <= i1 <= 10 - 4i0 and i1 <= 2; Stmt_inner_body[0, i1] -> MemRef_C[0] : 0 <= i1 <= 2 }]
-; CHECK-NEXT:         Secondary: Stmt_inner_exit MK_Value Use MemRef_phi [new: { Stmt_inner_exit[i0] -> MemRef_C[i0] : 0 <= i0 <= 2 }]
+; CHECK-NEXT:     Mapping of MemRef_phi {
+; CHECK-NEXT:         Primary:
+; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:                 { Stmt_inner_for[i0, i1] -> MemRef_phi[] };
+; CHECK-NEXT:            new: { Stmt_inner_for[i0, i1] -> MemRef_C[i0] : i1 >= 0 and 4 - 4i0 <= i1 <= 11 - 4i0 and i1 <= 3; Stmt_inner_for[0, i1] -> MemRef_C[0] : 0 <= i1 <= 3 };
+; CHECK-NEXT:         Secondary:
+; CHECK-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:                 { Stmt_inner_body[i0, i1] -> MemRef_phi[] };
+; CHECK-NEXT:            new: { Stmt_inner_body[i0, i1] -> MemRef_C[i0] : i1 >= 0 and 4 - 4i0 <= i1 <= 10 - 4i0 and i1 <= 2; Stmt_inner_body[0, i1] -> MemRef_C[0] : 0 <= i1 <= 2 };
+; CHECK-NEXT:         Secondary:
+; CHECK-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:                 { Stmt_inner_exit[i0] -> MemRef_phi[] };
+; CHECK-NEXT:            new: { Stmt_inner_exit[i0] -> MemRef_C[i0] : 0 <= i0 <= 2 };
 ; CHECK-NEXT:         Target:    { Stmt_inner_for[i0, i1] -> MemRef_C[i0] : i1 >= 0 and 4 - 4i0 <= i1 <= 11 - 4i0 and i1 <= 3; Stmt_inner_for[0, i1] -> MemRef_C[0] : 0 <= i1 <= 3 }
 ; CHECK-NEXT:         Lifetime:  { Stmt_inner_for[i0, i1] -> [2 + 12i0 + 3i1] : 0 <= i0 <= 2 and 0 <= i1 <= 3 }
 ; CHECK-NEXT:         Zone:
 ; CHECK-NEXT:             Lifetime: { [MemRef_C[i0] -> [i1{{\]\]}} -> [Stmt_inner_for[i0, o1] -> Val_phi[{{\]\]}} : 3o1 = -2 - 12i0 + i1 and i0 <= 2 and i1 >= 2 + 12i0 and 14 <= i1 <= 11 + 12i0; [MemRef_C[0] -> [i1{{\]\]}} -> [Stmt_inner_for[0, o1] -> Val_phi[{{\]\]}} : 3o1 = -2 + i1 and 2 <= i1 <= 11 } + Undef
 ; CHECK-NEXT:             Written : { [MemRef_C[i0] -> [i1{{\]\]}} -> [Stmt_inner_for[i0, o1] -> Val_phi[{{\]\]}} : 3o1 = -1 - 12i0 + i1 and i0 <= 2 and i1 > 12i0 and 13 <= i1 <= 10 + 12i0; [MemRef_C[0] -> [i1{{\]\]}} -> [Stmt_inner_for[0, o1] -> Val_phi[{{\]\]}} : 3o1 = -1 + i1 and 0 < i1 <= 10 }
 ; CHECK-NEXT:     }
-; CHECK-NEXT:     Mapping of double MemRef_phi__phi MK_PHI {
-; CHECK-NEXT:         Primary:   Stmt_inner_for MK_PHI Merge MemRef_phi__phi as %phi [new: { Stmt_inner_for[i0, i1] -> MemRef_C[i0] : i0 <= 2 and i1 >= 0 and 4 - 4i0 <= i1 <= 3; Stmt_inner_for[0, i1] -> MemRef_C[0] : 0 <= i1 <= 3 }]
-; CHECK-NEXT:         Secondary: Stmt_outer_body MK_PHI Incoming MemRef_phi__phi value 0.000000e+00 [new: { Stmt_outer_body[i0] -> MemRef_C[i0] : 0 <= i0 <= 2 }]
-; CHECK-NEXT:         Secondary: Stmt_inner_inc MK_PHI Incoming MemRef_phi__phi value %sum [new: { Stmt_inner_inc[i0, i1] -> MemRef_C[i0] : i0 <= 2 and i1 >= 0 and 3 - 4i0 <= i1 <= 2; Stmt_inner_inc[0, i1] -> MemRef_C[0] : 0 <= i1 <= 2 }]
+; CHECK-NEXT:     Mapping of MemRef_phi__phi {
+; CHECK-NEXT:         Primary:
+; CHECK-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:                 { Stmt_inner_for[i0, i1] -> MemRef_phi__phi[] };
+; CHECK-NEXT:            new: { Stmt_inner_for[i0, i1] -> MemRef_C[i0] : i0 <= 2 and i1 >= 0 and 4 - 4i0 <= i1 <= 3; Stmt_inner_for[0, i1] -> MemRef_C[0] : 0 <= i1 <= 3 };
+; CHECK-NEXT:         Secondary:
+; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:                 { Stmt_outer_body[i0] -> MemRef_phi__phi[] };
+; CHECK-NEXT:            new: { Stmt_outer_body[i0] -> MemRef_C[i0] : 0 <= i0 <= 2 };
+; CHECK-NEXT:         Secondary:
+; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:                 { Stmt_inner_inc[i0, i1] -> MemRef_phi__phi[] };
+; CHECK-NEXT:            new: { Stmt_inner_inc[i0, i1] -> MemRef_C[i0] : i0 <= 2 and i1 >= 0 and 3 - 4i0 <= i1 <= 2; Stmt_inner_inc[0, i1] -> MemRef_C[0] : 0 <= i1 <= 2 };
 ; CHECK-NEXT:         Target:    { Stmt_inner_for[i0, i1] -> MemRef_C[i0] : i0 <= 2 and i1 >= 0 and 4 - 4i0 <= i1 <= 3; Stmt_inner_for[0, i1] -> MemRef_C[0] : 0 <= i1 <= 3 }
-; CHECK-NEXT:         Lifetime:  { Stmt_inner_for[i0, i1] -> [1 + 12i0 + 3i1] : 0 <= i0 <= 2 and 0 <= i1 <= 3 }
+; CHECK-NEXT:         Lifetime:  { Stmt_inner_for[i0, i1] -> [1 + 12i0 + 3i1] : i0 <= 2 and i1 >= 0 and -4i0 <= i1 <= 3 }
 ; CHECK-NEXT:         Zone:
 ; CHECK-NEXT:             Lifetime: { [MemRef_C[i0] -> [i1{{\]\]}} -> Val__000000e_00[] : 12*floor((-1 + i1)/12) = -1 + i1 and i0 <= 2 and i1 > 12i0 and 4 <= i1 <= 10 + 12i0; [MemRef_C[0] -> [1{{\]\]}} -> Val__000000e_00[]; [MemRef_C[i0] -> [i1{{\]\]}} -> [Stmt_inner_body[i0, o1] -> Val_sum[{{\]\]}} : 3o1 = -4 - 12i0 + i1 and i1 >= 4 + 12i0 and 13 <= i1 <= 31 and i1 <= 10 + 12i0 and 12*floor((-4 - 12i0 + i1)/12) >= -10 - 12i0 + i1; [MemRef_C[0] -> [i1{{\]\]}} -> [Stmt_inner_body[0, o1] -> Val_sum[{{\]\]}} : 3o1 = -4 + i1 and 4 <= i1 <= 10 and 12*floor((-4 + i1)/12) >= -10 + i1; [MemRef_C[2] -> [34{{\]\]}} -> [Stmt_inner_body[2, 2] -> Val_sum[{{\]\]}} } + Undef
 ; CHECK-NEXT:             Written : { [MemRef_C[i0] -> [i1{{\]\]}} -> [Stmt_inner_body[i0, o1] -> Val_sum[{{\]\]}} : 3o1 = -3 - 12i0 + i1 and i1 >= 3 + 12i0 and 12 <= i1 <= 30 and i1 <= 9 + 12i0; [MemRef_C[0] -> [i1{{\]\]}} -> [Stmt_inner_body[0, o1] -> Val_sum[{{\]\]}} : 3o1 = -3 + i1 and 3 <= i1 <= 9; [MemRef_C[2] -> [33{{\]\]}} -> [Stmt_inner_body[2, 2] -> Val_sum[{{\]\]}}; [MemRef_C[i0] -> [12i0{{\]\]}} -> Val__000000e_00[] : 0 <= i0 <= 2 }
 ; CHECK-NEXT:     }
-; CHECK-NEXT:     Mapping of double MemRef_sum MK_Value {
-; CHECK-NEXT:         Primary:   Stmt_inner_body MK_Value Define MemRef_sum as %sum [new: { Stmt_inner_body[i0, i1] -> MemRef_C[i0] : i1 >= 0 and 3 - 4i0 <= i1 <= 11 - 4i0 and i1 <= 2; Stmt_inner_body[0, i1] -> MemRef_C[0] : 0 <= i1 <= 2 }]
-; CHECK-NEXT:         Secondary: Stmt_inner_inc MK_Value Use MemRef_sum [new: { Stmt_inner_inc[i0, i1] -> MemRef_C[i0] : i1 >= 0 and 3 - 4i0 <= i1 <= 9 - 4i0 and i1 <= 2; Stmt_inner_inc[0, i1] -> MemRef_C[0] : 0 <= i1 <= 2; Stmt_inner_inc[2, 2] -> MemRef_C[2] }]
+; CHECK-NEXT:     Mapping of MemRef_sum {
+; CHECK-NEXT:         Primary:
+; CHECK-NEXT:             MustWriteAccess :=    [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:                 { Stmt_inner_body[i0, i1] -> MemRef_sum[] };
+; CHECK-NEXT:            new: { Stmt_inner_body[i0, i1] -> MemRef_C[i0] : i1 >= 0 and 3 - 4i0 <= i1 <= 11 - 4i0 and i1 <= 2; Stmt_inner_body[0, i1] -> MemRef_C[0] : 0 <= i1 <= 2 };
+; CHECK-NEXT:         Secondary:
+; CHECK-NEXT:             ReadAccess :=    [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:                 { Stmt_inner_inc[i0, i1] -> MemRef_sum[] };
+; CHECK-NEXT:            new: { Stmt_inner_inc[i0, i1] -> MemRef_C[i0] : i1 >= 0 and 3 - 4i0 <= i1 <= 9 - 4i0 and i1 <= 2; Stmt_inner_inc[0, i1] -> MemRef_C[0] : 0 <= i1 <= 2; Stmt_inner_inc[2, 2] -> MemRef_C[2] };
 ; CHECK-NEXT:         Target:    { Stmt_inner_body[i0, i1] -> MemRef_C[i0] : i1 >= 0 and 3 - 4i0 <= i1 <= 11 - 4i0 and i1 <= 2; Stmt_inner_body[0, i1] -> MemRef_C[0] : 0 <= i1 <= 2 }
 ; CHECK-NEXT:         Lifetime:  { Stmt_inner_body[i0, i1] -> [3 + 12i0 + 3i1] : i0 >= 0 and 0 <= i1 <= 10 - 4i0 and i1 <= 2 }
 ; CHECK-NEXT:         Zone:
