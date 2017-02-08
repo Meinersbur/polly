@@ -47,6 +47,7 @@ using namespace polly;
 cl::OptionCategory PollyCategory("Polly Options",
                                  "Configure the polly loop optimizer");
 
+#if 1 // debugging
 static cl::opt<bool>
     DumpBefore("polly-dump-before",
                cl::desc("Dump module before Polly transformations"),
@@ -60,6 +61,7 @@ static cl::opt<bool>
 static cl::opt<bool> DumpDebug("polly-dump-debug",
                                cl::desc("Dump debug to file instead to stderr"),
                                cl::init(false), cl::cat(PollyCategory));
+#endif
 
 static cl::opt<bool>
     PollyEnabled("polly", cl::desc("Enable the polly optimizer (only at -O3)"),

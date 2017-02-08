@@ -115,7 +115,7 @@ if (NOT DEFINED LLVM_MAIN_SRC_DIR)
 else (NOT DEFINED LLVM_MAIN_SRC_DIR)
 
   set(LLVM_LIT ${LLVM_TOOLS_BINARY_DIR}/llvm-lit)
-  set(POLLY_TEST_DEPS llvm-config opt LLVMPolly FileCheck not polly-isl-test)
+  set(POLLY_TEST_DEPS llvm-config opt clang LLVMPolly FileCheck not polly-isl-test)
   if (POLLY_GTEST_AVAIL)
     list(APPEND POLLY_TEST_DEPS PollyUnitTests)
   endif ()
@@ -201,7 +201,7 @@ macro(updateable_test infile)
   file(MAKE_DIRECTORY "${targetdir}")
   add_custom_command(
     OUTPUT  "${targetfile}.updated"
-    DEPENDS "${filepath}" "${LLVM_TOOLS_DIR}/update_check.py" opt
+    DEPENDS "${filepath}" "${LLVM_TOOLS_DIR}/update_check.py" opt clang
     COMMAND "${PYTHON_EXECUTABLE}" "${LLVM_TOOLS_DIR}/update_check.py" --autorule "${filepath}" --output "${targetfile}.updated"
     COMMENT "Updating test ${filepath} step 1"
     VERBATIM

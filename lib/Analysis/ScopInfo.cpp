@@ -297,15 +297,15 @@ __isl_give isl_id *ScopArrayInfo::getBasePtrId() const {
   return isl_id_copy(Id);
 }
 
-void ScopArrayInfo::dump() const { print(errs()); }
+void ScopArrayInfo::dump() const { print(errs(), false, false, true); }
 
 void ScopArrayInfo::print(raw_ostream &OS, bool SizeAsPwAff,
-                          bool Oneline) const {
+                          bool Oneline, bool Debugging) const {
   if (!Oneline)
     OS.indent(8);
   OS << *getElementType() << " " << getName();
 
-  if (Oneline) {
+  if (Debugging) {
     switch (getKind()) {
     case MemoryKind::Array:
       OS << " Array";
