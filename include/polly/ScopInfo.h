@@ -354,7 +354,7 @@ public:
   /// @param SizeAsPwAff Print the size as isl_pw_aff
   /// @param Oneline Print a more dense representation without line breaks.
   void print(raw_ostream &OS, bool SizeAsPwAff = false, bool Oneline = false,
-             bool Testable = false) const;
+             bool Testable = true) const;
 
   /// Access the ScopArrayInfo associated with an access function.
   static const ScopArrayInfo *
