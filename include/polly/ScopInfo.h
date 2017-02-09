@@ -352,7 +352,10 @@ public:
   /// Print a readable representation to @p OS.
   ///
   /// @param SizeAsPwAff Print the size as isl_pw_aff
-  /// @param Oneline Print a more dense representation without line breaks.
+  /// @param Oneline     Print a more dense representation without line breaks.
+  /// @param Testable    For use in regression tests; the output remain constant
+  ///                    over time and not add additional information that might
+  ///                    break regression tests.
   void print(raw_ostream &OS, bool SizeAsPwAff = false, bool Oneline = false,
              bool Testable = true) const;
 
