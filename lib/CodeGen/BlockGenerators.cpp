@@ -508,7 +508,7 @@ void BlockGenerator::generateScalarLoads(
             DT.dominates(cast<Instruction>(Address)->getParent(),
                          Builder.GetInsertBlock())) &&
            "Domination violation");
-    BBMap[MA->getBaseAddr()] =
+    BBMap[MA->getOriginalBaseAddr()] =
         Builder.CreateLoad(Address, Address->getName() + ".reload");
   }
 }
@@ -1189,7 +1189,7 @@ void VectorBlockGenerator::generateScalarVectorLoads(
 
     Value *VectorVal = Builder.CreateShuffleVector(
         Val, Val, SplatVector, Address->getName() + "_p_splat");
-    VectorBlockMap[MA->getBaseAddr()] = VectorVal;
+    VectorBlockMap[MA->getOriginalBaseAddr()] = VectorVal;
   }
 }
 
