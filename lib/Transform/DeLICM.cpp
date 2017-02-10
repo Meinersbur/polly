@@ -2680,12 +2680,12 @@ private:
       }
     };
 
-    // Add initial scalar. First the value written by the store for first priority, then all inputs
-    // of its statement.
+    // Add initial scalar. First the value written by the store for first
+    // priority, then all inputs of its statement.
     auto WrittenVal = TargetStoreMA->getAccessValue();
     if (auto InputAcc = getInputAccessOf(WrittenVal, TargetStmt, false))
       Worklist.push_back(InputAcc);
-    
+
     ProcessAllIncoming(TargetStmt);
 
     auto AnyMapped = false;

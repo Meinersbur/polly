@@ -658,7 +658,7 @@ void BlockGenerator::generateScalarStores(
     Builder.CreateStore(Val, Address);
 
     if (IsPartial)
-      Builder.SetInsertPoint(TailBlock);
+      Builder.SetInsertPoint(TailBlock, TailBlock->getFirstInsertionPt());
   }
 }
 
