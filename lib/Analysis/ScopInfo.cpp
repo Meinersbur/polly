@@ -1208,6 +1208,7 @@ void MemoryAccess::setNewAccessRelation(__isl_take isl_map *NewAccess) {
   isl_set_free(NewDomain);
   isl_set_free(StmtDomain);
 #endif
+  assert(isl_map_is_empty(NewAccess) == isl_bool_false && "Instead of never accessing anything, you may want to remove this access");
 
   auto *NewAccessSpace = isl_space_range(NewSpace);
   assert(isl_space_has_tuple_id(NewAccessSpace, isl_dim_set) &&
