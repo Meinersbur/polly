@@ -178,6 +178,21 @@ private:
     return Modified;
   }
 
+  bool removeEmptyPartialAccesses() {
+	  bool Modified = false;
+	  for (auto &Stmt : *S) {
+		  SmallVector<MemoryAccess *,8> Accs{Stmt.begin(), Stmt.end()};
+		  for (auto *MA : Accs) {
+			  auto AccRel = give( MA->getAccessRelation());
+			  if (isl_map_is_empty(AccRel.keep()) == isl_bool_true) {
+				  Stmt.removeSingleMemoryAccess(MA);
+				  Modified=true;
+			  }
+		  }
+	  }
+	  return Modified;
+  }
+
   bool markAndSweep(LoopInfo *LI) {
     //  DenseSet<VirtualInstruction > Used;
     DenseSet<MemoryAccess *> UsedMA;
@@ -331,11 +346,15 @@ public:
     this->S = &S;
     IslCtx = S.getSharedIslCtx();
     ScopsProcessed++;
-
-    // DefUse.compute(&S);
+	 bool Modified = false;
 
     DEBUG(dbgs() << "Cleaning up no-op load-store combinations...\n");
-    auto Modified = cleanup();
+   if ( cleanup())
+	   Modified=true;
+
+	DEBUG(dbgs() << "Removing partial writes that never happen...\n");
+	if (removeEmptyPartialAccesses())
+		Modified = true;
 
     DEBUG(dbgs() << "Cleanup unused accesses...\n");
     if (markAndSweep(&getAnalysis<LoopInfoWrapperPass>().getLoopInfo()))

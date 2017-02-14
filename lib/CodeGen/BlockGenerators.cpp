@@ -188,7 +188,11 @@ Value *BlockGenerator::generateLocationAccessed(
     Type *ExpectedType) {
   isl_ast_expr *AccessExpr = isl_id_to_ast_expr_get(NewAccesses, Id);
 
-  if (AccessExpr) {
+  if (AccessExpr) { 
+	  if (isl_ast_expr_get_type(AccessExpr) ==isl_ast_expr_int) { 
+		return UndefValue::get(ExpectedType);
+	  }
+
     AccessExpr = isl_ast_expr_address_of(AccessExpr);
     auto Address = ExprBuilder->create(AccessExpr);
 
