@@ -356,6 +356,7 @@ public:
 
   static void swap(ThisTy &LHS, ThisTy &RHS) { std::swap(LHS.Obj, RHS.Obj); }
 
+  static ThisTy keep(__isl_keep T *Obj) { return ThisTy(Obj); }
   T *keep() const { return Obj; }
   __isl_give T *copy() const { return Traits::copy(Obj); }
 

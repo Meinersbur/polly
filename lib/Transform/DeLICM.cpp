@@ -199,8 +199,11 @@ cl::opt<unsigned long>
 
 cl::opt<bool> DelicmOverapproximatePHI(
     "polly-delicm-overapproximate-phi",
-    cl::desc(
-        "Do mare PHI writes than necessary in order to avoid partial accesses"),
+    cl::desc("Do more PHI writes than necessary in order to avoid partial accesses"),
+    cl::init(false), cl::Hidden, cl::cat(PollyCategory));
+
+cl::opt<bool> DelicmPartialAccs("polly-delicm-partial-accs",
+    cl::desc("Allow partial accesses"),
     cl::init(false), cl::Hidden, cl::cat(PollyCategory));
 
 cl::opt<bool> DelicmMapPHI("polly-delicm-map-phi",
@@ -211,10 +214,12 @@ cl::opt<bool> DelicmComputePHI("polly-delicm-compute-phi",
                                cl::desc("Compute PHI value"), cl::init(false),
                                cl::Hidden, cl::cat(PollyCategory));
 
+#if 0
 cl::opt<bool> DelicmUndefinedDummyRead(
     "polly-delicm-undefined-dummy-read",
     cl::desc("Use a dummy element to read a dummy value"), cl::init(false),
     cl::Hidden, cl::cat(PollyCategory));
+#endif
 
 STATISTIC(DeLICMAnalyzed, "Number of successfully analyzed SCoPs");
 STATISTIC(DeLICMOutOfQuota,
@@ -2172,6 +2177,7 @@ private:
           UseTarget.copy(), isl_union_set_from_set(Domain.copy())));
       auto NewAccRelMap = singleton(NewAccRel, NewAccRelSpace);
 
+#if 0
       if (DelicmUndefinedDummyRead) {
         // In case there is no target for a read (can happen for reading the
         // incoming value of a computed PHI, but the incoming block is not the
@@ -2196,6 +2202,7 @@ private:
           RequiresUndefined = true;
         }
       }
+#endif
 
       simplify(NewAccRelMap);
 
@@ -2355,10 +2362,8 @@ private:
       UniverseWritesDom = give(isl_union_map_range(PerPHIWrites.copy()));
     }
 
-    if (!isl_union_set_is_subset(UniverseWritesDom.keep(),
-                                 ExpandedWritesDom.keep())) {
-      DEBUG(dbgs() << "    Reject because did not find PHI write mapping for "
-                      "all instances\n");
+    if (!DelicmPartialAccs && isl_union_set_is_subset(UniverseWritesDom.keep(), ExpandedWritesDom.keep()) != isl_bool_true) {
+      DEBUG(dbgs() << "    Reject because did not find PHI write mapping for all instances\n");
       DEBUG(dbgs() << "      Relevant mapping:     " << RelevantWritesTarget
                    << '\n');
       DEBUG(dbgs() << "      Extrapolated mapping: " << ExpandedTargetWrites

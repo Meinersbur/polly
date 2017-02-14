@@ -783,6 +783,7 @@ IslNodeBuilder::createNewAccesses(ScopStmt *Stmt,
 	isl_ast_expr *AccessExpr;
 	if (isl_set_is_empty(AccDomain) == isl_bool_true) { // AccessExpr = nullptr;
 		AccessExpr = isl_ast_expr_from_val( isl_val_zero( isl_ast_build_get_ctx(Build)   ) );
+		isl_pw_multi_aff_free(PWAccRel);
 	}else {
 		AccessExpr = isl_ast_build_access_from_pw_multi_aff(Build, PWAccRel);
 	}
