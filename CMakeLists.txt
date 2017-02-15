@@ -198,6 +198,7 @@ if (POLLY_GTEST_AVAIL)
   add_subdirectory(unittests)
 endif ()
 add_subdirectory(tools)
+add_subdirectory(cmake)
 # TODO: docs.
 
 
