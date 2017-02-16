@@ -188,11 +188,11 @@ Value *BlockGenerator::generateLocationAccessed(
     Type *ExpectedType) {
   isl_ast_expr *AccessExpr = isl_id_to_ast_expr_get(NewAccesses, Id);
 
-  if (AccessExpr) { 
-	  if (isl_ast_expr_get_type(AccessExpr) ==isl_ast_expr_int) { 
-		  isl_ast_expr_free(AccessExpr);
-		return UndefValue::get(ExpectedType->getPointerTo());
-	  }
+  if (AccessExpr) {
+    if (isl_ast_expr_get_type(AccessExpr) == isl_ast_expr_int) {
+      isl_ast_expr_free(AccessExpr);
+      return UndefValue::get(ExpectedType->getPointerTo());
+    }
 
     AccessExpr = isl_ast_expr_address_of(AccessExpr);
     auto Address = ExprBuilder->create(AccessExpr);
@@ -523,8 +523,8 @@ void BlockGenerator::generateComputedPHIs(ScopStmt &Stmt, LoopToScevMapT &LTS,
   for (auto &X : Stmt.ComputedPHIs) {
     auto *PHI = X.first;
     auto &IncomingValues = X.second;
-	auto Build  = NonowningIslPtr<isl_ast_build>::keep(Stmt.getAstBuild());
-    //auto Build = give(isl_ast_build_copy( Stmt.getAstBuild()));
+    auto Build = NonowningIslPtr<isl_ast_build>::keep(Stmt.getAstBuild());
+    // auto Build = give(isl_ast_build_copy( Stmt.getAstBuild()));
     auto USchedule = give(isl_ast_build_get_schedule(Build.keep()));
     auto UDomain = give(isl_union_set_from_set(Stmt.getDomain()));
     auto USchedule2 =

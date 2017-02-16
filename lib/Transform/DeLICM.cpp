@@ -199,12 +199,14 @@ cl::opt<unsigned long>
 
 cl::opt<bool> DelicmOverapproximatePHI(
     "polly-delicm-overapproximate-phi",
-    cl::desc("Do more PHI writes than necessary in order to avoid partial accesses"),
+    cl::desc(
+        "Do more PHI writes than necessary in order to avoid partial accesses"),
     cl::init(false), cl::Hidden, cl::cat(PollyCategory));
 
 cl::opt<bool> DelicmPartialWrites("polly-delicm-partial-writes",
-    cl::desc("Allow partial writes for PHIs"),
-    cl::init(false), cl::Hidden, cl::cat(PollyCategory));
+                                  cl::desc("Allow partial writes for PHIs"),
+                                  cl::init(false), cl::Hidden,
+                                  cl::cat(PollyCategory));
 
 cl::opt<bool> DelicmMapPHI("polly-delicm-map-phi",
                            cl::desc("Map PHI to array elements"),
@@ -2362,8 +2364,11 @@ private:
       UniverseWritesDom = give(isl_union_map_range(PerPHIWrites.copy()));
     }
 
-    if (!DelicmPartialWrites && isl_union_set_is_subset(UniverseWritesDom.keep(), ExpandedWritesDom.keep()) != isl_bool_true) {
-      DEBUG(dbgs() << "    Reject because did not find PHI write mapping for all instances\n");
+    if (!DelicmPartialWrites &&
+        isl_union_set_is_subset(UniverseWritesDom.keep(),
+                                ExpandedWritesDom.keep()) != isl_bool_true) {
+      DEBUG(dbgs() << "    Reject because did not find PHI write mapping for "
+                      "all instances\n");
       DEBUG(dbgs() << "      Relevant mapping:     " << RelevantWritesTarget
                    << '\n');
       DEBUG(dbgs() << "      Extrapolated mapping: " << ExpandedTargetWrites
