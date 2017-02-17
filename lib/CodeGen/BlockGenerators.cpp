@@ -49,6 +49,13 @@ static cl::opt<bool> DebugPrinting(
     cl::desc("Add printf calls that show the values loaded/stored."),
     cl::Hidden, cl::init(false), cl::ZeroOrMore, cl::cat(PollyCategory));
 
+#if 1 // Trace output
+static cl::opt<bool> TraceStmts(
+    "polly-codegen-trace-stmt",
+    cl::desc("Add printf calls that print the statement being executed"),
+    cl::Hidden, cl::init(false), cl::ZeroOrMore, cl::cat(PollyCategory));
+#endif
+
 static cl::opt<bool> UseVirtualStmts("polly-codegen-virtual-statements",
                                      cl::desc("Use virtual statements"),
                                      cl::Hidden, cl::init(false),
@@ -362,6 +369,9 @@ BasicBlock *BlockGenerator::copyBB(ScopStmt &Stmt, BasicBlock *BB,
                                    isl_id_to_ast_expr *NewAccesses) {
   BasicBlock *CopyBB = splitBB(BB);
   Builder.SetInsertPoint(&CopyBB->front());
+#if 1 // Debug tracing
+  generateBeginStmtTrace(Stmt, LTS, BBMap);
+#endif // Debug tracing
   generateScalarLoads(Stmt, LTS, BBMap, NewAccesses);
   generateComputedPHIs(Stmt, LTS, BBMap);
 
@@ -517,6 +527,52 @@ void BlockGenerator::generateScalarLoads(
         Builder.CreateLoad(Address, Address->getName() + ".reload");
   }
 }
+
+#if 1 // Debug tracing
+//TODO: Loop indention
+void BlockGenerator::generateBeginStmtTrace(ScopStmt &Stmt, LoopToScevMapT &LTS,  ValueMapT &BBMap) {
+	if (!TraceStmts)
+		return;
+
+	auto BaseName =  Stmt.getBaseName();
+
+				auto AstBuild = give(isl_ast_build_copy(Stmt.getAstBuild()));
+			auto Domain = give(Stmt.getDomain());
+			auto UDomain = give(isl_union_set_from_set(Domain.copy()));
+
+			  auto USchedule = give(isl_ast_build_get_schedule(AstBuild.keep()));
+			  USchedule = give(isl_union_map_intersect_domain(USchedule.take(), UDomain.copy()));
+			  assert(isl_union_map_is_empty(USchedule.keep()) == isl_bool_false);
+			  auto Schedule = give(isl_map_from_union_map(USchedule.copy()));
+			  auto RevSchedule = give(isl_map_reverse(Schedule.copy()));
+
+			  auto SchedulePwMultiAff = give(isl_pw_multi_aff_from_map(RevSchedule.copy()));
+			  auto ScheduleMultiPwAff = give(isl_multi_pw_aff_from_pw_multi_aff(SchedulePwMultiAff.copy()));
+			  int DomDims = isl_multi_pw_aff_dim(ScheduleMultiPwAff.keep(), isl_dim_out);
+
+			  auto ScheduledDomain = give(isl_map_range(Schedule.copy()));
+			  auto RestrictedBuild =give(isl_ast_build_restrict(AstBuild.copy(), ScheduledDomain.copy()));
+
+
+	SmallVector<llvm::Value*,8> Values;
+	Values.push_back( RuntimeDebugBuilder::getPrintableString(Builder, BaseName));
+	Values.push_back( RuntimeDebugBuilder::getPrintableString(Builder, "("));
+
+	for (int i = 0;i<DomDims;i+=1) {
+		if (i>0) 
+			Values.push_back( RuntimeDebugBuilder::getPrintableString(Builder, ", "));
+		
+			auto Coord = give( isl_multi_pw_aff_get_pw_aff(ScheduleMultiPwAff.keep(), i ));
+			  auto IsInSet = give(isl_ast_build_expr_from_pw_aff (RestrictedBuild.keep(), Coord.copy()));
+			  auto *IsInSetExpr = ExprBuilder->create(IsInSet.copy());
+			 Values.push_back(IsInSetExpr );
+	}
+
+	Values.push_back( RuntimeDebugBuilder::getPrintableString(Builder, ")\n"));
+
+	RuntimeDebugBuilder::createPrinter(Builder, false, Values );
+}
+#endif 
 
 void BlockGenerator::generateComputedPHIs(ScopStmt &Stmt, LoopToScevMapT &LTS,
                                           ValueMapT &BBMap) {
@@ -1326,6 +1382,9 @@ void RegionGenerator::copyStmt(ScopStmt &Stmt, LoopToScevMapT &LTS,
   Builder.SetInsertPoint(&EntryBBCopy->front());
 
   ValueMapT &EntryBBMap = RegionMaps[EntryBBCopy];
+#if 1 // Debug tracing
+    generateBeginStmtTrace(Stmt, LTS, EntryBBMap);
+#endif
   generateScalarLoads(Stmt, LTS, EntryBBMap, IdToAstExp);
   generateComputedPHIs(Stmt, LTS, EntryBBMap);
 

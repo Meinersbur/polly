@@ -64,20 +64,6 @@ static cl::opt<bool> DumpDebug("polly-dump-debug",
 #endif
 
 static cl::opt<bool>
-    DumpBefore("polly-dump-before",
-               cl::desc("Dump module before Polly transformations"),
-               cl::init(true), cl::cat(PollyCategory));
-
-static cl::opt<bool>
-    DumpAfter("polly-dump-after",
-              cl::desc("Dump module after Polly transformations"),
-              cl::init(true), cl::cat(PollyCategory));
-
-static cl::opt<bool> DumpDebug("polly-dump-debug",
-                               cl::desc("Dump debug to file instead to stderr"),
-                               cl::init(false), cl::cat(PollyCategory));
-
-static cl::opt<bool>
     PollyEnabled("polly", cl::desc("Enable the polly optimizer (only at -O3)"),
                  cl::init(false), cl::ZeroOrMore, cl::cat(PollyCategory));
 

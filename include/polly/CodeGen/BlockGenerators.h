@@ -331,6 +331,11 @@ protected:
                            ValueMapT &BBMap,
                            __isl_keep isl_id_to_ast_expr *NewAccesses);
 
+#if 1 // Debug tracing
+   void generateBeginStmtTrace(ScopStmt &Stmt, LoopToScevMapT &LTS,  ValueMapT &BBMap);
+#endif
+
+
   void generateComputedPHIs(ScopStmt &Stmt, LoopToScevMapT &LTS,
                             ValueMapT &BBMap);
 

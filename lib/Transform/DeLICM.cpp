@@ -2973,7 +2973,7 @@ public:
     // Free resources for previous scop's computation, if not yet done.
     releaseMemory();
 
-    if (UnprofitableScalarAccs)
+    if (UnprofitableScalarAccs && !PollyProcessUnprofitable)
       DEBUG(dbgs() << "WARNING: -polly-unprofitable-scalar-accs=true active; "
                       "optimizable SCoPs might have been pruned prematurely\n");
 

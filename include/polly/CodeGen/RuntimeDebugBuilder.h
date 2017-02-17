@@ -63,7 +63,11 @@ struct RuntimeDebugBuilder {
     createPrinter(Builder, /* GPU */ true, Vector, args...);
   }
 
-private:
+  static llvm:: Value *getPrintableString(PollyIRBuilder &Builder, llvm::StringRef Str) {
+ return Builder.CreateGlobalStringPtr(Str, "", 4);
+  }
+
+//private:
   /// Handle Values.
   template <typename... Args>
   static void createPrinter(PollyIRBuilder &Builder, bool UseGPU,
@@ -78,7 +82,7 @@ private:
   static void createPrinter(PollyIRBuilder &Builder, bool UseGPU,
                             std::vector<llvm::Value *> &Values,
                             llvm::StringRef String, Args... args) {
-    Values.push_back(Builder.CreateGlobalStringPtr(String, "", 4));
+    Values.push_back(getPrintableString(Builder, String));
     createPrinter(Builder, UseGPU, Values, args...);
   }
 
