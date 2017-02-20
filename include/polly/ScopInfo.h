@@ -1240,7 +1240,7 @@ private:
   Loop *SurroundingLoop;
 
 public:
-  SmallDenseMap<PHINode *, IslPtr<isl_union_map>> ComputedPHIs;
+  MapVector <PHINode *, IslPtr<isl_union_map>> ComputedPHIs;
 
 private:
   /// Build the statement.
@@ -1339,6 +1339,12 @@ public:
   /// For block statements, it returns the BasicBlock itself. For subregion
   /// statements, return its entry block.
   BasicBlock *getEntryBlock() const;
+
+  bool contains(BasicBlock *BB) const { if (isRegionStmt() )
+  return getRegion()->contains(BB);
+  return getBasicBlock()==BB;
+  }
+  bool contains(Instruction *Inst ) const { return contains(Inst->getParent()); }
 
   /// Return true if this statement does not contain any accesses.
   bool isEmpty() const { return MemAccs.empty(); }

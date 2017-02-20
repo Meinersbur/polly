@@ -43,7 +43,7 @@ struct RuntimeDebugBuilder {
   template <typename... Args>
   static void createCPUPrinter(PollyIRBuilder &Builder, Args... args) {
     std::vector<llvm::Value *> Vector;
-    createPrinter(Builder, /* CPU */ false, Vector, args...);
+    createPrinter(Builder, /* CPU */ false, /* Flush */ true, Vector, args...);
   }
 
   /// Print a set of LLVM-IR Values or StringRefs on an NVIDIA GPU.
@@ -70,20 +70,20 @@ struct RuntimeDebugBuilder {
 //private:
   /// Handle Values.
   template <typename... Args>
-  static void createPrinter(PollyIRBuilder &Builder, bool UseGPU,
+  static void createPrinter(PollyIRBuilder &Builder, bool UseGPU, bool Flush,
                             std::vector<llvm::Value *> &Values,
                             llvm::Value *Value, Args... args) {
     Values.push_back(Value);
-    createPrinter(Builder, UseGPU, Values, args...);
+    createPrinter(Builder, UseGPU, Flush, Values, args...);
   }
 
   /// Handle StringRefs.
   template <typename... Args>
-  static void createPrinter(PollyIRBuilder &Builder, bool UseGPU,
+  static void createPrinter(PollyIRBuilder &Builder, bool UseGPU, bool Flush,
                             std::vector<llvm::Value *> &Values,
                             llvm::StringRef String, Args... args) {
     Values.push_back(getPrintableString(Builder, String));
-    createPrinter(Builder, UseGPU, Values, args...);
+    createPrinter(Builder, UseGPU, Flush, Values, args...);
   }
 
   /// Handle ArrayRefs.
@@ -102,7 +102,7 @@ struct RuntimeDebugBuilder {
   }
 
   /// Print a list of Values.
-  static void createPrinter(PollyIRBuilder &Builder, bool UseGPU,
+  static void createPrinter(PollyIRBuilder &Builder, bool UseGPU, bool Flush,
                             llvm::ArrayRef<llvm::Value *> Values);
 
   /// Print a list of Values on a GPU.
@@ -110,7 +110,7 @@ struct RuntimeDebugBuilder {
                                 llvm::ArrayRef<llvm::Value *> Values);
 
   /// Print a list of Values on a CPU.
-  static void createCPUPrinterT(PollyIRBuilder &Builder,
+  static void createCPUPrinterT(PollyIRBuilder &Builder,bool Flush,
                                 llvm::ArrayRef<llvm::Value *> Values);
 
   /// Get a reference to the 'printf' function.

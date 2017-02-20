@@ -409,7 +409,9 @@ bool canSynthesize(const llvm::Value *V, const Scop &S,
 /// operand must be defined (i.e. its definition dominates this block).
 /// Non-instructions do not use operands at a specific point such that in this
 /// case this function returns nullptr.
-llvm::BasicBlock *getUseBlock(llvm::Use &U);
+llvm::BasicBlock *getUseBlock(const llvm::Use &U);
+
+llvm::Loop *getUseScope(const llvm::Use &U,llvm:: LoopInfo *LI);
 
 /// Derive the individual index expressions from a GEP instruction.
 ///

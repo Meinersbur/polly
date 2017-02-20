@@ -506,7 +506,7 @@ bool polly::canSynthesize(const Value *V, const Scop &S, ScalarEvolution *SE,
   return false;
 }
 
-llvm::BasicBlock *polly::getUseBlock(llvm::Use &U) {
+llvm::BasicBlock *polly::getUseBlock(const llvm::Use &U) {
   Instruction *UI = dyn_cast<Instruction>(U.getUser());
   if (!UI)
     return nullptr;
@@ -515,6 +515,18 @@ llvm::BasicBlock *polly::getUseBlock(llvm::Use &U) {
     return PHI->getIncomingBlock(U);
 
   return UI->getParent();
+}
+
+llvm::Loop *polly:: getUseScope(const llvm::Use &U, LoopInfo *LI) {
+	// There are two situations when these can be different (for use with getSCEVInScope):
+	// 1. The use is jut existing the loop. In this case we want the exit value of the loop, which is what getLoopFor(PHI->getParent()) would get us.
+	// 2. We are entering the loop. A use of definition from inside the loop is not possible before the loop. There must be another PHI if re-feeding it.
+	// Hence, the choice below should be equivalent.
+#if 1
+	return LI->getLoopFor( getUseBlock(U) );
+#else
+	return LI->getLoopFor(  cast<Instruction>(U.getUser())->getParent() );
+#endif
 }
 
 std::tuple<std::vector<const SCEV *>, std::vector<int>>

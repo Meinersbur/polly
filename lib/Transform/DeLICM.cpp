@@ -1876,6 +1876,8 @@ private:
 
   ScalarDefUseChains DefUse;
 
+ 
+
   /// Determine whether two knowledges are conflicting each other.
   ///
   /// @see Knowledge::isConflicting
@@ -2428,9 +2430,9 @@ private:
     auto *PHIRead = DefUse.getPHIRead(SAI);
     assert(PHIRead->isPHIKind());
     assert(PHIRead->isRead());
-    auto PHI = cast<PHINode>(PHIRead->getAccessInstruction());
+    auto *PHI = cast<PHINode>(PHIRead->getAccessInstruction());
     auto *ReadStmt = PHIRead->getStatement();
-
+	// Do no support non-affine subregion's exit phis
     for (auto PHIWrite : DefUse.getPHIIncomings(SAI)) {
       if (PHIWrite->getIncoming().size() != 1)
         return false;
@@ -2448,11 +2450,22 @@ private:
       auto Space = give(isl_map_get_space(Map.keep()));
       auto RangeSpace = give(isl_space_range(Space.copy()));
       auto RangeId = give(isl_space_get_tuple_id(Space.keep(), isl_dim_out));
-      auto *Stmt = static_cast<ScopStmt *>(isl_id_get_user(RangeId.keep()));
-      auto *IncomingVal = PHI->getIncomingValueForBlock(Stmt->getBasicBlock());
+      auto *IncomingStmt = static_cast<ScopStmt *>(isl_id_get_user(RangeId.keep()));
+      auto *IncomingVal = PHI->getIncomingValueForBlock(IncomingStmt->getBasicBlock());
+	  assert(IncomingVal && "TODO: exit block if predecessor is non-affine subregion");
 
       // { DomainPHIRead[] }
       auto PHIDomain = give(isl_map_domain(Map.copy()));
+
+	  // { PHIValue[] }
+      auto PHISet = makeValueSet(PHI);
+
+      // { DomainPHIRead[] -> PHIValue[] } == { PHIValueInst[] }
+      auto PHIMap =give(isl_map_from_domain_and_range(PHIDomain.copy(), PHISet.copy()));
+
+	  // { DomainPHIRead[] -> PHIValueInst[] }
+	  auto ReadToPHIInst = give(isl_map_reverse( isl_map_domain_map(PHIMap.copy()) ));
+
 
       // { DomainPHIWrite[] }
       auto IncomingDomain = give(isl_map_range(Map.copy()));
@@ -2460,71 +2473,105 @@ private:
       // { IncomingValue[] }
       auto ValSet = makeValueSet(IncomingVal);
 
-      // { DomainPHIRead[] -> IncomingValue[] }
-      auto ValMap =
-          give(isl_map_from_domain_and_range(PHIDomain.copy(), ValSet.copy()));
-      IncomingValues =
-          give(isl_union_map_add_map(IncomingValues.take(), ValMap.copy()));
+	  // { DomainPHIRead[] -> IncomingValue[] }
+	  auto SelectVal = give(isl_map_from_domain_and_range(PHIDomain.copy(), ValSet.copy()));
+	  IncomingValues = give(isl_union_map_add_map(IncomingValues.take(), SelectVal.copy()) );
 
-      // { PHIValue[] }
-      auto PHISet = makeValueSet(PHI);
 
-      // { PHIWriteDomain[] -> IncomingValInst[] }
-      auto IncomingValInst = makeValInst(IncomingVal, Stmt);
 
-      // { DomainPHIRead[] -> [DomainPHIRead[] -> PHIValue[]] }
-      auto PHIMapTranslator = give(isl_map_reverse(isl_map_domain_map(
-          isl_map_from_domain_and_range(PHIDomain.copy(), PHISet.copy()))));
 
-      // { DomainPHIWrite[] -> [DomainPHIWrite[] -> IncomingValue[]] }
-      // auto IncomingMapTranslator = give( isl_map_reverse( isl_map_domain_map(
-      // isl_map_from_domain_and_range(IncomingDomain .copy(), ValSet.copy()  )
-      // )) );
+	  // { PHIWriteDomain[] -> IncomingValInst[] }
+      auto IncomingValInst = makeValInst(IncomingVal,  IncomingStmt);
 
-      // { [DomainPHIRead[] -> PHIValue[]] -> [DomainPHIWrite[] ->
-      // IncomingValue[]] }
-      // { PHIValInst[]                    -> IncomingValInst[] }
-      auto ValInstTranslator = give(isl_map_apply_range(
-          isl_map_apply_domain(Map.copy(), PHIMapTranslator.copy()),
-          IncomingValInst.copy()));
+	  // { PHIWriteRead[] -> IncomingValInst[] }
+	  auto PHIWriteInst = give( isl_map_apply_range( Map.copy(), IncomingValInst.copy() ) );
 
-#if 0
-      // { DomainPHIWrite[] -> PHIValInst[] }
-	  // Don't use translateComputePHI here
-      auto IncomingValInst = makeValInst(PHI, Stmt); 
+	  // { PHIValueInst[] -> IncomingValueInst[] }
+	  auto Translator = give(  isl_map_apply_domain(PHIWriteInst.copy(), ReadToPHIInst.copy()));
+      ComputedPHITranslator = give(isl_union_map_add_map(ComputedPHITranslator.take(), Translator.copy()));
 
-      // { DomainPHIRead[] -> ValInst[] }
-      auto ComputedValInst = give(isl_map_apply_range(Map.copy(), IncomingValInst.copy()));
 
-      //  { DomainPHIRead[] -> [DomainPHIRead[] -> Value[]] }
-      auto PHIDomToValInst = give(isl_map_reverse(isl_map_domain_map(ValMap.copy())));
 
-      // { PHIValInst[] -> IncomingValInst[] }
-      auto ValInstTranslator = give(isl_map_apply_domain(ComputedValInst.copy(), PHIDomToValInst.copy()));
-#endif
 
-      ComputedPHITranslator = give(isl_union_map_add_map(
-          ComputedPHITranslator.take(), ValInstTranslator.take()));
+
+	  // { IncomingValInst[] }
+	  auto ValInstSpace = give( isl_space_range(  isl_map_get_space( IncomingValInst.keep() )) );
+
+	  ScopStmt *DefStmt =nullptr;
+	  if (isl_space_is_wrapping(ValInstSpace.keep())) {
+		  auto Unwrapped = give( isl_space_unwrap(ValInstSpace.copy()) );
+		  //ValSpace = give(isl_space_range(Unwrapped.copy()));
+		  //auto DefStmtSpace = give(isl_space_domain(Unwrapped.copy()));
+		 auto DefStmtId = give(	isl_space_get_tuple_id(Unwrapped.keep(), isl_dim_in));
+		  DefStmt =  static_cast<ScopStmt*>( isl_id_get_user(DefStmtId.keep()));
+		  assert(DefStmt);
+
+		  auto ValId =  give(	isl_space_get_tuple_id(Unwrapped.keep(), isl_dim_out));
+		  assert(IncomingVal ==static_cast<Value*>( isl_id_get_user(ValId.keep())) );
+	  }
+
+	  //TODO: Refactor with ScopBuilder
+	  bool NeedAccess ;
+	  if (canSynthesize( IncomingVal,  *S, S->getSE(),  ReadStmt->getSurroundingLoop() ) )
+		  NeedAccess = false;
+	  else if (DefStmt) {
+		  NeedAccess = true;
+	  }else {
+		  NeedAccess = !isa<Constant>(IncomingVal) && ModelReadOnlyScalars ;
+	  }
+
+	  // Ensure read of value in the BB we add a use to.
+	  if (NeedAccess && !ReadStmt->lookupValueReadOf(IncomingVal)) {
+		  auto *ValSAI = S->getOrCreateScopArrayInfo(IncomingVal, IncomingVal->getType(), {},MemoryKind::Value);
+
+		  // Ensure write of value if it does not exist yet.
+		  if (!DefUse.getValueDef(ValSAI) && DefStmt) {
+			         auto *   WA = new MemoryAccess(DefStmt, cast<Instruction>( IncomingVal), MemoryAccess::MUST_WRITE, IncomingVal,
+                                IncomingVal->getType(), true, {}, {}, IncomingVal,
+                                MemoryKind::Value,
+                                getIslCompatibleName("MemRef_", IncomingVal, ""));
+          WA->buildAccessRelation(ValSAI);
+          DefStmt->addAccess(WA);
+          S->addAccessFunction(WA);
+          assert(DefUse.ValueDefAccs.find(SAI) == DefUse.ValueDefAccs.end());
+          DefUse.ValueDefAccs[ValSAI] = WA;
+		  }
+		  assert(DefUse.getValueDef(ValSAI)->getStatement() == DefStmt);
+
+          auto *RA = new MemoryAccess(ReadStmt, PHI, MemoryAccess::READ, IncomingVal,
+                                      IncomingVal->getType(), true, {}, {}, IncomingVal,
+                                      MemoryKind::Value,
+                                      getIslCompatibleName("MemRef_", IncomingVal, ""));
+          RA->buildAccessRelation(ValSAI);
+          ReadStmt->addAccess(RA);
+          S->addAccessFunction(RA);
+          DefUse.ValueUseAccs[ValSAI].push_back(RA);
+        }
+
     });
 
+
+
+
+
+#if 0
     // Remove accesses entirely so codegen will generate on demand.
     for (auto PHIWrite : DefUse.getPHIIncomings(SAI)) {
       auto *WriteStmt = PHIWrite->getStatement();
       auto *Val = PHIWrite->getIncoming().front().second;
 
-      auto ValSAI = S->getOrCreateScopArrayInfo(Val, Val->getType(), {},
-                                                MemoryKind::Value);
-
-      auto Inst = dyn_cast<Instruction>(Val);
+      auto *Inst = dyn_cast<Instruction>(Val);
       if (Inst) {
-        auto InScop = S->contains(Inst);
-        auto *WA = DefUse.getValueDef(ValSAI);
         auto InstStmt = S->getStmtFor(Inst);
-        if (WA)
-          InstStmt = WA->getStatement();
         if (!InstStmt)
           InstStmt = WriteStmt;
 
+		 auto *ValSAI = S->getOrCreateScopArrayInfo(Val, Val->getType(), {},MemoryKind::Value);
+		auto *WA = DefUse.getValueDef(ValSAI);
+		      if (WA)
+          InstStmt = WA->getStatement();
+
+			  auto InScop = S->contains(Inst);
         if (InScop && !InstStmt->lookupValueWriteOf(Inst)) {
           WA = new MemoryAccess(InstStmt, Inst, MemoryAccess::MUST_WRITE, Val,
                                 Val->getType(), true, {}, {}, Val,
@@ -2549,8 +2596,13 @@ private:
         }
       }
 
-      WriteStmt->removeSingleMemoryAccess(PHIWrite);
     }
+#endif
+	// Remove ExitPHI accesses
+	for (auto PHIWrite : DefUse.getPHIIncomings(SAI)) {
+		auto *WriteStmt = PHIWrite->getStatement();
+		WriteStmt->removeSingleMemoryAccess(PHIWrite);
+	}
 
     ReadStmt->removeSingleMemoryAccess(PHIRead);
     ReadStmt->ComputedPHIs[PHI] = IncomingValues;
@@ -3105,7 +3157,7 @@ private:
     if (isa<PHINode>(UseVal))
       return false;
 
-    auto VUse = VirtualUse::create(UseStmt, UseVal, UseLoop, S->getSE());
+    auto VUse = VirtualUse::create(UseStmt, false, UseLoop,UseVal);
 
     switch (VUse.getType()) {
     case VirtualUse::Constant:

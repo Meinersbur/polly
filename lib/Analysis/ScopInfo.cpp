@@ -1019,45 +1019,37 @@ llvm::raw_ostream &polly::operator<<(llvm::raw_ostream &OS,
 
 void MemoryAccess::print(raw_ostream &OS, bool Oneline) const {
   if (Oneline) {
-    OS << getStatement()->getBaseName();
+    OS << "[" << getStatement()->getBaseName() << "] ";
 
     auto OrigKind = getOriginalKind();
     switch (OrigKind) {
     case MemoryKind::Value:
-      OS << " Value";
       if (isWrite()) {
-        OS << " Define " << getScopArrayInfo()->getName() << " as ";
-        getAccessValue()->printAsOperand(OS, false);
-      } else
-        OS << " Use " << getScopArrayInfo()->getName();
+        OS << "Def " << getScopArrayInfo()->getName() << " := "; getAccessValue()->printAsOperand(OS, false);
+	  } else
+        OS << "Use " << getScopArrayInfo()->getName();
       break;
     case MemoryKind::PHI:
     case MemoryKind::ExitPHI:
-      OS << (OrigKind == MemoryKind::ExitPHI ? " ExitPHI" : " PHI");
+      //OS << (OrigKind == MemoryKind::ExitPHI ? " ExitPHI" : " PHI");
       if (isWrite()) {
-        OS << " Incoming " << getScopArrayInfo()->getName() << " value ";
+        OS << (OrigKind == MemoryKind::ExitPHI ? "Exiting " : "Incoming ") << getScopArrayInfo()->getName() << " := ";
         bool First = true;
         for (auto Incoming : getIncoming()) {
           if (!First)
-            OS << " or ";
+            OS << " | ";
           Incoming.second->printAsOperand(OS, false);
           First = false;
         }
       } else {
-        OS << " Merge " << getScopArrayInfo()->getName() << " as ";
-        getAccessInstruction()->printAsOperand(OS, false);
+        OS << "Merge "; getAccessInstruction()->printAsOperand(OS, false); OS << " := " << getScopArrayInfo()->getName();
       }
       break;
     case MemoryKind::Array:
-      OS << " Array";
       if (isWrite()) {
-        OS << " Store ";
-        getAccessValue()->printAsOperand(OS, false);
-        OS << " to " << give(getAccessRelation());
+        OS << "Store " << give(getAccessRelation()) << " := "; getAccessValue()->printAsOperand(OS, false);
       } else {
-        OS << " Load ";
-        getAccessInstruction()->printAsOperand(OS, false);
-        OS << " from " << give(getAccessRelation());
+        OS << "Load "; getAccessInstruction()->printAsOperand(OS, false); OS << " := " << give(getAccessRelation());
       }
       break;
     }

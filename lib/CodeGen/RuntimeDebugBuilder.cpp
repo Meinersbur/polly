@@ -95,12 +95,12 @@ RuntimeDebugBuilder::getGPUThreadIdentifiers(PollyIRBuilder &Builder) {
   return Identifiers;
 }
 
-void RuntimeDebugBuilder::createPrinter(PollyIRBuilder &Builder, bool IsGPU,
+void RuntimeDebugBuilder::createPrinter(PollyIRBuilder &Builder, bool IsGPU,bool Flush,
                                         ArrayRef<Value *> Values) {
   if (IsGPU)
     createGPUPrinterT(Builder, Values);
   else
-    createCPUPrinterT(Builder, Values);
+    createCPUPrinterT(Builder, Flush, Values);
 }
 
 static std::tuple<std::string, std::vector<Value *>>
@@ -146,7 +146,7 @@ prepareValuesForPrinting(PollyIRBuilder &Builder, ArrayRef<Value *> Values) {
   return std::make_tuple(FormatString, ValuesToPrint);
 }
 
-void RuntimeDebugBuilder::createCPUPrinterT(PollyIRBuilder &Builder,
+void RuntimeDebugBuilder::createCPUPrinterT(PollyIRBuilder &Builder, bool Flush,
                                             ArrayRef<Value *> Values) {
 
   std::string FormatString;
@@ -156,7 +156,7 @@ void RuntimeDebugBuilder::createCPUPrinterT(PollyIRBuilder &Builder,
       prepareValuesForPrinting(Builder, Values);
 
   createPrintF(Builder, FormatString, ValuesToPrint);
-  createFlush(Builder);
+  if (Flush) createFlush(Builder);
 }
 
 void RuntimeDebugBuilder::createGPUPrinterT(PollyIRBuilder &Builder,

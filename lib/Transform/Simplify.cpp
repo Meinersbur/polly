@@ -184,7 +184,7 @@ private:
       SmallVector<MemoryAccess *, 8> Accs{Stmt.begin(), Stmt.end()};
       for (auto *MA : Accs) {
         auto AccRel = give(MA->getAccessRelation());
-        if (isl_map_is_empty(AccRel.keep()) == isl_bool_true) {
+        if (isl_map_is_empty(AccRel.keep()) == isl_bool_true) { DEBUG(dbgs() << "Removing "<< MA << " because it's a partial access that never occurs\n");
           Stmt.removeSingleMemoryAccess(MA);
           Modified = true;
         }
@@ -309,7 +309,7 @@ private:
     for (auto *MA : AllMAs) {
       if (UsedMA.count(MA))
         continue;
-
+	  DEBUG(dbgs() << "Removing " << MA << " because it's value is not used\n");
       auto Stmt = MA->getStatement();
       Stmt->removeSingleMemoryAccess(MA);
       Modified = true;
