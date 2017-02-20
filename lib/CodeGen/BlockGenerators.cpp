@@ -55,11 +55,11 @@ static cl::opt<bool> TraceStmts(
     cl::desc("Add printf calls that print the statement being executed"),
     cl::Hidden, cl::init(false), cl::ZeroOrMore, cl::cat(PollyCategory));
 
-static cl::opt<bool> TraceScalars(
-	"polly-codegen-trace-scalars",
-	 cl::desc("Add printf calls that prints scalar values"),
-	cl::Hidden, cl::init(false), cl::ZeroOrMore, cl::cat(PollyCategory)
-);
+static cl::opt<bool>
+    TraceScalars("polly-codegen-trace-scalars",
+                 cl::desc("Add printf calls that prints scalar values"),
+                 cl::Hidden, cl::init(false), cl::ZeroOrMore,
+                 cl::cat(PollyCategory));
 #endif
 
 static cl::opt<bool> UseVirtualStmts("polly-codegen-virtual-statements",
@@ -537,94 +537,105 @@ void BlockGenerator::generateScalarLoads(
 #if 1 // Debug tracing
 
 static std::string getInstName(Value *Val) {
-	std::string Result;
-	raw_string_ostream OS(Result);
-	Val->printAsOperand(OS, false);
-	return OS.str();
+  std::string Result;
+  raw_string_ostream OS(Result);
+  Val->printAsOperand(OS, false);
+  return OS.str();
 }
 
-//TODO: Loop indention
-void BlockGenerator::generateBeginStmtTrace(ScopStmt &Stmt, LoopToScevMapT &LTS,  ValueMapT &BBMap) {
-	if (!TraceStmts)
-		return;
+// TODO: Loop indention
+void BlockGenerator::generateBeginStmtTrace(ScopStmt &Stmt, LoopToScevMapT &LTS,
+                                            ValueMapT &BBMap) {
+  if (!TraceStmts)
+    return;
 
-	auto S = Stmt.getParent();
-	auto BaseName =  Stmt.getBaseName();
+  auto S = Stmt.getParent();
+  auto BaseName = Stmt.getBaseName();
 
-				auto AstBuild = give(isl_ast_build_copy(Stmt.getAstBuild()));
-			auto Domain = give(Stmt.getDomain());
-			auto UDomain = give(isl_union_set_from_set(Domain.copy()));
+  auto AstBuild = give(isl_ast_build_copy(Stmt.getAstBuild()));
+  auto Domain = give(Stmt.getDomain());
+  auto UDomain = give(isl_union_set_from_set(Domain.copy()));
 
-			  auto USchedule = give(isl_ast_build_get_schedule(AstBuild.keep()));
-			  USchedule = give(isl_union_map_intersect_domain(USchedule.take(), UDomain.copy()));
-			  assert(isl_union_map_is_empty(USchedule.keep()) == isl_bool_false);
-			  auto Schedule = give(isl_map_from_union_map(USchedule.copy()));
-			  auto RevSchedule = give(isl_map_reverse(Schedule.copy()));
+  auto USchedule = give(isl_ast_build_get_schedule(AstBuild.keep()));
+  USchedule =
+      give(isl_union_map_intersect_domain(USchedule.take(), UDomain.copy()));
+  assert(isl_union_map_is_empty(USchedule.keep()) == isl_bool_false);
+  auto Schedule = give(isl_map_from_union_map(USchedule.copy()));
+  auto RevSchedule = give(isl_map_reverse(Schedule.copy()));
 
-			  auto SchedulePwMultiAff = give(isl_pw_multi_aff_from_map(RevSchedule.copy()));
-			  auto ScheduleMultiPwAff = give(isl_multi_pw_aff_from_pw_multi_aff(SchedulePwMultiAff.copy()));
-			  int DomDims = isl_multi_pw_aff_dim(ScheduleMultiPwAff.keep(), isl_dim_out);
+  auto SchedulePwMultiAff = give(isl_pw_multi_aff_from_map(RevSchedule.copy()));
+  auto ScheduleMultiPwAff =
+      give(isl_multi_pw_aff_from_pw_multi_aff(SchedulePwMultiAff.copy()));
+  int DomDims = isl_multi_pw_aff_dim(ScheduleMultiPwAff.keep(), isl_dim_out);
 
-			  auto ScheduledDomain = give(isl_map_range(Schedule.copy()));
-			  auto RestrictedBuild =give(isl_ast_build_restrict(AstBuild.copy(), ScheduledDomain.copy()));
+  auto ScheduledDomain = give(isl_map_range(Schedule.copy()));
+  auto RestrictedBuild =
+      give(isl_ast_build_restrict(AstBuild.copy(), ScheduledDomain.copy()));
 
+  SmallVector<llvm::Value *, 8> Values;
+  Values.push_back(RuntimeDebugBuilder::getPrintableString(Builder, BaseName));
+  Values.push_back(RuntimeDebugBuilder::getPrintableString(Builder, "("));
 
-	SmallVector<llvm::Value*,8> Values;
-	Values.push_back( RuntimeDebugBuilder::getPrintableString(Builder, BaseName));
-	Values.push_back( RuntimeDebugBuilder::getPrintableString(Builder, "("));
+  for (int i = 0; i < DomDims; i += 1) {
+    if (i > 0)
+      Values.push_back(RuntimeDebugBuilder::getPrintableString(Builder, ","));
 
-	for (int i = 0;i<DomDims;i+=1) {
-		if (i>0) 
-			Values.push_back( RuntimeDebugBuilder::getPrintableString(Builder, ","));
-		
-			auto Coord = give( isl_multi_pw_aff_get_pw_aff(ScheduleMultiPwAff.keep(), i ));
-			  auto IsInSet = give(isl_ast_build_expr_from_pw_aff (RestrictedBuild.keep(), Coord.copy()));
-			  auto *IsInSetExpr = ExprBuilder->create(IsInSet.copy());
-			 Values.push_back(IsInSetExpr );
-	}
-	if (TraceScalars) {
-		Values.push_back( RuntimeDebugBuilder::getPrintableString(Builder, ") "));
+    auto Coord =
+        give(isl_multi_pw_aff_get_pw_aff(ScheduleMultiPwAff.keep(), i));
+    auto IsInSet = give(
+        isl_ast_build_expr_from_pw_aff(RestrictedBuild.keep(), Coord.copy()));
+    auto *IsInSetExpr = ExprBuilder->create(IsInSet.copy());
+    Values.push_back(IsInSetExpr);
+  }
+  if (TraceScalars) {
+    Values.push_back(RuntimeDebugBuilder::getPrintableString(Builder, ") "));
 
-		std::vector<VirtualInstruction> VInsts;
-		markReachableLocal(&Stmt, VInsts, &LI);
-		DenseSet<Instruction*> Encountered;
+    std::vector<VirtualInstruction> VInsts;
+    markReachableLocal(&Stmt, VInsts, &LI);
+    DenseSet<Instruction *> Encountered;
 
-		for (auto &VInst : VInsts) {
-			auto *Inst = VInst.getInstruction();
-			if (isa <PHINode>(Inst)) {
-				Values.push_back( RuntimeDebugBuilder::getPrintableString(Builder, " "));
-				Values.push_back( RuntimeDebugBuilder::getPrintableString(Builder, getInstName(Inst)));
-				Values.push_back( RuntimeDebugBuilder::getPrintableString(Builder, "=" ));
-				auto NewVal = getNewValue(Stmt, Inst, BBMap, LTS, LI.getLoopFor(Inst->getParent()) );
-				Values.push_back( NewVal );
-			} else {
-			for (auto Op : Inst->operand_values() ) {
-				auto *OpInst = dyn_cast<Instruction>(Op);
-				if (!OpInst)
-					continue;
-				if (!S->contains(OpInst))
-					continue;
-				if (Encountered.count(OpInst))
-					continue;
+    for (auto &VInst : VInsts) {
+      auto *Inst = VInst.getInstruction();
+      if (isa<PHINode>(Inst)) {
+        Values.push_back(RuntimeDebugBuilder::getPrintableString(Builder, " "));
+        Values.push_back(RuntimeDebugBuilder::getPrintableString(
+            Builder, getInstName(Inst)));
+        Values.push_back(RuntimeDebugBuilder::getPrintableString(Builder, "="));
+        auto NewVal = getNewValue(Stmt, Inst, BBMap, LTS,
+                                  LI.getLoopFor(Inst->getParent()));
+        Values.push_back(NewVal);
+      } else {
+        for (auto Op : Inst->operand_values()) {
+          auto *OpInst = dyn_cast<Instruction>(Op);
+          if (!OpInst)
+            continue;
+          if (!S->contains(OpInst))
+            continue;
+          if (Encountered.count(OpInst))
+            continue;
 
-				Values.push_back( RuntimeDebugBuilder::getPrintableString(Builder, " "));
-				Values.push_back( RuntimeDebugBuilder::getPrintableString(Builder,getInstName(OpInst)));
-				Values.push_back( RuntimeDebugBuilder::getPrintableString(Builder, "=" ));
-				auto NewVal = getNewValue(Stmt, OpInst, BBMap, LTS, LI.getLoopFor(Inst->getParent()) );
-				Values.push_back( NewVal );
-			}
-			}
-			Encountered.insert(Inst);
-		}
+          Values.push_back(
+              RuntimeDebugBuilder::getPrintableString(Builder, " "));
+          Values.push_back(RuntimeDebugBuilder::getPrintableString(
+              Builder, getInstName(OpInst)));
+          Values.push_back(
+              RuntimeDebugBuilder::getPrintableString(Builder, "="));
+          auto NewVal = getNewValue(Stmt, OpInst, BBMap, LTS,
+                                    LI.getLoopFor(Inst->getParent()));
+          Values.push_back(NewVal);
+        }
+      }
+      Encountered.insert(Inst);
+    }
 
-		Values.push_back( RuntimeDebugBuilder::getPrintableString(Builder, "\n"));
-	} else {
-	Values.push_back( RuntimeDebugBuilder::getPrintableString(Builder, ")\n"));
-	}
+    Values.push_back(RuntimeDebugBuilder::getPrintableString(Builder, "\n"));
+  } else {
+    Values.push_back(RuntimeDebugBuilder::getPrintableString(Builder, ")\n"));
+  }
 
-	RuntimeDebugBuilder::createPrinter(Builder, false, false, Values );
+  RuntimeDebugBuilder::createPrinter(Builder, false, false, Values);
 }
-#endif 
+#endif
 
 void BlockGenerator::generateComputedPHIs(ScopStmt &Stmt, LoopToScevMapT &LTS,
                                           ValueMapT &BBMap) {
@@ -655,14 +666,16 @@ void BlockGenerator::generateComputedPHIs(ScopStmt &Stmt, LoopToScevMapT &LTS,
 
     int i = RestrictDomains.size() - 1;
     Value *PwVal = UndefValue::get(PHI->getType());
-    for (auto &Map : reverse(Maps)) { assert(i>=0);
+    for (auto &Map : reverse(Maps)) {
+      assert(i >= 0);
       auto RangeId = give(isl_map_get_tuple_id(Map.keep(), isl_dim_out));
       auto IncomingVal =
           static_cast<llvm::Value *>(isl_id_get_user(RangeId.keep()));
-    
-      auto NewVal = getNewValue(Stmt, IncomingVal, BBMap, LTS, Stmt.getSurroundingLoop());
 
-	  auto PossibleDom = RestrictDomains[i];
+      auto NewVal =
+          getNewValue(Stmt, IncomingVal, BBMap, LTS, Stmt.getSurroundingLoop());
+
+      auto PossibleDom = RestrictDomains[i];
       auto Dom = give(isl_map_domain(Map.copy()));
       auto RestrictedBuild =
           give(isl_ast_build_restrict(Build.copy(), PossibleDom.copy()));
@@ -675,7 +688,7 @@ void BlockGenerator::generateComputedPHIs(ScopStmt &Stmt, LoopToScevMapT &LTS,
           IsInSetExpr, ConstantInt::get(IsInSetExpr->getType(), 0));
       PwVal = Builder.CreateSelect(IsInSetExpr, NewVal, PwVal);
     }
-	PwVal->setName("phi_" + PHI->getName());
+    PwVal->setName("phi_" + PHI->getName());
     BBMap[PHI] = PwVal;
   }
 }
@@ -1438,7 +1451,7 @@ void RegionGenerator::copyStmt(ScopStmt &Stmt, LoopToScevMapT &LTS,
   generateScalarLoads(Stmt, LTS, EntryBBMap, IdToAstExp);
   generateComputedPHIs(Stmt, LTS, EntryBBMap);
 #if 1 // Debug tracing
-    generateBeginStmtTrace(Stmt, LTS, EntryBBMap);
+  generateBeginStmtTrace(Stmt, LTS, EntryBBMap);
 #endif
 
   for (auto PI = pred_begin(EntryBB), PE = pred_end(EntryBB); PI != PE; ++PI)

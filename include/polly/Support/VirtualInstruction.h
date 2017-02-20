@@ -52,9 +52,9 @@ public:
 /// If InputVal is not defined in the stmt itself, return the MemoryAccess that
 /// reads the scalar. Return nullptr otherwise (if the value is defined in the
 /// scop, or is synthesizable)
-MemoryAccess *getInputAccessOf(Value *InputVal, ScopStmt *UserStmt, bool IsEntryPHIUser /*, bool AllowArrayLoads =false*/);
-
-
+MemoryAccess *
+getInputAccessOf(Value *InputVal, ScopStmt *UserStmt,
+                 bool IsEntryPHIUser /*, bool AllowArrayLoads =false*/);
 
 MemoryAccess *getOutputAccessFor(Value *OutputVal, ScopStmt *Stmt);
 
@@ -86,8 +86,9 @@ private:
       : User(User), Val(Val), Ty(Ty), InputMA(InputMA) {}
 
 public:
-    static VirtualUse create(ScopStmt *UserStmt,bool IsEntryPHIUser, Loop *UserScope,  Value *Val );
-	static VirtualUse create(ScopStmt *UserStmt, const Use &U, LoopInfo *LI);
+  static VirtualUse create(ScopStmt *UserStmt, bool IsEntryPHIUser,
+                           Loop *UserScope, Value *Val);
+  static VirtualUse create(ScopStmt *UserStmt, const Use &U, LoopInfo *LI);
 
   bool isIntra() const { return Ty == IntraValue; }
   bool isInter() const { return Ty == InterValue; }
@@ -133,9 +134,10 @@ public:
   }
 
   VirtualUse getVirtualUse(const Use &U, LoopInfo *LI) const {
-    assert(U.getUser() == Inst); //TODO: Not true for virtual operand trees
-	return VirtualUse::create(Stmt, U, LI);
-  //  return VirtualUse::create(Stmt, U.get(), LI->getLoopFor(Inst->getParent()), Stmt->getParent()->getSE());
+    assert(U.getUser() == Inst); // TODO: Not true for virtual operand trees
+    return VirtualUse::create(Stmt, U, LI);
+    //  return VirtualUse::create(Stmt, U.get(),
+    //  LI->getLoopFor(Inst->getParent()), Stmt->getParent()->getSE());
   }
 
   VirtualUse getVirtualUse(int i, LoopInfo *LI) const {
@@ -146,7 +148,8 @@ public:
 };
 
 static bool operator==(VirtualInstruction LHS, VirtualInstruction RHS) {
-	return LHS.getStmt() == RHS.getStmt() && LHS.getInstruction()==RHS.getInstruction();
+  return LHS.getStmt() == RHS.getStmt() &&
+         LHS.getInstruction() == RHS.getInstruction();
 }
 
 void markReachableGlobal(Scop *S, std::vector<VirtualInstruction> &InstList,

@@ -1025,15 +1025,17 @@ void MemoryAccess::print(raw_ostream &OS, bool Oneline) const {
     switch (OrigKind) {
     case MemoryKind::Value:
       if (isWrite()) {
-        OS << "Def " << getScopArrayInfo()->getName() << " := "; getAccessValue()->printAsOperand(OS, false);
-	  } else
+        OS << "Def " << getScopArrayInfo()->getName() << " := ";
+        getAccessValue()->printAsOperand(OS, false);
+      } else
         OS << "Use " << getScopArrayInfo()->getName();
       break;
     case MemoryKind::PHI:
     case MemoryKind::ExitPHI:
-      //OS << (OrigKind == MemoryKind::ExitPHI ? " ExitPHI" : " PHI");
+      // OS << (OrigKind == MemoryKind::ExitPHI ? " ExitPHI" : " PHI");
       if (isWrite()) {
-        OS << (OrigKind == MemoryKind::ExitPHI ? "Exiting " : "Incoming ") << getScopArrayInfo()->getName() << " := ";
+        OS << (OrigKind == MemoryKind::ExitPHI ? "Exiting " : "Incoming ")
+           << getScopArrayInfo()->getName() << " := ";
         bool First = true;
         for (auto Incoming : getIncoming()) {
           if (!First)
@@ -1042,14 +1044,19 @@ void MemoryAccess::print(raw_ostream &OS, bool Oneline) const {
           First = false;
         }
       } else {
-        OS << "Merge "; getAccessInstruction()->printAsOperand(OS, false); OS << " := " << getScopArrayInfo()->getName();
+        OS << "Merge ";
+        getAccessInstruction()->printAsOperand(OS, false);
+        OS << " := " << getScopArrayInfo()->getName();
       }
       break;
     case MemoryKind::Array:
       if (isWrite()) {
-        OS << "Store " << give(getAccessRelation()) << " := "; getAccessValue()->printAsOperand(OS, false);
+        OS << "Store " << give(getAccessRelation()) << " := ";
+        getAccessValue()->printAsOperand(OS, false);
       } else {
-        OS << "Load "; getAccessInstruction()->printAsOperand(OS, false); OS << " := " << give(getAccessRelation());
+        OS << "Load ";
+        getAccessInstruction()->printAsOperand(OS, false);
+        OS << " := " << give(getAccessRelation());
       }
       break;
     }

@@ -77,32 +77,32 @@ void ScalarDefUseChains::compute(Scop *S) {
   }
 }
 
-static bool isDefinedInStmt(Value *Val,  ScopStmt *Stmt) {
-	auto *Inst = dyn_cast<Instruction>(Val);
-	if (!Inst)
-		return false;
-	return Stmt->contains(Inst);
+static bool isDefinedInStmt(Value *Val, ScopStmt *Stmt) {
+  auto *Inst = dyn_cast<Instruction>(Val);
+  if (!Inst)
+    return false;
+  return Stmt->contains(Inst);
 }
 
 /// If InputVal is not defined in the stmt itself, return the MemoryAccess that
 /// reads the scalar. Return nullptr otherwise (if the value is defined in the
 /// scop, or is synthesizable)
-MemoryAccess *polly::getInputAccessOf(Value *InputVal,ScopStmt *UserStmt,   bool IsEntryPHIUser) {
-	// Stmt may have a backedge to itself.
-	// In this case prefer to use definition of the value itself.
-	// Using the input MemoryAccess is only allowed if the user instruction is a PHI that handles the backedge.
-	if (!IsEntryPHIUser && isDefinedInStmt(InputVal, UserStmt))
-		return nullptr;
-
-
+MemoryAccess *polly::getInputAccessOf(Value *InputVal, ScopStmt *UserStmt,
+                                      bool IsEntryPHIUser) {
+  // Stmt may have a backedge to itself.
+  // In this case prefer to use definition of the value itself.
+  // Using the input MemoryAccess is only allowed if the user instruction is a
+  // PHI that handles the backedge.
+  if (!IsEntryPHIUser && isDefinedInStmt(InputVal, UserStmt))
+    return nullptr;
 
   for (auto *MA : *UserStmt) {
     if (!MA->isRead())
       continue;
-    //if (!(MA->isOriginalScalarKind() ||
+    // if (!(MA->isOriginalScalarKind() ||
     ////      (AllowArrayLoads && MA->isOriginalArrayKind())))
-     // continue;
-	    if (!MA->isOriginalScalarKind())
+    // continue;
+    if (!MA->isOriginalScalarKind())
       continue;
 
     if (MA->getAccessValue() == InputVal)
@@ -110,8 +110,6 @@ MemoryAccess *polly::getInputAccessOf(Value *InputVal,ScopStmt *UserStmt,   bool
   }
   return nullptr;
 }
-
-
 
 MemoryAccess *polly::getOutputAccessFor(Value *OutputVal, ScopStmt *Stmt) {
   for (auto *MA : *Stmt) {
@@ -224,108 +222,129 @@ static void markReachable(Scop *S, ArrayRef<VirtualInstruction> Roots,
   Root.emplace_back();
   Root.append(Roots.begin(), Roots.end());
 
-  auto PrintMAStatus = [&](MemoryAccess *MA,  int Indent=2){
-	  		  if (UsedMA.count(MA))
-				  errs().indent(Indent) << "[*] " << MA << "\n";
-			  else if ( std::find(WorklistMA.begin(), WorklistMA.end(), MA  ) != WorklistMA.end() )
-				  errs().indent(Indent) << "[?] " << MA << "\n";
-			  else
-				  errs().indent(Indent) << "[ ] " << MA << "\n";
+  auto PrintMAStatus = [&](MemoryAccess *MA, int Indent = 2) {
+    if (UsedMA.count(MA))
+      errs().indent(Indent) << "[*] " << MA << "\n";
+    else if (std::find(WorklistMA.begin(), WorklistMA.end(), MA) !=
+             WorklistMA.end())
+      errs().indent(Indent) << "[?] " << MA << "\n";
+    else
+      errs().indent(Indent) << "[ ] " << MA << "\n";
   };
 
-    auto PrintVInst = [&] (VirtualInstruction VInst) {
-		if (!VInst.getInstruction() || !VInst.getStmt()) {
-			errs() << "<null>";
-			return;
-		}
-		errs() << "[" << VInst.getStmt()->getBaseName() << "] " ; VInst.getInstruction()->print(errs(),true); 
-	};
+  auto PrintVInst = [&](VirtualInstruction VInst) {
+    if (!VInst.getInstruction() || !VInst.getStmt()) {
+      errs() << "<null>";
+      return;
+    }
+    errs() << "[" << VInst.getStmt()->getBaseName() << "] ";
+    VInst.getInstruction()->print(errs(), true);
+  };
 
-  auto PrintVIStatus = [&](VirtualInstruction VInst, bool Extra){
-	  auto *Inst= VInst.getInstruction();
-	  auto *Stmt = VInst.getStmt();
+  auto PrintVIStatus = [&](VirtualInstruction VInst, bool Extra) {
+    auto *Inst = VInst.getInstruction();
+    auto *Stmt = VInst.getStmt();
 
-	  int Level= WorklistTree.size();
-	  int Op = -1;
-	  while (true) {
-		  if (Level < 0)
-			  break;
+    int Level = WorklistTree.size();
+    int Op = -1;
+    while (true) {
+      if (Level < 0)
+        break;
 
-		  if (Op < 0 ) {
-			  Level -=1;
-			  Op = (Level >=0) ? WorklistTree[Level].size()-1 : -1;
-			  continue;
-		  }
+      if (Op < 0) {
+        Level -= 1;
+        Op = (Level >= 0) ? WorklistTree[Level].size() - 1 : -1;
+        continue;
+      }
 
-		  if (WorklistTree[Level][Op] == VInst) {
-			  // Match
-			  break;
-		  }
+      if (WorklistTree[Level][Op] == VInst) {
+        // Match
+        break;
+      }
 
-		  Op-=1;
-	  }
+      Op -= 1;
+    }
 
-	  if (Level >=0) {
-		  if (Op )
-		  {errs() << "  [" << Level << "." << Op << "] "; Inst->print(errs(),true); errs() << "\n";}
-		  else
-		  {  errs() << "  [" << Level << "] "; Inst->print(errs(),true); errs() << "\n";}
-	  }	else if (Used.count(VInst)) {
-		  errs() << "  [" << (Extra ?'#':'*') << "] "; Inst->print(errs(),true); errs() << "\n";
-			  } else if (canSynthesize( Inst, *S, SE, Stmt->getSurroundingLoop() ))
-			  { errs() << "      "; Inst->print(errs(),true); errs() << "\n";}
-		  else 
-		  {  errs() << "  [ ] "; Inst->print(errs(),true); errs() << "\n"; }
+    if (Level >= 0) {
+      if (Op) {
+        errs() << "  [" << Level << "." << Op << "] ";
+        Inst->print(errs(), true);
+        errs() << "\n";
+      } else {
+        errs() << "  [" << Level << "] ";
+        Inst->print(errs(), true);
+        errs() << "\n";
+      }
+    } else if (Used.count(VInst)) {
+      errs() << "  [" << (Extra ? '#' : '*') << "] ";
+      Inst->print(errs(), true);
+      errs() << "\n";
+    } else if (canSynthesize(Inst, *S, SE, Stmt->getSurroundingLoop())) {
+      errs() << "      ";
+      Inst->print(errs(), true);
+      errs() << "\n";
+    } else {
+      errs() << "  [ ] ";
+      Inst->print(errs(), true);
+      errs() << "\n";
+    }
   };
 
   auto PrintMarked = [&]() {
-	  for (auto &Stmt : *S) {
-		  errs() << Stmt.getBaseName() << ":\n";
-		  for (auto *MA : Stmt) {
-			  if (!MA->isImplicit() ) continue;
-			  if (!MA->isRead()) continue;
-			  PrintMAStatus(MA);
-		  }
-		  for (auto VInst :InstList ) {
-			  if (VInst.getStmt() != &Stmt)
-				  continue;
-			  auto Inst = VInst.getInstruction();
-			  if (Inst->getParent() == Stmt.getEntryBlock())
-				  continue;
-			  PrintVIStatus(VInst, true);
-			  //errs() << "  [#] "; Inst->printAsOperand(errs(), false); errs() << "\n";
-			  if (auto MA = Stmt.getArrayAccessOrNULLFor(Inst)) 
-				 PrintMAStatus(MA, 4);
-		  } errs()<<"  ------------------------------------------------------------------------------\n";
-		  for (auto &Inst : *Stmt.getEntryBlock()) {
-			  PrintVIStatus({&Stmt, &Inst}, false);
-			  if (auto MA = Stmt.getArrayAccessOrNULLFor(&Inst)) 
-				 PrintMAStatus(MA, 4);
-		  }
-		  for (auto *MA : Stmt) {
-			  if (!MA->isImplicit() ) continue;
-			  if (!MA->isWrite()) continue;
-			  PrintMAStatus(MA);
-		  }
-	  }
+    for (auto &Stmt : *S) {
+      errs() << Stmt.getBaseName() << ":\n";
+      for (auto *MA : Stmt) {
+        if (!MA->isImplicit())
+          continue;
+        if (!MA->isRead())
+          continue;
+        PrintMAStatus(MA);
+      }
+      for (auto VInst : InstList) {
+        if (VInst.getStmt() != &Stmt)
+          continue;
+        auto Inst = VInst.getInstruction();
+        if (Inst->getParent() == Stmt.getEntryBlock())
+          continue;
+        PrintVIStatus(VInst, true);
+        // errs() << "  [#] "; Inst->printAsOperand(errs(), false); errs() <<
+        // "\n";
+        if (auto MA = Stmt.getArrayAccessOrNULLFor(Inst))
+          PrintMAStatus(MA, 4);
+      }
+      errs() << "  "
+                "--------------------------------------------------------------"
+                "----------------\n";
+      for (auto &Inst : *Stmt.getEntryBlock()) {
+        PrintVIStatus({&Stmt, &Inst}, false);
+        if (auto MA = Stmt.getArrayAccessOrNULLFor(&Inst))
+          PrintMAStatus(MA, 4);
+      }
+      for (auto *MA : Stmt) {
+        if (!MA->isImplicit())
+          continue;
+        if (!MA->isWrite())
+          continue;
+        PrintMAStatus(MA);
+      }
+    }
   };
 
-
-
-  auto PrintTree = [&] () {
-	  int Level = 0;
-	  for (; Level <  (int)WorklistTree.size();Level+=1) {
-		  for (int Op =  !Level; Op < (int)WorklistTree[Level].size();Op+=1) {
-			  if (Op == 0)
-				errs().indent(Level*4-4) << "->";
-			  else
-				  errs().indent(2+Level*4);
-				PrintVInst(WorklistTree[Level][Op]); errs()<<"\n";
-		  }
-	  }
-	  for (auto MA : WorklistMA) {
-		   errs().indent(Level*4) << MA << "\n";
-	  }
+  auto PrintTree = [&]() {
+    int Level = 0;
+    for (; Level < (int)WorklistTree.size(); Level += 1) {
+      for (int Op = !Level; Op < (int)WorklistTree[Level].size(); Op += 1) {
+        if (Op == 0)
+          errs().indent(Level * 4 - 4) << "->";
+        else
+          errs().indent(2 + Level * 4);
+        PrintVInst(WorklistTree[Level][Op]);
+        errs() << "\n";
+      }
+    }
+    for (auto MA : WorklistMA) {
+      errs().indent(Level * 4) << MA << "\n";
+    }
   };
 
   auto AddToWorklist = [&](VirtualUse VUse) {
@@ -385,12 +404,15 @@ static void markReachable(Scop *S, ArrayRef<VirtualInstruction> Roots,
       }
 
       if (MA->isWrite() && MA->isOriginalAnyPHIKind()) {
-		  auto *PHI = cast<PHINode> ( MA->getBaseAddr());
+        auto *PHI = cast<PHINode>(MA->getBaseAddr());
         for (auto Incoming : MA->getIncoming()) {
-			//auto &U = PHI->getOperandUse( PHI->getBasicBlockIndex(Incoming.first) );
-			//auto VUse = VirtualUse::create(Stmt,  U, LI);
-			auto VUse = VirtualUse::create(Stmt,   false,   LI->getLoopFor(Incoming.first), Incoming.second);
-          //auto VUse = VirtualUse::create(Stmt, Incoming.second, LI->getLoopFor(Incoming.first), SE);
+          // auto &U = PHI->getOperandUse(
+          // PHI->getBasicBlockIndex(Incoming.first) );  auto VUse =
+          // VirtualUse::create(Stmt,  U, LI);
+          auto VUse = VirtualUse::create(
+              Stmt, false, LI->getLoopFor(Incoming.first), Incoming.second);
+          // auto VUse = VirtualUse::create(Stmt, Incoming.second,
+          // LI->getLoopFor(Incoming.first), SE);
           AddToWorklist(VUse);
         }
       }
@@ -399,9 +421,12 @@ static void markReachable(Scop *S, ArrayRef<VirtualInstruction> Roots,
         if (MemAccInst::isa(MA->getAccessInstruction())) {
           // Worklist.emplace_back(Stmt, MA->getAccessInstruction());
           Leaf.emplace_back(Stmt, MA->getAccessInstruction());
-		}  else {
+        } else {
           assert(MA->isAffine());
-          auto VUse = VirtualUse::create( Stmt, false,  LI->getLoopFor(MA->getAccessInstruction()->getParent()),  MA->getAccessValue());
+          auto VUse = VirtualUse::create(
+              Stmt, false,
+              LI->getLoopFor(MA->getAccessInstruction()->getParent()),
+              MA->getAccessValue());
           AddToWorklist(VUse);
         }
       }
@@ -463,30 +488,34 @@ static void markReachable(Scop *S, ArrayRef<VirtualInstruction> Roots,
   }
   assert(Used.size() == InstList.size());
 
-
-  // The worklist tree above exist to ensure postorder traversal order such that instructions appear before their uses. Unfortunately this does not also ensure that explicit Load/Store are in the original order. We'll have to explicitly sort to ensure this, at least the instructions in the ScopStmt's BB/Region. Currently BlockGenerator does this.
-    std::vector<VirtualInstruction> ResultList;
+  // The worklist tree above exist to ensure postorder traversal order such that
+  // instructions appear before their uses. Unfortunately this does not also
+  // ensure that explicit Load/Store are in the original order. We'll have to
+  // explicitly sort to ensure this, at least the instructions in the ScopStmt's
+  // BB/Region. Currently BlockGenerator does this.
+  std::vector<VirtualInstruction> ResultList;
   ResultList.reserve(InstList.size());
   for (auto VInst : InstList) {
-	  if (!isDefinedInStmt(VInst.getInstruction(), VInst.getStmt()))
-		  ResultList.push_back(VInst);
+    if (!isDefinedInStmt(VInst.getInstruction(), VInst.getStmt()))
+      ResultList.push_back(VInst);
   }
-	  for(auto &Stmt : *S) {
-		  auto AddUsedVInstsFromBlock = [&](BasicBlock *BB) {
-			   for (auto &Inst : *BB) {
-						  auto VInst = VirtualInstruction(&Stmt, &Inst);
-						if (Used.count(VInst))
-							ResultList.push_back(VInst);
-					  }
-		  };
-		  if (Stmt.isBlockStmt()) {
-			 AddUsedVInstsFromBlock(Stmt.getBasicBlock());
-		  } else {
-			  for (auto BB : Stmt.getRegion()->blocks()) 
-				   AddUsedVInstsFromBlock(BB);
-		  }
-	  } assert(InstList.size() == ResultList.size());
-	  std::swap(InstList, ResultList );
+  for (auto &Stmt : *S) {
+    auto AddUsedVInstsFromBlock = [&](BasicBlock *BB) {
+      for (auto &Inst : *BB) {
+        auto VInst = VirtualInstruction(&Stmt, &Inst);
+        if (Used.count(VInst))
+          ResultList.push_back(VInst);
+      }
+    };
+    if (Stmt.isBlockStmt()) {
+      AddUsedVInstsFromBlock(Stmt.getBasicBlock());
+    } else {
+      for (auto BB : Stmt.getRegion()->blocks())
+        AddUsedVInstsFromBlock(BB);
+    }
+  }
+  assert(InstList.size() == ResultList.size());
+  std::swap(InstList, ResultList);
 }
 
 void polly::markReachableGlobal(Scop *S,
@@ -515,9 +544,8 @@ void polly::markReachableLocal(ScopStmt *Stmt,
   markReachable(S, Worklist, std::move(WorklistMA), InstList, UsedMA, Stmt, LI);
 }
 
-
-
- VirtualUse VirtualUse:: create(ScopStmt *UserStmt,bool IsEntryPHIUser, Loop *UserScope,  Value *Val ) {
+VirtualUse VirtualUse::create(ScopStmt *UserStmt, bool IsEntryPHIUser,
+                              Loop *UserScope, Value *Val) {
   if (isa<llvm::Constant>(Val) || isa<llvm::BasicBlock>(Val))
     return VirtualUse(UserStmt, Val, Constant, nullptr);
 
@@ -545,39 +573,47 @@ void polly::markReachableLocal(ScopStmt *Stmt,
   return VirtualUse(UserStmt, Val, IntraValue, nullptr);
 }
 
-  VirtualUse VirtualUse ::create(ScopStmt *UserStmt, const Use &U,LoopInfo *LI) {
-	  auto *Val = U.get();
-	  auto *UserInst = U.getUser();
-	  assert( isDefinedInStmt(UserInst, UserStmt) );//TODO: Not true for virtual operand trees
-	  auto IsEntryPHIUser = isa<PHINode>(UserInst) &&  cast<PHINode>(UserInst)->getParent()==UserStmt->getEntryBlock();
-	return create(UserStmt, IsEntryPHIUser, getUseScope(U, LI), Val );
- }
-
- void polly::VirtualUse::dump() const {
-	errs() << "User: [" << User->getBaseName() << "]\n";
-	switch (Ty) {
-	case polly::VirtualUse::Constant:
-		errs() << "Constant Op:";
-		break;
-	case polly::VirtualUse::ReadOnly:
-		errs() << "Read-Only Op:";
-		break;
-	case polly::VirtualUse::Synthesizable:
-		errs() << "Synthesizable Op:";
-		break;
-	case polly::VirtualUse::IntraValue:
-		errs() << "Intra Op:";
-		break;
-	case polly::VirtualUse::InterValue:
-		errs() << "Extra Op:";
-		break;
-	}
-	if (Val) { errs() << ' '; Val->print(errs(), true); }
-	if (InputMA) { errs() << ' ' << InputMA; }
-	errs() << '\n';
+VirtualUse VirtualUse ::create(ScopStmt *UserStmt, const Use &U, LoopInfo *LI) {
+  auto *Val = U.get();
+  auto *UserInst = U.getUser();
+  assert(isDefinedInStmt(UserInst,
+                         UserStmt)); // TODO: Not true for virtual operand trees
+  auto IsEntryPHIUser =
+      isa<PHINode>(UserInst) &&
+      cast<PHINode>(UserInst)->getParent() == UserStmt->getEntryBlock();
+  return create(UserStmt, IsEntryPHIUser, getUseScope(U, LI), Val);
 }
 
+void polly::VirtualUse::dump() const {
+  errs() << "User: [" << User->getBaseName() << "]\n";
+  switch (Ty) {
+  case polly::VirtualUse::Constant:
+    errs() << "Constant Op:";
+    break;
+  case polly::VirtualUse::ReadOnly:
+    errs() << "Read-Only Op:";
+    break;
+  case polly::VirtualUse::Synthesizable:
+    errs() << "Synthesizable Op:";
+    break;
+  case polly::VirtualUse::IntraValue:
+    errs() << "Intra Op:";
+    break;
+  case polly::VirtualUse::InterValue:
+    errs() << "Extra Op:";
+    break;
+  }
+  if (Val) {
+    errs() << ' ';
+    Val->print(errs(), true);
+  }
+  if (InputMA) {
+    errs() << ' ' << InputMA;
+  }
+  errs() << '\n';
+}
 
 void VirtualInstruction::dump() const {
-	 errs() << "[" << getStmt()->getBaseName() << "]"; getInstruction()->dump();
+  errs() << "[" << getStmt()->getBaseName() << "]";
+  getInstruction()->dump();
 }

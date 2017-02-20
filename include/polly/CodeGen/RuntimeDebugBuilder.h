@@ -63,11 +63,12 @@ struct RuntimeDebugBuilder {
     createPrinter(Builder, /* GPU */ true, Vector, args...);
   }
 
-  static llvm:: Value *getPrintableString(PollyIRBuilder &Builder, llvm::StringRef Str) {
- return Builder.CreateGlobalStringPtr(Str, "", 4);
+  static llvm::Value *getPrintableString(PollyIRBuilder &Builder,
+                                         llvm::StringRef Str) {
+    return Builder.CreateGlobalStringPtr(Str, "", 4);
   }
 
-//private:
+  // private:
   /// Handle Values.
   template <typename... Args>
   static void createPrinter(PollyIRBuilder &Builder, bool UseGPU, bool Flush,
@@ -110,7 +111,7 @@ struct RuntimeDebugBuilder {
                                 llvm::ArrayRef<llvm::Value *> Values);
 
   /// Print a list of Values on a CPU.
-  static void createCPUPrinterT(PollyIRBuilder &Builder,bool Flush,
+  static void createCPUPrinterT(PollyIRBuilder &Builder, bool Flush,
                                 llvm::ArrayRef<llvm::Value *> Values);
 
   /// Get a reference to the 'printf' function.

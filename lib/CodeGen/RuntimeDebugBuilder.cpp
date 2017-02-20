@@ -95,8 +95,8 @@ RuntimeDebugBuilder::getGPUThreadIdentifiers(PollyIRBuilder &Builder) {
   return Identifiers;
 }
 
-void RuntimeDebugBuilder::createPrinter(PollyIRBuilder &Builder, bool IsGPU,bool Flush,
-                                        ArrayRef<Value *> Values) {
+void RuntimeDebugBuilder::createPrinter(PollyIRBuilder &Builder, bool IsGPU,
+                                        bool Flush, ArrayRef<Value *> Values) {
   if (IsGPU)
     createGPUPrinterT(Builder, Values);
   else
@@ -156,7 +156,8 @@ void RuntimeDebugBuilder::createCPUPrinterT(PollyIRBuilder &Builder, bool Flush,
       prepareValuesForPrinting(Builder, Values);
 
   createPrintF(Builder, FormatString, ValuesToPrint);
-  if (Flush) createFlush(Builder);
+  if (Flush)
+    createFlush(Builder);
 }
 
 void RuntimeDebugBuilder::createGPUPrinterT(PollyIRBuilder &Builder,
