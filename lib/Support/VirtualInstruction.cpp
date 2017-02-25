@@ -576,8 +576,7 @@ VirtualUse VirtualUse::create(ScopStmt *UserStmt, bool IsEntryPHIUser,
 VirtualUse VirtualUse ::create(ScopStmt *UserStmt, const Use &U, LoopInfo *LI) {
   auto *Val = U.get();
   auto *UserInst = U.getUser();
-  assert(isDefinedInStmt(UserInst,
-                         UserStmt)); // TODO: Not true for virtual operand trees
+  //assert(isDefinedInStmt(UserInst, UserStmt)); // TODO: Not true for virtual operand trees
   auto IsEntryPHIUser =
       isa<PHINode>(UserInst) &&
       cast<PHINode>(UserInst)->getParent() == UserStmt->getEntryBlock();

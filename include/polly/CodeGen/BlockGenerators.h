@@ -39,6 +39,8 @@ class MemoryAccess;
 class ScopArrayInfo;
 class IslExprBuilder;
 
+extern bool UseVirtualStmts;
+
 /// Generate a new basic block for a polyhedral statement.
 class BlockGenerator {
 public:

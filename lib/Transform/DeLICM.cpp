@@ -114,6 +114,7 @@
 #include "polly/Support/ISLTools.h"
 #include "polly/Support/VirtualInstruction.h"
 #include "llvm/ADT/Statistic.h"
+#include "polly/CodeGen/BlockGenerators.h"
 #define DEBUG_TYPE "polly-delicm"
 
 using namespace polly;
@@ -3307,6 +3308,8 @@ private:
                         Identity, 0, false, RA))
       return false;
 
+	
+
     bool Success = canForwardTree(RA->getAccessValue(), Stmt, InLoop, Scatter,
                                   Stmt, Identity, 0, true, RA);
     assert(Success && "If it says it can do it, it must be able to do it");
@@ -3767,6 +3770,8 @@ private:
   std::unique_ptr<KnownImpl> Impl;
 
   void collapseToKnown(Scop &S) {
+	  assert(UseVirtualStmts && "-polly-known requires virtual statements (-polly-codegen-virtual-statements)");
+
     Impl = make_unique<KnownImpl>(
         &S, &getAnalysis<LoopInfoWrapperPass>().getLoopInfo());
 
