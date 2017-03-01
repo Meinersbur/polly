@@ -107,6 +107,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "polly/DeLICM.h"
+#include "polly/CodeGen/BlockGenerators.h"
 #include "polly/Options.h"
 #include "polly/ScopBuilder.h"
 #include "polly/ScopInfo.h"
@@ -114,7 +115,6 @@
 #include "polly/Support/ISLTools.h"
 #include "polly/Support/VirtualInstruction.h"
 #include "llvm/ADT/Statistic.h"
-#include "polly/CodeGen/BlockGenerators.h"
 #define DEBUG_TYPE "polly-delicm"
 
 using namespace polly;
@@ -3230,8 +3230,7 @@ private:
                           ReuseMe))
         return false;
 
-      auto *RA = &DefStmt->
-		  getArrayAccessFor(LI);
+      auto *RA = &DefStmt->getArrayAccessFor(LI);
 
       // { DomainDef[] -> ValInst[] }
       auto ExpectedVal = makeValInst(UseVal, DefStmt);
@@ -3247,36 +3246,36 @@ private:
       if (!SameVal)
         return false;
       if (DoIt) {
-		  MemoryAccess *Access= TargetStmt->getArrayAccessOrNULLFor(LI);
-		 if ( !Access) {
-        if (Depth == 0 && ReuseMe) {
-          Access = ReuseMe;
-          ReuseMe = nullptr;
-        } else {
-          auto ArrayId =
-              give(isl_map_get_tuple_id(SameVal.keep(), isl_dim_out));
-          auto SAI = reinterpret_cast<ScopArrayInfo *>(
-              isl_id_get_user(ArrayId.keep()));
-          SmallVector<const SCEV *, 4> Sizes;
-          Sizes.reserve(SAI->getNumberOfDimensions());
-          SmallVector<const SCEV *, 4> Subscripts;
-          Subscripts.reserve(SAI->getNumberOfDimensions());
-          for (unsigned i = 0; i < SAI->getNumberOfDimensions(); i += 1) {
-            auto DimSize = SAI->getDimensionSize(i);
-            Sizes.push_back(DimSize);
+        MemoryAccess *Access = TargetStmt->getArrayAccessOrNULLFor(LI);
+        if (!Access) {
+          if (Depth == 0 && ReuseMe) {
+            Access = ReuseMe;
+            ReuseMe = nullptr;
+          } else {
+            auto ArrayId =
+                give(isl_map_get_tuple_id(SameVal.keep(), isl_dim_out));
+            auto SAI = reinterpret_cast<ScopArrayInfo *>(
+                isl_id_get_user(ArrayId.keep()));
+            SmallVector<const SCEV *, 4> Sizes;
+            Sizes.reserve(SAI->getNumberOfDimensions());
+            SmallVector<const SCEV *, 4> Subscripts;
+            Subscripts.reserve(SAI->getNumberOfDimensions());
+            for (unsigned i = 0; i < SAI->getNumberOfDimensions(); i += 1) {
+              auto DimSize = SAI->getDimensionSize(i);
+              Sizes.push_back(DimSize);
 
-            // Dummy access, to be replaced anyway.
-            Subscripts.push_back(nullptr);
+              // Dummy access, to be replaced anyway.
+              Subscripts.push_back(nullptr);
+            }
+            Access = new MemoryAccess(TargetStmt, LI, MemoryAccess::READ,
+                                      SAI->getBasePtr(), Inst->getType(), true,
+                                      {}, Sizes, Inst, MemoryKind::Array,
+                                      RA->getBaseName());
+            S->addAccessFunction(Access);
+            TargetStmt->addAccess(Access);
           }
-          Access = new MemoryAccess(TargetStmt, LI, MemoryAccess::READ,
-                                    SAI->getBasePtr(), Inst->getType(), true,
-                                    {}, Sizes, Inst, MemoryKind::Array,
-                                    RA->getBaseName());
-          S->addAccessFunction(Access);
-          TargetStmt->addAccess(Access);
+          Access->setNewAccessRelation(SameVal.copy());
         }
-        Access->setNewAccessRelation(SameVal.copy());
-		 }
 
         MappedKnown++;
         KnownReports.emplace_back(RA, std::move(Candidates), std::move(SameVal),
@@ -3310,8 +3309,6 @@ private:
     if (!canForwardTree(RA->getAccessValue(), Stmt, InLoop, Scatter, Stmt,
                         Identity, 0, false, RA))
       return false;
-
-	
 
     bool Success = canForwardTree(RA->getAccessValue(), Stmt, InLoop, Scatter,
                                   Stmt, Identity, 0, true, RA);
@@ -3773,10 +3770,11 @@ private:
   std::unique_ptr<KnownImpl> Impl;
 
   void collapseToKnown(Scop &S) {
-	  if (!UseVirtualStmts) {
-		  DEBUG(dbgs() << "-polly-known requires virtual statements (-polly-codegen-virtual-statements)\n");
-	  return ;
-	  }
+    if (!UseVirtualStmts) {
+      DEBUG(dbgs() << "-polly-known requires virtual statements "
+                      "(-polly-codegen-virtual-statements)\n");
+      return;
+    }
 
     Impl = make_unique<KnownImpl>(
         &S, &getAnalysis<LoopInfoWrapperPass>().getLoopInfo());

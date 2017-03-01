@@ -62,11 +62,12 @@ static cl::opt<bool>
                  cl::cat(PollyCategory));
 #endif
 
-bool polly:: UseVirtualStmts;
-static cl::opt<bool,true> UseVirtualStmtsOpt("polly-codegen-virtual-statements",
-                                     cl::desc("Use virtual statements"),
-                                     cl::Hidden, cl::location(UseVirtualStmts), cl::init(false),
-                                     cl::ZeroOrMore, cl::cat(PollyCategory));
+bool polly::UseVirtualStmts;
+static cl::opt<bool, true>
+    UseVirtualStmtsOpt("polly-codegen-virtual-statements",
+                       cl::desc("Use virtual statements"), cl::Hidden,
+                       cl::location(UseVirtualStmts), cl::init(false),
+                       cl::ZeroOrMore, cl::cat(PollyCategory));
 
 BlockGenerator::BlockGenerator(
     PollyIRBuilder &B, LoopInfo &LI, ScalarEvolution &SE, DominatorTree &DT,

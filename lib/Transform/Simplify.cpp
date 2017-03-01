@@ -1,4 +1,5 @@
 #include "polly/Simplify.h"
+#include "polly/CodeGen/BlockGenerators.h"
 #include "polly/ScopInfo.h"
 #include "polly/ScopPass.h"
 #include "polly/Support/GICHelper.h"
@@ -7,7 +8,6 @@
 #include "llvm/IR/Value.h"
 #include "llvm/PassSupport.h"
 #include "llvm/Support/Debug.h"
-#include "polly/CodeGen/BlockGenerators.h"
 #define DEBUG_TYPE "polly-simplify"
 
 using namespace llvm;
@@ -197,18 +197,17 @@ private:
   }
 
   bool markAndSweep(LoopInfo *LI) {
-	  if (!UseVirtualStmts) {
-		  DEBUG(dbgs()<< "Mark-and-sweep simplifier needs -polly-codegen-virtual-stmts");
-		  return false;
-	  }
+    if (!UseVirtualStmts) {
+      DEBUG(dbgs()
+            << "Mark-and-sweep simplifier needs -polly-codegen-virtual-stmts");
+      return false;
+    }
 
     //  DenseSet<VirtualInstruction > Used;
     DenseSet<MemoryAccess *> UsedMA;
     std::vector<VirtualInstruction> InstList;
 
-
     markReachableGlobal(S, InstList, UsedMA, LI);
-
 
     SmallVector<MemoryAccess *, 64> AllMAs;
     for (auto &Stmt : *S)
@@ -225,29 +224,30 @@ private:
       UnusedAccs++;
     }
 
-	for (auto &Stmt : *S) {
-		decltype( Stmt.ComputedPHIs ) UsedComputedPHIs;
+    for (auto &Stmt : *S) {
+      decltype(Stmt.ComputedPHIs) UsedComputedPHIs;
 
-			for (auto &VInst : InstList) {
-		if (&Stmt != VInst.getStmt())
-			continue;
+      for (auto &VInst : InstList) {
+        if (&Stmt != VInst.getStmt())
+          continue;
 
-		auto *Inst =  VInst.getInstruction();
-		auto *PHI = dyn_cast<PHINode>(Inst);
-		if (!PHI)
-			continue;
+        auto *Inst = VInst.getInstruction();
+        auto *PHI = dyn_cast<PHINode>(Inst);
+        if (!PHI)
+          continue;
 
-		auto CompPHI = Stmt.ComputedPHIs.lookup(PHI);
-		if (!CompPHI)
-			continue;
-		UsedComputedPHIs[PHI] = CompPHI;
-	}
-			if (Stmt.ComputedPHIs.size() != UsedComputedPHIs.size()) {
-			DEBUG( dbgs() << "Removed " << (Stmt.ComputedPHIs.size() - UsedComputedPHIs.size()) << " ComputedPHI(s) which are not used\n"  );
-			}
-			Stmt.ComputedPHIs = std::move(UsedComputedPHIs);
-	}
-
+        auto CompPHI = Stmt.ComputedPHIs.lookup(PHI);
+        if (!CompPHI)
+          continue;
+        UsedComputedPHIs[PHI] = CompPHI;
+      }
+      if (Stmt.ComputedPHIs.size() != UsedComputedPHIs.size()) {
+        DEBUG(dbgs() << "Removed "
+                     << (Stmt.ComputedPHIs.size() - UsedComputedPHIs.size())
+                     << " ComputedPHI(s) which are not used\n");
+      }
+      Stmt.ComputedPHIs = std::move(UsedComputedPHIs);
+    }
 
     return Modified;
   }
