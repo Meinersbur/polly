@@ -3770,7 +3770,10 @@ private:
   std::unique_ptr<KnownImpl> Impl;
 
   void collapseToKnown(Scop &S) {
-	  assert(UseVirtualStmts && "-polly-known requires virtual statements (-polly-codegen-virtual-statements)");
+	  if (!UseVirtualStmts) {
+		  DEBUG(dbgs() << "-polly-known requires virtual statements (-polly-codegen-virtual-statements)\n");
+	  return ;
+	  }
 
     Impl = make_unique<KnownImpl>(
         &S, &getAnalysis<LoopInfoWrapperPass>().getLoopInfo());

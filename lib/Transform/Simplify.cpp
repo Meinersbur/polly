@@ -7,6 +7,7 @@
 #include "llvm/IR/Value.h"
 #include "llvm/PassSupport.h"
 #include "llvm/Support/Debug.h"
+#include "polly/CodeGen/BlockGenerators.h"
 #define DEBUG_TYPE "polly-simplify"
 
 using namespace llvm;
@@ -196,112 +197,18 @@ private:
   }
 
   bool markAndSweep(LoopInfo *LI) {
+	  if (!UseVirtualStmts) {
+		  DEBUG(dbgs()<< "Mark-and-sweep simplifier needs -polly-codegen-virtual-stmts");
+		  return false;
+	  }
+
     //  DenseSet<VirtualInstruction > Used;
     DenseSet<MemoryAccess *> UsedMA;
     std::vector<VirtualInstruction> InstList;
 
-#if 1
+
     markReachableGlobal(S, InstList, UsedMA, LI);
-#else
-    SmallVector<MemoryAccess *, 32> AllMAs;
-    SmallVector<VirtualInstruction, 32> Worklist;
 
-    // Add roots (things that are used after the scop; aka escaping values) to
-    // worklist
-    for (auto &Stmt : *S) {
-      for (auto *MA : Stmt) {
-        AllMAs.push_back(MA);
-        if (!MA->isWrite())
-          continue;
-
-        // Writes to arrays are always used
-        if (MA->isLatestArrayKind()) {
-          auto Inst = MA->getAccessInstruction();
-          Worklist.emplace_back(&Stmt, Inst);
-          UsedMA.insert(MA);
-        }
-
-        // Values are roots if they are escaping
-        if (MA->isLatestValueKind()) {
-          auto ComputingInst = cast<Instruction>(MA->getAccessValue());
-          bool IsEscaping = false;
-          for (auto &Use : ComputingInst->uses()) {
-            auto User = cast<Instruction>(Use.getUser());
-            if (!S->contains(User)) {
-              IsEscaping = true;
-              break;
-            }
-          }
-
-          if (IsEscaping) {
-            Worklist.emplace_back(&Stmt, ComputingInst);
-            UsedMA.insert(MA);
-          }
-        }
-
-        // Exit phis are, by definition, escaping
-        if (MA->isLatestExitPHIKind()) {
-          auto ComputingInst = dyn_cast<Instruction>(MA->getAccessValue());
-          if (ComputingInst)
-            Worklist.emplace_back(&Stmt, ComputingInst);
-          UsedMA.insert(MA);
-        }
-      }
-    }
-
-    while (!Worklist.empty()) {
-      auto VInst = Worklist.pop_back_val();
-
-      auto InsertResult = Used.insert(VInst);
-      if (!InsertResult.second)
-        continue;
-
-      if (auto MA =
-              VInst.getStmt()->getArrayAccessOrNULLFor(VInst.getInstruction()))
-        UsedMA.insert(MA);
-
-      for (auto &Use : VInst.operands()) {
-        if (!VInst.isVirtualOperand(Use))
-          continue;
-
-        auto InputMA = VInst.findInputAccess(Use.get(), true);
-        if (!InputMA) {
-          Worklist.push_back(VInst.getIntraOperand(Use));
-          continue;
-        }
-
-        auto SAI = InputMA->getScopArrayInfo();
-        assert(InputMA->isRead());
-        UsedMA.insert(InputMA);
-
-        if (InputMA->isLatestPHIKind()) {
-          for (auto *IncomingMA : DefUse.getPHIIncomings(SAI)) {
-            Worklist.emplace_back(IncomingMA->getStatement(),
-                                  cast<Instruction>(Use.get()));
-            UsedMA.insert(IncomingMA);
-          }
-        }
-
-        if (InputMA->isLatestValueKind()) {
-          // search for the definition
-          auto DefMA = DefUse.getValueDef(SAI);
-          Worklist.emplace_back(DefMA->getStatement(),
-                                cast<Instruction>(Use.get()));
-          UsedMA.insert(DefMA);
-        }
-
-        if (InputMA->isLatestArrayKind()) {
-          auto LI = cast<LoadInst>(Use.get());
-
-          // If the access is explicit, it is just like the intra-operand case
-          // If the access is implicit, there is no getAccessInstruction(). The
-          // pointer operand should be synthesizable such that there is no
-          // effect of this.
-          Worklist.emplace_back(InputMA->getStatement(), LI);
-        }
-      }
-    }
-#endif
 
     SmallVector<MemoryAccess *, 64> AllMAs;
     for (auto &Stmt : *S)
@@ -317,6 +224,30 @@ private:
       Modified = true;
       UnusedAccs++;
     }
+
+	for (auto &Stmt : *S) {
+		decltype( Stmt.ComputedPHIs ) UsedComputedPHIs;
+
+			for (auto &VInst : InstList) {
+		if (&Stmt != VInst.getStmt())
+			continue;
+
+		auto *Inst =  VInst.getInstruction();
+		auto *PHI = dyn_cast<PHINode>(Inst);
+		if (!PHI)
+			continue;
+
+		auto CompPHI = Stmt.ComputedPHIs.lookup(PHI);
+		if (!CompPHI)
+			continue;
+		UsedComputedPHIs[PHI] = CompPHI;
+	}
+			if (Stmt.ComputedPHIs.size() != UsedComputedPHIs.size()) {
+			DEBUG( dbgs() << "Removed " << (Stmt.ComputedPHIs.size() - UsedComputedPHIs.size()) << " ComputedPHI(s) which are not used\n"  );
+			}
+			Stmt.ComputedPHIs = std::move(UsedComputedPHIs);
+	}
+
 
     return Modified;
   }
