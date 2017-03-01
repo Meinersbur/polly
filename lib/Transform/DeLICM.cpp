@@ -3220,8 +3220,8 @@ private:
           give(isl_map_apply_range(UseScatter.copy(), ReachDef.copy()));
 
       // { DomainDef[] -> DomainTarget[] }
-      DefToTargetMapping = give(isl_map_apply_domain(
-          isl_map_reverse(UseToTargetMapping.copy()), DefToUseMapping.copy()));
+      DefToTargetMapping = give(isl_map_apply_range(
+          isl_map_reverse(DefToUseMapping.copy()), UseToTargetMapping.copy()));
     }
 
     if (auto LI = dyn_cast<LoadInst>(Inst)) {
@@ -3230,7 +3230,8 @@ private:
                           ReuseMe))
         return false;
 
-      auto *RA = &DefStmt->getArrayAccessFor(LI);
+      auto *RA = &DefStmt->
+		  getArrayAccessFor(LI);
 
       // { DomainDef[] -> ValInst[] }
       auto ExpectedVal = makeValInst(UseVal, DefStmt);
@@ -3246,7 +3247,8 @@ private:
       if (!SameVal)
         return false;
       if (DoIt) {
-        MemoryAccess *Access;
+		  MemoryAccess *Access= TargetStmt->getArrayAccessOrNULLFor(LI);
+		 if ( !Access) {
         if (Depth == 0 && ReuseMe) {
           Access = ReuseMe;
           ReuseMe = nullptr;
@@ -3274,6 +3276,7 @@ private:
           TargetStmt->addAccess(Access);
         }
         Access->setNewAccessRelation(SameVal.copy());
+		 }
 
         MappedKnown++;
         KnownReports.emplace_back(RA, std::move(Candidates), std::move(SameVal),
