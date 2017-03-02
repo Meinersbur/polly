@@ -2392,6 +2392,12 @@ public:
     return getStmtFor(Inst->getParent());
   }
 
+    ScopStmt *getStmtFor(Value *Inst) const {
+		if (!isa<Instruction>(Inst))
+			return nullptr;
+    return getStmtFor(cast<Instruction>( Inst));
+  }
+
   /// Return the number of statements in the SCoP.
   size_t getSize() const { return Stmts.size(); }
 

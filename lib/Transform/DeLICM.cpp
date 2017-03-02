@@ -2499,15 +2499,15 @@ private:
       auto ValInstSpace =
           give(isl_space_range(isl_map_get_space(IncomingValInst.keep())));
 
-      ScopStmt *DefStmt = nullptr;
+      ScopStmt *IncomingStmt = nullptr;
       if (isl_space_is_wrapping(ValInstSpace.keep())) {
         auto Unwrapped = give(isl_space_unwrap(ValInstSpace.copy()));
         // ValSpace = give(isl_space_range(Unwrapped.copy()));
         // auto DefStmtSpace = give(isl_space_domain(Unwrapped.copy()));
         auto DefStmtId =
             give(isl_space_get_tuple_id(Unwrapped.keep(), isl_dim_in));
-        DefStmt = static_cast<ScopStmt *>(isl_id_get_user(DefStmtId.keep()));
-        assert(DefStmt);
+        IncomingStmt = static_cast<ScopStmt *>(isl_id_get_user(DefStmtId.keep()));
+        assert(IncomingStmt);
 
         auto ValId =
             give(isl_space_get_tuple_id(Unwrapped.keep(), isl_dim_out));
@@ -2520,7 +2520,7 @@ private:
       if (canSynthesize(IncomingVal, *S, S->getSE(),
                         ReadStmt->getSurroundingLoop()))
         NeedAccess = false;
-      else if (DefStmt) {
+      else if (IncomingStmt) {
         NeedAccess = true;
       } else {
         NeedAccess = !isa<Constant>(IncomingVal) && ModelReadOnlyScalars;
@@ -2528,18 +2528,21 @@ private:
 
       // Ensure read of value in the BB we add a use to.
       if (NeedAccess && !ReadStmt->lookupValueReadOf(IncomingVal)) {
-        auto *ValSAI = S->getOrCreateScopArrayInfo(
-            IncomingVal, IncomingVal->getType(), {}, MemoryKind::Value);
+        auto *ValSAI = S->getOrCreateScopArrayInfo(IncomingVal, IncomingVal->getType(), {}, MemoryKind::Value);
+
+		ScopStmt *DefStmt =  S->getStmtFor( IncomingVal );
+		//if (!DefStmt)
+		// DefStmt = IncomingStmt;
 
         // Ensure write of value if it does not exist yet.
         if (!DefUse.getValueDef(ValSAI) && DefStmt) {
           auto *WA = new MemoryAccess(
-              DefStmt, cast<Instruction>(IncomingVal), MemoryAccess::MUST_WRITE,
+              IncomingStmt, cast<Instruction>(IncomingVal), MemoryAccess::MUST_WRITE,
               IncomingVal, IncomingVal->getType(), true, {}, {}, IncomingVal,
               MemoryKind::Value,
               getIslCompatibleName("MemRef_", IncomingVal, ""));
           WA->buildAccessRelation(ValSAI);
-          DefStmt->addAccess(WA);
+          IncomingStmt->addAccess(WA);
           S->addAccessFunction(WA);
           assert(DefUse.ValueDefAccs.find(SAI) == DefUse.ValueDefAccs.end());
           DefUse.ValueDefAccs[ValSAI] = WA;
