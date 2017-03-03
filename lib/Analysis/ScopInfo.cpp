@@ -1120,7 +1120,7 @@ void MemoryAccess::print(raw_ostream &OS, bool Oneline) const {
     OS.indent(11) << "new: " << getNewAccessRelationStr() << ";\n";
 }
 
-void MemoryAccess::dump() const { print(errs()); }
+void MemoryAccess::dump() const { print(errs(), true); }
 
 __isl_give isl_pw_aff *MemoryAccess::getPwAff(const SCEV *E) {
   auto *Stmt = getStatement();
@@ -1905,6 +1905,18 @@ void ScopStmt::print(raw_ostream &OS) const {
 
 void ScopStmt::dump() const { print(dbgs()); }
 
+void  ScopStmt::removeAccessData(MemoryAccess *MA) {
+	  if (MA->isRead() && MA->isOriginalValueKind()) {
+bool Found =	ValueReads.erase(MA->getAccessValue());
+assert(Found);
+	  }
+	  if (MA->isWrite() && MA->isOriginalValueKind()) {
+		bool Found =  ValueWrites.erase(cast<Instruction>( MA->getAccessValue()));assert(Found);}
+  if (MA->isWrite() && MA->isOriginalAnyPHIKind()) {
+	 bool Found = PHIWrites.erase(cast<PHINode>(MA->getAccessInstruction()) );assert(Found);}
+}
+
+
 void ScopStmt::removeMemoryAccess(MemoryAccess *MA) {
   // Remove the memory accesses from this statement together with all scalar
   // accesses that were caused by it. MemoryKind::Value READs have no access
@@ -1913,17 +1925,22 @@ void ScopStmt::removeMemoryAccess(MemoryAccess *MA) {
   // hence synthesizable, and therefore there are no MemoryKind::Value READ
   // accesses to be removed.
   auto Predicate = [&](MemoryAccess *Acc) {
-    return Acc->getAccessInstruction() == MA->getAccessInstruction();
+    bool Deletable = Acc->getAccessInstruction() == MA->getAccessInstruction();
+	if (Deletable) removeAccessData(Acc); // Not nice: sideeffect
+	return Deletable;
   };
   MemAccs.erase(std::remove_if(MemAccs.begin(), MemAccs.end(), Predicate),
                 MemAccs.end());
   InstructionToAccess.erase(MA->getAccessInstruction());
 }
 
+
 void ScopStmt::removeSingleMemoryAccess(MemoryAccess *MA) {
   auto MAIt = std::find(MemAccs.begin(), MemAccs.end(), MA);
   assert(MAIt != MemAccs.end());
   MemAccs.erase(MAIt);
+
+  removeAccessData(MA);
 
   auto It = InstructionToAccess.find(MA->getAccessInstruction());
   if (It != InstructionToAccess.end()) {

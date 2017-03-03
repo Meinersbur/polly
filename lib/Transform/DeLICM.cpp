@@ -3202,7 +3202,7 @@ private:
       return true;
 
     case VirtualUse::ReadOnly:
-      if (DoIt && ModelReadOnlyScalars &&
+      if (DoIt && ModelReadOnlyScalars && 
           !getInputAccessOf(UseVal, TargetStmt, false)) {
         auto *SAI = S->getOrCreateScopArrayInfo(UseVal, UseVal->getType(), {},
                                                 MemoryKind::Value);

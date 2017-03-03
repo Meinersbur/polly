@@ -1239,6 +1239,8 @@ private:
 
   Loop *SurroundingLoop;
 
+  void removeAccessData(MemoryAccess *MA);
+
 public:
   MapVector<PHINode *, IslPtr<isl_union_map>> ComputedPHIs;
 
@@ -1416,6 +1418,7 @@ public:
   /// Note that scalar accesses that are caused by MA will
   /// be eliminated too.
   void removeMemoryAccess(MemoryAccess *MA);
+
 
   /// Remove @p MA from this statement.
   ///
