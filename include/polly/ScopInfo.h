@@ -1419,7 +1419,6 @@ public:
   /// be eliminated too.
   void removeMemoryAccess(MemoryAccess *MA);
 
-
   /// Remove @p MA from this statement.
   ///
   /// In contrast to removeMemoryAccess(), no other access will be eliminated.
@@ -2395,10 +2394,10 @@ public:
     return getStmtFor(Inst->getParent());
   }
 
-    ScopStmt *getStmtFor(Value *Inst) const {
-		if (!isa<Instruction>(Inst))
-			return nullptr;
-    return getStmtFor(cast<Instruction>( Inst));
+  ScopStmt *getStmtFor(Value *Inst) const {
+    if (!isa<Instruction>(Inst))
+      return nullptr;
+    return getStmtFor(cast<Instruction>(Inst));
   }
 
   /// Return the number of statements in the SCoP.

@@ -1905,17 +1905,20 @@ void ScopStmt::print(raw_ostream &OS) const {
 
 void ScopStmt::dump() const { print(dbgs()); }
 
-void  ScopStmt::removeAccessData(MemoryAccess *MA) {
-	  if (MA->isRead() && MA->isOriginalValueKind()) {
-bool Found =	ValueReads.erase(MA->getAccessValue());
-assert(Found);
-	  }
-	  if (MA->isWrite() && MA->isOriginalValueKind()) {
-		bool Found =  ValueWrites.erase(cast<Instruction>( MA->getAccessValue()));assert(Found);}
+void ScopStmt::removeAccessData(MemoryAccess *MA) {
+  if (MA->isRead() && MA->isOriginalValueKind()) {
+    bool Found = ValueReads.erase(MA->getAccessValue());
+    assert(Found);
+  }
+  if (MA->isWrite() && MA->isOriginalValueKind()) {
+    bool Found = ValueWrites.erase(cast<Instruction>(MA->getAccessValue()));
+    assert(Found);
+  }
   if (MA->isWrite() && MA->isOriginalAnyPHIKind()) {
-	 bool Found = PHIWrites.erase(cast<PHINode>(MA->getAccessInstruction()) );assert(Found);}
+    bool Found = PHIWrites.erase(cast<PHINode>(MA->getAccessInstruction()));
+    assert(Found);
+  }
 }
-
 
 void ScopStmt::removeMemoryAccess(MemoryAccess *MA) {
   // Remove the memory accesses from this statement together with all scalar
@@ -1926,14 +1929,14 @@ void ScopStmt::removeMemoryAccess(MemoryAccess *MA) {
   // accesses to be removed.
   auto Predicate = [&](MemoryAccess *Acc) {
     bool Deletable = Acc->getAccessInstruction() == MA->getAccessInstruction();
-	if (Deletable) removeAccessData(Acc); // Not nice: sideeffect
-	return Deletable;
+    if (Deletable)
+      removeAccessData(Acc); // Not nice: sideeffect
+    return Deletable;
   };
   MemAccs.erase(std::remove_if(MemAccs.begin(), MemAccs.end(), Predicate),
                 MemAccs.end());
   InstructionToAccess.erase(MA->getAccessInstruction());
 }
-
 
 void ScopStmt::removeSingleMemoryAccess(MemoryAccess *MA) {
   auto MAIt = std::find(MemAccs.begin(), MemAccs.end(), MA);
