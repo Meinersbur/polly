@@ -3209,12 +3209,21 @@ private:
                               std::move(RequiredValue));
   }
 
+  static ScopStmt *getStmtOfMap( IslPtr<isl_map> Map, isl_dim_type DimType ) {
+	auto Id =  give( isl_map_get_tuple_id(Map.keep(), DimType));
+	auto *Result = reinterpret_cast<ScopStmt*> (isl_id_get_user(Id.keep()));
+	return Result;
+  }
+
   bool canForwardTree(llvm::Value *UseVal, ScopStmt *UseStmt, Loop *UseLoop,
                       // { DomainUse[] -> Scatter[] }
                       IslPtr<isl_map> UseScatter, ScopStmt *TargetStmt,
                       // { DomainUse[] -> DomainTarget[] }
                       IslPtr<isl_map> UseToTargetMapping, int Depth, bool DoIt,
                       MemoryAccess *&ReuseMe) {
+	  assert(getStmtOfMap(UseToTargetMapping, isl_dim_in) == UseStmt);
+	  assert(getStmtOfMap(UseToTargetMapping, isl_dim_out) == TargetStmt);
+
     // Don't handle PHIs (yet)
     if (isa<PHINode>(UseVal))
       return false;
@@ -3277,14 +3286,14 @@ private:
           give(isl_map_apply_range(UseScatter.copy(), ReachDef.copy()));
 
       // { DomainDef[] -> DomainTarget[] }
-      DefToTargetMapping = give(isl_map_apply_range(
-          isl_map_reverse(DefToUseMapping.copy()), UseToTargetMapping.copy()));
+      DefToTargetMapping = give(isl_map_apply_range(isl_map_reverse(DefToUseMapping.copy()), UseToTargetMapping.copy())); 	
+	  
+	  assert(getStmtOfMap(DefToTargetMapping, isl_dim_in) == DefStmt);
+	  assert(getStmtOfMap(DefToTargetMapping, isl_dim_out) == TargetStmt);
     }
 
     if (auto LI = dyn_cast<LoadInst>(Inst)) {
-      if (!canForwardTree(LI->getPointerOperand(), DefStmt, DefLoop, DefScatter,
-                          TargetStmt, UseToTargetMapping, Depth + 1, DoIt,
-                          ReuseMe))
+      if (!canForwardTree(LI->getPointerOperand(), DefStmt, DefLoop, DefScatter,   TargetStmt,   DefToTargetMapping, Depth + 1, DoIt,                          ReuseMe))
         return false;
 
       auto *RA = &DefStmt->getArrayAccessFor(LI);
