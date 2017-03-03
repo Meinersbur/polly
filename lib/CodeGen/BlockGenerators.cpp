@@ -671,8 +671,12 @@ void BlockGenerator::generateComputedPHIs(ScopStmt &Stmt, LoopToScevMapT &LTS,
     for (auto &Map : reverse(Maps)) {
       assert(i >= 0);
       auto RangeId = give(isl_map_get_tuple_id(Map.keep(), isl_dim_out));
-      auto IncomingVal =
-          static_cast<llvm::Value *>(isl_id_get_user(RangeId.keep()));
+      auto IncomingVal =  static_cast<llvm::Value *>(isl_id_get_user(RangeId.keep()));
+
+	  // undef value have been normalized to not conflict with undef of other types.
+	  if (isa<UndefValue>(IncomingVal)) {
+		  IncomingVal = UndefValue::get(PHI->getType());
+	  }
 
       auto NewVal =
           getNewValue(Stmt, IncomingVal, BBMap, LTS, Stmt.getSurroundingLoop());
