@@ -4,7 +4,6 @@
 ; REQUIRES: asserts
 
 ; CHECK: Region: %bb1---%bb16
-; CHECK:   [n] -> {  : 1 = 0 }
 
 ; This test case at some point caused an assertion when modeling a scop, due
 ; to use constructing an invalid lower and upper bound for the range of
@@ -14,10 +13,10 @@ target datalayout = "e-p:64:64:64-S128-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:
 
 define void @zot(double* noalias %arg, double** %D, i32 %n) {
 bb:
+  %tmp4 = load double*, double** %D
   br label %bb1
 
 bb1:
-  %tmp4 = load double*, double** %D
   %tmp5 = add i64 undef, 3
   %tmp6 = add i64 %tmp5, undef
   %tmp7 = add i64 %tmp6, undef

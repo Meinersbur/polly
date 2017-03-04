@@ -639,12 +639,12 @@ bool ScopDetection::isValidIntrinsicInst(IntrinsicInst &II,
   return false;
 }
 
-bool ScopDetection::isInvariant(const Value &Val, const Region &Reg) const {
+bool ScopDetection::isInvariant( Value &Val, const Region &Reg,   InvariantLoadsSetTy &RequiredILS) const {
   // A reference to function argument or constant value is invariant.
   if (isa<Argument>(Val) || isa<Constant>(Val))
     return true;
 
-  const Instruction *I = dyn_cast<Instruction>(&Val);
+   Instruction *I = dyn_cast<Instruction>(&Val);
   if (!I)
     return false;
 
@@ -658,11 +658,6 @@ bool ScopDetection::isInvariant(const Value &Val, const Region &Reg) const {
   if (isa<SelectInst>(I))
     return false;
 
-  // Loads within the SCoP may read arbitrary values
-  // TODO: May accept as required invariant load-hoisting if enabled
-  if (isa<LoadInst>(I))
-	  return false;
-
   // When Val is a Phi node, it is likely not invariant. We do not check whether
   // Phi nodes are actually invariant, we assume that Phi nodes are usually not
   // invariant.
@@ -670,9 +665,12 @@ bool ScopDetection::isInvariant(const Value &Val, const Region &Reg) const {
     return false;
 
   for (const Use &Operand : I->operands())
-    if (!isInvariant(*Operand, Reg))
+    if (!isInvariant(*Operand, Reg, RequiredILS))
       return false;
 
+  // Loads within the SCoP may read arbitrary values, need to hoist them.
+  if (isa<LoadInst>(I)) 
+	  RequiredILS.insert(cast<LoadInst>(I));
 
   return true;
 }
@@ -919,8 +917,11 @@ bool ScopDetection::isValidAccess(Instruction *Inst, const SCEV *AF,
 
   // Check that the base address of the access is invariant in the current
   // region.
-  if (!isInvariant(*BV, Context.CurRegion))
+  InvariantLoadsSetTy RequiredILS;
+  if (!isInvariant(*BV, Context.CurRegion, RequiredILS))
     return invalid<ReportVariantBasePtr>(Context, /*Assert=*/true, BV, Inst);
+  if (!onlyValidRequiredInvariantLoads(RequiredILS, Context))
+    return false;
 
   AF = SE->getMinusSCEV(AF, BP);
 
@@ -989,6 +990,7 @@ bool ScopDetection::isValidAccess(Instruction *Inst, const SCEV *AF,
         Instruction *Inst = dyn_cast<Instruction>(Ptr.getValue());
         if (Inst && Context.CurRegion.contains(Inst)) {
           auto *Load = dyn_cast<LoadInst>(Inst);
+		  // MK: This is not reliable! The load can be hidden behind e.g. a cast.
           if (Load && isHoistableLoad(Load, Context.CurRegion, *LI, *SE, *DT)) {
             Context.RequiredILS.insert(Load);
             continue;
