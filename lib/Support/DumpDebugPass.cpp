@@ -56,7 +56,7 @@ char DumpDebug::ID;
 
 ModulePass *polly::createDumpDebugPass() { return new DumpDebug(); }
 
-INITIALIZE_PASS_BEGIN(DumpDebug, "polly-dump-debug", "Polly - Dump Debug",
+INITIALIZE_PASS_BEGIN(DumpDebug, "polly-debug-dump", "Polly - Dump Debug",
                       false, false)
-INITIALIZE_PASS_END(DumpDebug, "polly-dump-debug", "Polly - Dump Debug", false,
+INITIALIZE_PASS_END(DumpDebug, "polly-debug-dump", "Polly - Dump Debug", false,
                     false)

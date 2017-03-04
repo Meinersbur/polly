@@ -654,8 +654,14 @@ bool ScopDetection::isInvariant(const Value &Val, const Region &Reg) const {
   if (I->mayHaveSideEffects())
     return false;
 
+  // MK: Can somebody explain me this?
   if (isa<SelectInst>(I))
     return false;
+
+  // Loads within the SCoP may read arbitrary values
+  // TODO: May accept as required invariant load-hoisting if enabled
+  if (isa<LoadInst>(I))
+	  return false;
 
   // When Val is a Phi node, it is likely not invariant. We do not check whether
   // Phi nodes are actually invariant, we assume that Phi nodes are usually not
@@ -666,6 +672,7 @@ bool ScopDetection::isInvariant(const Value &Val, const Region &Reg) const {
   for (const Use &Operand : I->operands())
     if (!isInvariant(*Operand, Reg))
       return false;
+
 
   return true;
 }

@@ -228,6 +228,8 @@ void initializePollyPasses(PassRegistry &Registry) {
   initializeDeLICMPass(Registry);
   initializeSimplifyPass(Registry);
   initializePruneUnprofitablePass(Registry);
+  initializeDumpModulePass(Registry);
+  initializeDumpDebugPass(Registry);
 }
 
 /// Register Polly passes such that they form a polyhedral optimizer.

@@ -6,6 +6,7 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/ToolOutputFile.h"
+#include "polly/Options.h"
 #include <string.h>
 
 using namespace llvm;
@@ -13,6 +14,8 @@ using namespace polly;
 
 namespace {
 
+cl::opt<std::string  > DumpFile( "polly-dump-file",                       cl::desc("File to dump to"),                        cl::Optional, cl::cat(PollyCategory) );
+ 
 class DumpModule : public ModulePass {
 private:
   DumpModule(const DumpModule &) = delete;
@@ -39,7 +42,7 @@ public:
   virtual bool runOnModule(llvm::Module &M) override {
     auto Name = M.getName();
     auto stem = sys::path::stem(Name);
-    std::string OutputFilename = (Twine(stem) + Appendix + ".ll").str();
+    std::string OutputFilename =   DumpFile.getValue().empty() ?       (Twine(stem) + Appendix + ".ll").str() : DumpFile;
 
     std::unique_ptr<tool_output_file> Out;
     std::error_code EC;
