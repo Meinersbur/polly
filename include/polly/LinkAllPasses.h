@@ -16,8 +16,8 @@
 #define POLLY_LINKALLPASSES_H
 
 #include "polly/Config/config.h"
-#include "polly/DumpModulePass.h"
 #include "polly/DumpDebugPass.h"
+#include "polly/DumpModulePass.h"
 #include <cstdlib>
 
 namespace llvm {
@@ -92,8 +92,8 @@ struct PollyForcePassLinking {
     polly::createDeLICMPass();
     polly::createSimplifyPass();
     polly::createPruneUnprofitablePass();
-	polly::createDumpModulePass("");
-	polly::createDumpDebugPass();
+    polly::createDumpModulePass("");
+    polly::createDumpDebugPass();
   }
 } PollyForcePassLinking; // Force link by creating a global definition.
 } // namespace

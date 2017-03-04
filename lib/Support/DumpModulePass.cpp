@@ -1,12 +1,12 @@
 #include "polly/DumpModulePass.h"
 
+#include "polly/Options.h"
 #include "llvm/IR/LegacyPassManagers.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/ToolOutputFile.h"
-#include "polly/Options.h"
 #include <string.h>
 
 using namespace llvm;
@@ -14,8 +14,9 @@ using namespace polly;
 
 namespace {
 
-cl::opt<std::string  > DumpFile( "polly-dump-file",                       cl::desc("File to dump to"),                        cl::Optional, cl::cat(PollyCategory) );
- 
+cl::opt<std::string> DumpFile("polly-dump-file", cl::desc("File to dump to"),
+                              cl::Optional, cl::cat(PollyCategory));
+
 class DumpModule : public ModulePass {
 private:
   DumpModule(const DumpModule &) = delete;
@@ -42,7 +43,9 @@ public:
   virtual bool runOnModule(llvm::Module &M) override {
     auto Name = M.getName();
     auto stem = sys::path::stem(Name);
-    std::string OutputFilename =   DumpFile.getValue().empty() ?       (Twine(stem) + Appendix + ".ll").str() : DumpFile;
+    std::string OutputFilename = DumpFile.getValue().empty()
+                                     ? (Twine(stem) + Appendix + ".ll").str()
+                                     : DumpFile;
 
     std::unique_ptr<tool_output_file> Out;
     std::error_code EC;

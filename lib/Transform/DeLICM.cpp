@@ -1675,7 +1675,13 @@ protected:
           isl_map_from_domain_and_range(DomainUse.take(), ValSet.take()));
     }
 
-    case VirtualUse::IntraValue: { //TODO: This might also just mean that the value has been rematerialized in UseStmt. In this case we don't get a canonical ValInst. This might be ok or just wrong, depending on how the result is used. Should probably provide an option to choose whether this is OK.
+    case VirtualUse::IntraValue: { // TODO: This might also just mean that the
+                                   // value has been rematerialized in UseStmt.
+                                   // In this case we don't get a canonical
+                                   // ValInst. This might be ok or just wrong,
+                                   // depending on how the result is used. Should
+                                   // probably provide an option to choose
+                                   // whether this is OK.
       // { llvm::Value }
       auto ValSet = makeValueSet(V);
 
@@ -2565,12 +2571,21 @@ private:
                static_cast<Value *>(isl_id_get_user(ValId.keep())));
       }
 
-	   // IncomingVal might be available in multiple Stmts: The Stmt it is originally defined in and those it is has been rematerialized (e.g. by polly-known pass). makeValInst will prefer the rematerialized one so inter-stmt dependencies are avoided. Indeed, the original defining might not even exist anymore and been removed (by polly-simplify pass). If that happens we have no other choice than to use the scop where it has been rematerialized. There might be multiple such stmts and we risk that the rematerialization is only done after use in this statement (FIXME: Have to think about whether this is even possible)
-	  ScopStmt *DefStmt2 =  S->getStmtFor( IncomingVal );
-	  if (DefStmt2) {
-		  assert(DefStmt && "Contradicting information on whether the value is defined within the SCoP");
-		  DefStmt = DefStmt2;
-	  }
+      // IncomingVal might be available in multiple Stmts: The Stmt it is
+      // originally defined in and those it is has been rematerialized (e.g. by
+      // polly-known pass). makeValInst will prefer the rematerialized one so
+      // inter-stmt dependencies are avoided. Indeed, the original defining
+      // might not even exist anymore and been removed (by polly-simplify pass).
+      // If that happens we have no other choice than to use the scop where it
+      // has been rematerialized. There might be multiple such stmts and we risk
+      // that the rematerialization is only done after use in this statement
+      // (FIXME: Have to think about whether this is even possible)
+      ScopStmt *DefStmt2 = S->getStmtFor(IncomingVal);
+      if (DefStmt2) {
+        assert(DefStmt && "Contradicting information on whether the value is "
+                          "defined within the SCoP");
+        DefStmt = DefStmt2;
+      }
 
       // TODO: Refactor with ScopBuilder
       bool NeedAccess;
@@ -2589,7 +2604,7 @@ private:
             IncomingVal, IncomingVal->getType(), {}, MemoryKind::Value);
 
         // ScopStmt *DefStmt2 =  S->getStmtFor( IncomingVal );
-       // assert(DefStmt == S->getStmtFor(IncomingVal));
+        // assert(DefStmt == S->getStmtFor(IncomingVal));
         // if (!DefStmt)
         // DefStmt = IncomingStmt;
 
@@ -3216,10 +3231,10 @@ private:
                               std::move(RequiredValue));
   }
 
-  static ScopStmt *getStmtOfMap( IslPtr<isl_map> Map, isl_dim_type DimType ) {
-	auto Id =  give( isl_map_get_tuple_id(Map.keep(), DimType));
-	auto *Result = reinterpret_cast<ScopStmt*> (isl_id_get_user(Id.keep()));
-	return Result;
+  static ScopStmt *getStmtOfMap(IslPtr<isl_map> Map, isl_dim_type DimType) {
+    auto Id = give(isl_map_get_tuple_id(Map.keep(), DimType));
+    auto *Result = reinterpret_cast<ScopStmt *>(isl_id_get_user(Id.keep()));
+    return Result;
   }
 
   bool canForwardTree(llvm::Value *UseVal, ScopStmt *UseStmt, Loop *UseLoop,
@@ -3228,8 +3243,8 @@ private:
                       // { DomainUse[] -> DomainTarget[] }
                       IslPtr<isl_map> UseToTargetMapping, int Depth, bool DoIt,
                       MemoryAccess *&ReuseMe) {
-	  assert(getStmtOfMap(UseToTargetMapping, isl_dim_in) == UseStmt);
-	  assert(getStmtOfMap(UseToTargetMapping, isl_dim_out) == TargetStmt);
+    assert(getStmtOfMap(UseToTargetMapping, isl_dim_in) == UseStmt);
+    assert(getStmtOfMap(UseToTargetMapping, isl_dim_out) == TargetStmt);
 
     // Don't handle PHIs (yet)
     if (isa<PHINode>(UseVal))
@@ -3293,14 +3308,17 @@ private:
           give(isl_map_apply_range(UseScatter.copy(), ReachDef.copy()));
 
       // { DomainDef[] -> DomainTarget[] }
-      DefToTargetMapping = give(isl_map_apply_range(isl_map_reverse(DefToUseMapping.copy()), UseToTargetMapping.copy())); 	
-	  
-	  assert(getStmtOfMap(DefToTargetMapping, isl_dim_in) == DefStmt);
-	  assert(getStmtOfMap(DefToTargetMapping, isl_dim_out) == TargetStmt);
+      DefToTargetMapping = give(isl_map_apply_range(
+          isl_map_reverse(DefToUseMapping.copy()), UseToTargetMapping.copy()));
+
+      assert(getStmtOfMap(DefToTargetMapping, isl_dim_in) == DefStmt);
+      assert(getStmtOfMap(DefToTargetMapping, isl_dim_out) == TargetStmt);
     }
 
     if (auto LI = dyn_cast<LoadInst>(Inst)) {
-      if (!canForwardTree(LI->getPointerOperand(), DefStmt, DefLoop, DefScatter,   TargetStmt,   DefToTargetMapping, Depth + 1, DoIt,                          ReuseMe))
+      if (!canForwardTree(LI->getPointerOperand(), DefStmt, DefLoop, DefScatter,
+                          TargetStmt, DefToTargetMapping, Depth + 1, DoIt,
+                          ReuseMe))
         return false;
 
       auto *RA = &DefStmt->getArrayAccessFor(LI);

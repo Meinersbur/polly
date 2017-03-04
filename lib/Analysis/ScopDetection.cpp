@@ -639,12 +639,13 @@ bool ScopDetection::isValidIntrinsicInst(IntrinsicInst &II,
   return false;
 }
 
-bool ScopDetection::isInvariant( Value &Val, const Region &Reg,   InvariantLoadsSetTy &RequiredILS) const {
+bool ScopDetection::isInvariant(Value &Val, const Region &Reg,
+                                InvariantLoadsSetTy &RequiredILS) const {
   // A reference to function argument or constant value is invariant.
   if (isa<Argument>(Val) || isa<Constant>(Val))
     return true;
 
-   Instruction *I = dyn_cast<Instruction>(&Val);
+  Instruction *I = dyn_cast<Instruction>(&Val);
   if (!I)
     return false;
 
@@ -669,8 +670,8 @@ bool ScopDetection::isInvariant( Value &Val, const Region &Reg,   InvariantLoads
       return false;
 
   // Loads within the SCoP may read arbitrary values, need to hoist them.
-  if (isa<LoadInst>(I)) 
-	  RequiredILS.insert(cast<LoadInst>(I));
+  if (isa<LoadInst>(I))
+    RequiredILS.insert(cast<LoadInst>(I));
 
   return true;
 }
@@ -990,7 +991,8 @@ bool ScopDetection::isValidAccess(Instruction *Inst, const SCEV *AF,
         Instruction *Inst = dyn_cast<Instruction>(Ptr.getValue());
         if (Inst && Context.CurRegion.contains(Inst)) {
           auto *Load = dyn_cast<LoadInst>(Inst);
-		  // MK: This is not reliable! The load can be hidden behind e.g. a cast.
+          // MK: This is not reliable! The load can be hidden behind e.g. a
+          // cast.
           if (Load && isHoistableLoad(Load, Context.CurRegion, *LI, *SE, *DT)) {
             Context.RequiredILS.insert(Load);
             continue;
