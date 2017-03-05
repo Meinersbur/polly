@@ -3028,7 +3028,10 @@ public:
     bool Modified = false;
 
     for (auto &Stmt : *S) {
-      for (auto *MA : Stmt) {
+		// collapseScalarsToStore() can add more MemoryAccesses (tryComputedPHI), which can cause the vector that stores the accesses to grow, invalidating the iterators.
+		SmallVector<MemoryAccess *,16> Accs( Stmt.begin(), Stmt.end() );
+
+      for (auto *MA : Accs) {
         if (!MA->isLatestArrayKind())
           continue;
         if (!MA->isWrite())
