@@ -3284,7 +3284,7 @@ private:
 
     auto DefStmt = S->getStmtFor(Inst);
     assert(DefStmt);
-    auto DefLoop = LI->getLoopFor(Inst->getParent());
+    //auto DefLoop = LI->getLoopFor(Inst->getParent());
 
     // { DomainDef[] -> Scatter[] }
     IslPtr<isl_map> DefScatter;
@@ -3316,7 +3316,7 @@ private:
     }
 
     if (auto LI = dyn_cast<LoadInst>(Inst)) {
-      if (!canForwardTree(LI->getPointerOperand(), DefStmt, DefLoop, DefScatter,
+      if (!canForwardTree(LI->getPointerOperand(), DefStmt, UseLoop, DefScatter,
                           TargetStmt, DefToTargetMapping, Depth + 1, DoIt,
                           ReuseMe))
         return false;
@@ -3379,7 +3379,7 @@ private:
       return false;
 
     for (auto OpVal : Inst->operand_values()) {
-      if (!canForwardTree(OpVal, DefStmt, DefLoop, DefScatter, TargetStmt,
+      if (!canForwardTree(OpVal, DefStmt, UseLoop, DefScatter, TargetStmt,
                           DefToTargetMapping, Depth + 1, DoIt, ReuseMe))
         return false;
     }
