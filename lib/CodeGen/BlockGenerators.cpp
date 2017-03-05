@@ -386,7 +386,7 @@ BasicBlock *BlockGenerator::copyBB(ScopStmt &Stmt, BasicBlock *BB,
   if (UseVirtualStmts) {
     std::vector<VirtualInstruction> InstList;
     markReachableLocal(&Stmt, InstList, &LI);
-	//TODO: Now unnecessary due to markReachableLocal() doing this itself now.
+    // TODO: Now unnecessary due to markReachableLocal() doing this itself now.
     DenseSet<Instruction *> InstSet;
     for (auto VInst : InstList) {
       assert(VInst.getStmt() == &Stmt);

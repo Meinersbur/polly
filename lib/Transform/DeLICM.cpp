@@ -1679,9 +1679,9 @@ protected:
                                    // value has been rematerialized in UseStmt.
                                    // In this case we don't get a canonical
                                    // ValInst. This might be ok or just wrong,
-                                   // depending on how the result is used. Should
-                                   // probably provide an option to choose
-                                   // whether this is OK.
+                                   // depending on how the result is used.
+                                   // Should probably provide an option to
+                                   // choose whether this is OK.
       // { llvm::Value }
       auto ValSet = makeValueSet(V);
 
@@ -3028,8 +3028,10 @@ public:
     bool Modified = false;
 
     for (auto &Stmt : *S) {
-		// collapseScalarsToStore() can add more MemoryAccesses (tryComputedPHI), which can cause the vector that stores the accesses to grow, invalidating the iterators.
-		SmallVector<MemoryAccess *,16> Accs( Stmt.begin(), Stmt.end() );
+      // collapseScalarsToStore() can add more MemoryAccesses (tryComputedPHI),
+      // which can cause the vector that stores the accesses to grow,
+      // invalidating the iterators.
+      SmallVector<MemoryAccess *, 16> Accs(Stmt.begin(), Stmt.end());
 
       for (auto *MA : Accs) {
         if (!MA->isLatestArrayKind())
@@ -3287,7 +3289,7 @@ private:
 
     auto DefStmt = S->getStmtFor(Inst);
     assert(DefStmt);
-    //auto DefLoop = LI->getLoopFor(Inst->getParent());
+    // auto DefLoop = LI->getLoopFor(Inst->getParent());
 
     // { DomainDef[] -> Scatter[] }
     IslPtr<isl_map> DefScatter;
