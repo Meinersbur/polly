@@ -138,6 +138,16 @@ static cl::opt<bool, true> UnprofitableScalarAccsOption(
     cl::desc("Count statements with scalar accesses as not optimizable"),
     cl::Hidden, cl::init(false), cl::cat(PollyCategory));
 
+static cl::opt<bool> PollyPreciseInbounds(
+    "polly-precise-inbounds",
+    cl::desc("Take more precise inbounds assumptions (do not scale well)"),
+    cl::Hidden, cl::init(false), cl::cat(PollyCategory));
+
+static cl::opt<bool> PollyPreciseFoldAccesses(
+    "polly-precise-fold-accesses",
+    cl::desc("Fold memory accesses to modele more possible delinearizations "
+             "(do not scale well)"),
+    cl::Hidden, cl::init(false), cl::cat(PollyCategory));
 //===----------------------------------------------------------------------===//
 
 // Create a sequence of two schedules. Either argument may be null and is
@@ -750,6 +760,8 @@ void MemoryAccess::assumeNoOutOfBound() {
   const auto &Loc = getAccessInstruction()
                         ? getAccessInstruction()->getDebugLoc()
                         : DebugLoc();
+  if (!PollyPreciseInbounds)
+    Outside = isl_set_gist(Outside, isl_set_params(Statement->getDomain()));
   Statement->getParent()->recordAssumption(INBOUNDS, Outside, Loc,
                                            AS_ASSUMPTION);
   isl_space_free(Space);
@@ -830,6 +842,8 @@ void MemoryAccess::foldAccessRelation() {
 
   int Size = Subscripts.size();
 
+  isl_map *OldAccessRelation = isl_map_copy(AccessRelation);
+
   for (int i = Size - 2; i >= 0; --i) {
     isl_space *Space;
     isl_map *MapOne, *MapTwo;
@@ -881,6 +895,18 @@ void MemoryAccess::foldAccessRelation() {
   AccessRelation =
       isl_map_set_tuple_id(AccessRelation, isl_dim_out, BaseAddrId);
   AccessRelation = isl_map_gist_domain(AccessRelation, Statement->getDomain());
+
+  // Access dimension folding might in certain cases increase the number of
+  // disjuncts in the memory access, which can possibly complicate the generated
+  // run-time checks and can lead to costly compilation.
+  if (!PollyPreciseFoldAccesses && isl_map_n_basic_map(AccessRelation) >
+                                       isl_map_n_basic_map(OldAccessRelation)) {
+    isl_map_free(AccessRelation);
+    AccessRelation = OldAccessRelation;
+  } else {
+    isl_map_free(OldAccessRelation);
+  }
+
   isl_space_free(Space);
 }
 

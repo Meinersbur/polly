@@ -104,16 +104,36 @@
 // space, but most of the time multiple statements are processed in one set.
 // This is why most of the time isl_union_map has to be used.
 //
+// The basic algorithm works as follows:
+// At first we verify that the SCoP is compatible with this technique. For
+// instance, two writes cannot write to the same location at the same statement
+// instance because we cannot determine within the polyhedral model which one
+// comes first. Once this was verified, we compute zones at which an array
+// element is unused. This computation can fail if it takes too long. Then the
+// main algorithm is executed. Because every store potentially trails an unused
+// zone, we start at stores. We search for a scalar (MemoryKind::Value or
+// MemoryKind::PHI) that we can map to the array element overwritten by the
+// store, preferably one that is used by the store or at least the ScopStmt.
+// When it does not conflict with the lifetime of the values in the array
+// element, the map is applied and the unused zone updated as it is now used. We
+// continue to try to map scalars to the array element until there are no more
+// candidates to map. The algorithm is greedy in the sense that the first scalar
+// not conflicting will be mapped. Other scalars processed later that could have
+// fit the same unused zone will be rejected. As such the result depends on the
+// processing order.
+//
 //===----------------------------------------------------------------------===//
 
 #include "polly/DeLICM.h"
 #include "polly/CodeGen/BlockGenerators.h"
+#include "polly/Options.h"
 #include "polly/Options.h"
 #include "polly/ScopBuilder.h"
 #include "polly/ScopInfo.h"
 #include "polly/ScopPass.h"
 #include "polly/Support/ISLTools.h"
 #include "polly/Support/VirtualInstruction.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/Statistic.h"
 #define DEBUG_TYPE "polly-delicm"
 
@@ -186,9 +206,9 @@ void expandDump(const IslPtr<isl_union_map> &Arg) { expand(Arg).dump(); }
 
 namespace {
 
-cl::opt<unsigned long>
+cl::opt<int>
     DelicmMaxOps("polly-delicm-max-ops",
-                 cl::desc("Maximum number of ISL operations to invest for "
+                 cl::desc("Maximum number of isl operations to invest for "
                           "lifetime analysis; 0=no limit"),
                  cl::init(1000000), cl::cat(PollyCategory));
 

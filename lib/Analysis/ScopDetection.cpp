@@ -54,7 +54,6 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/LoopInfo.h"
-#include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/RegionIterator.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
@@ -348,9 +347,15 @@ bool ScopDetection::onlyValidRequiredInvariantLoads(
   if (!PollyInvariantLoadHoisting && !RequiredILS.empty())
     return false;
 
-  for (LoadInst *Load : RequiredILS)
+  for (LoadInst *Load : RequiredILS) {
     if (!isHoistableLoad(Load, CurRegion, *LI, *SE, *DT))
       return false;
+
+    for (auto NonAffineRegion : Context.NonAffineSubRegionSet)
+      if (NonAffineRegion->contains(Load) &&
+          Load->getParent() != NonAffineRegion->getEntry())
+        return false;
+  }
 
   Context.RequiredILS.insert(RequiredILS.begin(), RequiredILS.end());
 
