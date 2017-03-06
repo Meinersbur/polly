@@ -324,7 +324,6 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, const IslPtr<T> &Obj) {
   return OS;
 }
 
-  static ThisTy keep(__isl_keep T *Obj) { return ThisTy(Obj); }
 template <typename T>
 llvm::DiagnosticInfoOptimizationBase &
 operator<<(llvm::DiagnosticInfoOptimizationBase &OS, const IslPtr<T> &Obj) {

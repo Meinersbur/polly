@@ -140,7 +140,7 @@
 using namespace polly;
 using namespace llvm;
 
-void foreachPoint(NonowningIslPtr<isl_union_set> USet,
+void foreachPoint(const IslPtr<isl_union_set> &USet,
                   const std::function<void(IslPtr<isl_point> P)> &F) {
   isl_union_set_foreach_point(
       USet.keep(),
@@ -153,7 +153,7 @@ void foreachPoint(NonowningIslPtr<isl_union_set> USet,
       const_cast<void *>(static_cast<const void *>(&F)));
 }
 
-void foreachPoint(NonowningIslPtr<isl_set> Set,
+void foreachPoint(const IslPtr<isl_set> &Set,
                   const std::function<void(IslPtr<isl_point> P)> &F) {
   isl_set_foreach_point(
       Set.keep(),
@@ -375,7 +375,7 @@ IslPtr<isl_union_map> computeReachingOverwrite(IslPtr<isl_union_map> Schedule,
                               InclOverwrite);
 }
 
-bool isRecursiveValInstMap(NonowningIslPtr<isl_union_map> UMap) {
+bool isRecursiveValInstMap(const IslPtr<isl_union_map>& UMap) {
   SmallPtrSet<Value *, 8> LHSVals;
   SmallPtrSet<Value *, 8> RHSVals;
   foreachElt(UMap, [&](IslPtr<isl_map> Map) {
@@ -681,7 +681,7 @@ bool isScalarAccess(IslPtr<isl_map> Map) {
 /// Return whether @p Map maps to llvm::Undef.
 ///
 /// @param Map { [] -> ValInst[] }
-bool isMapToUndef(NonowningIslPtr<isl_map> Map) {
+bool isMapToUndef(const IslPtr<isl_map> &Map) {
   if (!isl_map_has_tuple_id(Map.keep(), isl_dim_out))
     return false;
 
@@ -693,7 +693,7 @@ bool isMapToUndef(NonowningIslPtr<isl_map> Map) {
 /// Return whether @p Map maps to an unknown value.
 ///
 /// @param { [] -> ValInst[] }
-bool isMapToUnknown(NonowningIslPtr<isl_map> Map) {
+bool isMapToUnknown(const IslPtr<isl_map> &Map) {
   auto Space = give(isl_space_range(isl_map_get_space(Map.keep())));
   return !isl_map_has_tuple_id(Map.keep(), isl_dim_set) &&
          !isl_space_is_wrapping(Space.keep());
@@ -706,7 +706,7 @@ bool isMapToUnknown(NonowningIslPtr<isl_map> Map) {
 ///
 /// @return { [] -> ValInst[] }
 IslPtr<isl_union_map>
-removeUnknownValInst(NonowningIslPtr<isl_union_map> UMap) {
+removeUnknownValInst(const IslPtr<isl_union_map> &UMap) {
   auto Result = give(isl_union_map_empty(isl_union_map_get_space(UMap.keep())));
   foreachElt(UMap, [=, &Result](IslPtr<isl_map> Map) {
     if (!isMapToUnknown(Map))
@@ -721,7 +721,7 @@ removeUnknownValInst(NonowningIslPtr<isl_union_map> UMap) {
 ///
 /// @return { Domain[] }
 IslPtr<isl_union_set>
-getUnknownValInstDomain(NonowningIslPtr<isl_union_map> UMap) {
+getUnknownValInstDomain(const IslPtr<isl_union_map> &UMap) {
   auto Result = give(isl_union_set_empty(isl_union_map_get_space(UMap.keep())));
   foreachElt(UMap, [=, &Result](IslPtr<isl_map> Map) {
     if (isMapToUnknown(Map))
@@ -737,7 +737,7 @@ getUnknownValInstDomain(NonowningIslPtr<isl_union_map> UMap) {
 ///
 /// @return { Domain[] }
 IslPtr<isl_union_set>
-getUndefValInstDomain(NonowningIslPtr<isl_union_map> UMap) {
+getUndefValInstDomain(const IslPtr<isl_union_map> &UMap) {
   auto Result = give(isl_union_set_empty(isl_union_map_get_space(UMap.keep())));
   foreachElt(UMap, [=, &Result](IslPtr<isl_map> Map) {
     if (isMapToUndef(Map))
@@ -752,7 +752,7 @@ getUndefValInstDomain(NonowningIslPtr<isl_union_map> UMap) {
 /// @param UMap { [] -> ValInst[] }
 ///
 /// @return { [] -> ValInst[] }
-IslPtr<isl_union_map> removeUndefValInst(NonowningIslPtr<isl_union_map> UMap) {
+IslPtr<isl_union_map> removeUndefValInst(const IslPtr<isl_union_map> &UMap) {
   auto Result = give(isl_union_map_empty(isl_union_map_get_space(UMap.keep())));
   foreachElt(UMap, [=, &Result](IslPtr<isl_map> Map) {
     if (!isMapToUndef(Map))
@@ -777,7 +777,7 @@ IslPtr<isl_union_map> applyRangeIfDefined(IslPtr<isl_union_map> UMap,
 /// @param UMap { [] -> ValInst[] }
 ///
 /// @return { [] -> ValInst[] }
-IslPtr<isl_union_map> filterKnownValInst(NonowningIslPtr<isl_union_map> UMap) {
+IslPtr<isl_union_map> filterKnownValInst(const IslPtr<isl_union_map> &UMap) {
   auto Result = give(isl_union_map_empty(isl_union_map_get_space(UMap.keep())));
   foreachElt(UMap, [=, &Result](IslPtr<isl_map> Map) {
     if (!isMapToUnknown(Map) && !isMapToUndef(Map))
@@ -1698,7 +1698,7 @@ protected:
     case VirtualUse::IntraValue: { // TODO: This might also just mean that the
                                    // value has been rematerialized in UseStmt.
                                    // In this case we don't get a canonical
-                                   // ValInst. This might be ok or just wrong,
+                                   // ValInst. This might be OK or just wrong,
                                    // depending on how the result is used.
                                    // Should probably provide an option to
                                    // choose whether this is OK.
@@ -2314,7 +2314,7 @@ private:
   /// Get the all the statement instances of any statement for which there is at
   /// least one instance in @p RelevantDomain.
   IslPtr<isl_union_set>
-  wholeStmtDomain(NonowningIslPtr<isl_union_set> RelevantDomain) {
+  wholeStmtDomain(const IslPtr<isl_union_set> &RelevantDomain) {
     auto Universe = EmptyUnionSet;
     foreachElt(RelevantDomain, [&Universe](IslPtr<isl_set> Dom) {
       auto Space = give(isl_set_get_space(Dom.keep()));
