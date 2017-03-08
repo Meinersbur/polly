@@ -379,11 +379,11 @@ private:
   ///
   /// @param Val Value to check for invariance.
   /// @param Reg The region to consider for the invariance of Val.
+  /// @param Ctx The current detection context.
   ///
   /// @return True if the value represented by Val is invariant in the region
   ///         identified by Reg.
-  bool isInvariant(Value &Val, const Region &Reg,
-                   InvariantLoadsSetTy &AccessILS) const;
+  bool isInvariant(Value &Val, const Region &Reg, DetectionContext &Ctx) const;
 
   /// Check if the memory access caused by @p Inst is valid.
   ///

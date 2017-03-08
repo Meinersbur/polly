@@ -645,7 +645,7 @@ bool ScopDetection::isValidIntrinsicInst(IntrinsicInst &II,
 }
 
 bool ScopDetection::isInvariant(Value &Val, const Region &Reg,
-                                InvariantLoadsSetTy &RequiredILS) const {
+                                DetectionContext &Ctx) const {
   // A reference to function argument or constant value is invariant.
   if (isa<Argument>(Val) || isa<Constant>(Val))
     return true;
@@ -657,28 +657,15 @@ bool ScopDetection::isInvariant(Value &Val, const Region &Reg,
   if (!Reg.contains(I))
     return true;
 
-  if (I->mayHaveSideEffects())
-    return false;
+  // Loads within the SCoP may read arbitrary values, need to hoist them. If it
+  // is not hoistable, it will be rejected later, but here we assume it is and
+  // that makes the value invariant.
+  if (auto LI = dyn_cast<LoadInst>(I)) {
+    Ctx.RequiredILS.insert(LI);
+    return true;
+  }
 
-  // MK: Can somebody explain me this?
-  if (isa<SelectInst>(I))
-    return false;
-
-  // When Val is a Phi node, it is likely not invariant. We do not check whether
-  // Phi nodes are actually invariant, we assume that Phi nodes are usually not
-  // invariant.
-  if (isa<PHINode>(*I))
-    return false;
-
-  for (const Use &Operand : I->operands())
-    if (!isInvariant(*Operand, Reg, RequiredILS))
-      return false;
-
-  // Loads within the SCoP may read arbitrary values, need to hoist them.
-  if (isa<LoadInst>(I))
-    RequiredILS.insert(cast<LoadInst>(I));
-
-  return true;
+  return false;
 }
 
 /// Remove smax of smax(0, size) expressions from a SCEV expression and
@@ -923,11 +910,8 @@ bool ScopDetection::isValidAccess(Instruction *Inst, const SCEV *AF,
 
   // Check that the base address of the access is invariant in the current
   // region.
-  InvariantLoadsSetTy RequiredILS;
-  if (!isInvariant(*BV, Context.CurRegion, RequiredILS))
+  if (!isInvariant(*BV, Context.CurRegion, Context))
     return invalid<ReportVariantBasePtr>(Context, /*Assert=*/true, BV, Inst);
-  if (!onlyValidRequiredInvariantLoads(RequiredILS, Context))
-    return false;
 
   AF = SE->getMinusSCEV(AF, BP);
 
@@ -1445,6 +1429,13 @@ bool ScopDetection::isValidRegion(DetectionContext &Context) const {
     return false;
   }
 
+  DebugLoc DbgLoc;
+  if (isa<UnreachableInst>(CurRegion.getExit()->getTerminator())) {
+    DEBUG(dbgs() << "Unreachable in exit\n");
+    return invalid<ReportUnreachableInExit>(Context, /*Assert=*/true,
+                                            CurRegion.getExit(), DbgLoc);
+  }
+
   if (!CurRegion.getEntry()->getName().count(OnlyRegion)) {
     DEBUG({
       dbgs() << "Region entry does not match -polly-region-only";
@@ -1462,7 +1453,6 @@ bool ScopDetection::isValidRegion(DetectionContext &Context) const {
   if (!allBlocksValid(Context))
     return false;
 
-  DebugLoc DbgLoc;
   if (!isReducibleRegion(CurRegion, DbgLoc))
     return invalid<ReportIrreducibleRegion>(Context, /*Assert=*/true,
                                             &CurRegion, DbgLoc);
