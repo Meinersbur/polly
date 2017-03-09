@@ -52,7 +52,7 @@ public:
 };
 
 char DumpDebug::ID;
-}
+} // namespace
 
 ModulePass *polly::createDumpDebugPass() { return new DumpDebug(); }
 

@@ -12,6 +12,6 @@ llvm::ModulePass *createDumpDebugPass();
 namespace llvm {
 class PassRegistry;
 void initializeDumpDebugPass(llvm::PassRegistry &);
-}
+} // namespace llvm
 
 #endif /* POLLY_DUMPDEBUGPASS_H */

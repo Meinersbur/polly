@@ -191,6 +191,6 @@ public:
         getHashValue(std::make_pair(Val.getStmt(), Val.getInstruction()));
   }
 };
-}
+} // namespace llvm
 
 #endif /* POLLY_VIRTUALINSTRUCTION_H */

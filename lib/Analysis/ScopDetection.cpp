@@ -980,8 +980,6 @@ bool ScopDetection::isValidAccess(Instruction *Inst, const SCEV *AF,
         Instruction *Inst = dyn_cast<Instruction>(Ptr.getValue());
         if (Inst && Context.CurRegion.contains(Inst)) {
           auto *Load = dyn_cast<LoadInst>(Inst);
-          // MK: This is not reliable! The load can be hidden behind e.g. a
-          // cast.
           if (Load && isHoistableLoad(Load, Context.CurRegion, *LI, *SE, *DT)) {
             Context.RequiredILS.insert(Load);
             continue;

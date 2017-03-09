@@ -63,7 +63,7 @@ public:
 };
 
 char DumpModule::ID;
-}
+} // namespace
 
 ModulePass *polly::createDumpModulePass(llvm::StringRef Appendix) {
   return new DumpModule(Appendix);

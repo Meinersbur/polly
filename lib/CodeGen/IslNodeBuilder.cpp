@@ -776,7 +776,7 @@ IslNodeBuilder::createNewAccesses(ScopStmt *Stmt,
     isl_set_free(Dom);
 #endif
 
-    auto *PWAccRel = MA->applyScheduleToAccessRelation(Schedule);
+    auto PWAccRel = MA->applyScheduleToAccessRelation(Schedule);
 
     auto *AccDomain = isl_pw_multi_aff_domain(isl_pw_multi_aff_copy(PWAccRel));
     isl_ast_expr *AccessExpr;
