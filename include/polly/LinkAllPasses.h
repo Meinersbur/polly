@@ -17,6 +17,7 @@
 
 #include "polly/Config/config.h"
 #include "polly/Support/DumpModulePass.h"
+#include "polly/DumpDebugPass.h"
 #include "llvm/ADT/StringRef.h"
 #include <cstdlib>
 
