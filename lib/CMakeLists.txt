@@ -54,6 +54,7 @@ add_polly_library(Polly
   Support/ScopHelper.cpp
   Support/ScopLocation.cpp
   Support/ISLTools.cpp
+  Support/DumpModulePass.cpp
   ${POLLY_JSON_FILES}
   Transform/Canonicalization.cpp
   Transform/CodePreparation.cpp

@@ -34,6 +34,7 @@
 #include "polly/PruneUnprofitable.h"
 #include "polly/ScopDetection.h"
 #include "polly/ScopInfo.h"
+#include "polly/Support/DumpModulePass.h"
 #include "llvm/Analysis/CFGPrinter.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/Transforms/IPO.h"
@@ -185,6 +186,28 @@ static cl::opt<bool> EnableKnown(
     cl::Hidden, cl::init(false), cl::cat(PollyCategory));
 
 static cl::opt<bool>
+    DumpBefore("polly-dump-before",
+               cl::desc("Dump module before Polly transformations into a file "
+                        "suffixed with \"-before\""),
+               cl::init(false), cl::cat(PollyCategory));
+
+static cl::list<std::string> DumpBeforeFile(
+    "polly-dump-before-file",
+    cl::desc("Dump module before Polly transformations to the given file"),
+    cl::cat(PollyCategory));
+
+static cl::opt<bool>
+    DumpAfter("polly-dump-after",
+              cl::desc("Dump module after Polly transformations into a file "
+                       "suffixed with \"-after\""),
+              cl::init(false), cl::cat(PollyCategory));
+
+static cl::list<std::string> DumpAfterFile(
+    "polly-dump-after-file",
+    cl::desc("Dump module after Polly transformations to the given file"),
+    cl::ZeroOrMore, cl::cat(PollyCategory));
+
+static cl::opt<bool>
     EnableDeLICM("polly-enable-delicm",
                  cl::desc("Eliminate scalar loop carried dependences"),
                  cl::Hidden, cl::init(false), cl::cat(PollyCategory));
@@ -260,7 +283,9 @@ void initializePollyPasses(PassRegistry &Registry) {
 /// Polly supports the isl internal code generator.
 void registerPollyPasses(llvm::legacy::PassManagerBase &PM) {
   if (DumpBefore)
-    PM.add(polly::createDumpModulePass("-before"));
+    PM.add(polly::createDumpModulePass("-before", true));
+  for (auto &Filename : DumpBeforeFile)
+    PM.add(polly::createDumpModulePass(Filename, false));
 
   PM.add(polly::createScopDetectionPass());
 
@@ -333,6 +358,11 @@ void registerPollyPasses(llvm::legacy::PassManagerBase &PM) {
   // probably some not correctly preserved analyses. It acts as a barrier to
   // force all analysis results to be recomputed.
   PM.add(createBarrierNoopPass());
+
+  if (DumpAfter)
+    PM.add(polly::createDumpModulePass("-after", true));
+  for (auto &Filename : DumpAfterFile)
+    PM.add(polly::createDumpModulePass(Filename, false));
 
   if (DumpAfter)
     PM.add(polly::createDumpModulePass("-after"));
