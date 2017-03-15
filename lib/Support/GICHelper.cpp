@@ -205,11 +205,12 @@ std::string polly::getIslCompatibleName(const std::string &Prefix,
   return getIslCompatibleName(Prefix, ValStr, Suffix);
 }
 
+// DEFINE_ISLPTR(point)
+// DEFINE_ISLPTR(ast_expr)
+// DEFINE_ISLPTR(ast_build)
+
 void polly::foreachElt(const isl::map &Map,
                        const std::function<void(isl::basic_map)> &F) {
-DEFINE_ISLPTR(point)
-DEFINE_ISLPTR(ast_expr)
-// DEFINE_ISLPTR(ast_build)
   isl_map_foreach_basic_map(
       Map.keep(),
       [](__isl_take isl_basic_map *BMap, void *User) -> isl_stat {

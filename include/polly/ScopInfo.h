@@ -1242,7 +1242,7 @@ private:
   void removeAccessData(MemoryAccess *MA);
 
 public:
-  MapVector<PHINode *, IslPtr<isl_union_map>> ComputedPHIs;
+  MapVector<PHINode *, isl::union_map> ComputedPHIs;
 
 private:
   /// Build the statement.

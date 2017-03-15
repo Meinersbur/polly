@@ -72,12 +72,10 @@ llvm::Pass *createKnownPass();
 ///                          { [A[5] -> Def[]] -> [i] : 0 < i }
 ///
 /// @return { [Element[] -> DomainWrite[]] -> Zone[] }
-IslPtr<isl_union_map> computeArrayLifetime(IslPtr<isl_union_map> Schedule,
-                                           IslPtr<isl_union_map> Writes,
-                                           IslPtr<isl_union_map> Reads,
-                                           bool ReadEltInSameInst,
-                                           bool InclWrite, bool InclLastRead,
-                                           bool ExitReads);
+isl::union_map computeArrayLifetime(isl::union_map Schedule,
+                                    isl::union_map Writes, isl::union_map Reads,
+                                    bool ReadEltInSameInst, bool InclWrite,
+                                    bool InclLastRead, bool ExitReads);
 
 /// Determine whether two lifetimes are conflicting.
 ///
@@ -93,12 +91,12 @@ IslPtr<isl_union_map> computeArrayLifetime(IslPtr<isl_union_map> Schedule,
 /// @param False, iff the lifetimes and writes can me merged.
 ///
 /// @see polly::Knowledge
-bool isConflicting(IslPtr<isl_union_map> ExistingLifetime,
+bool isConflicting(isl::union_map ExistingLifetime,
                    bool ExistingmplicitLifetimeIsUnknown,
-                   IslPtr<isl_union_map> ExistingWrites,
-                   IslPtr<isl_union_map> ProposedLifetime,
+                   isl::union_map ExistingWrites,
+                   isl::union_map ProposedLifetime,
                    bool ProposedImplicitLifetimeIsUnknown,
-                   IslPtr<isl_union_map> ProposedWrites);
+                   isl::union_map ProposedWrites);
 } // namespace polly
 
 namespace llvm {

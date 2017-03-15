@@ -162,47 +162,45 @@
 using namespace polly;
 using namespace llvm;
 
-void foreachPoint(const IslPtr<isl_union_set> &USet,
-                  const std::function<void(IslPtr<isl_point> P)> &F) {
+void foreachPoint(const isl::union_set &USet,
+                  const std::function<void(isl::point P)> &F) {
   isl_union_set_foreach_point(
       USet.keep(),
       [](__isl_take isl_point *p, void *User) -> isl_stat {
-        auto &F =
-            *static_cast<const std::function<void(IslPtr<isl_point>)> *>(User);
+        auto &F = *static_cast<const std::function<void(isl::point)> *>(User);
         F(give(p));
         return isl_stat_ok;
       },
       const_cast<void *>(static_cast<const void *>(&F)));
 }
 
-void foreachPoint(const IslPtr<isl_set> &Set,
-                  const std::function<void(IslPtr<isl_point> P)> &F) {
+void foreachPoint(const isl::set &Set,
+                  const std::function<void(isl::point P)> &F) {
   isl_set_foreach_point(
       Set.keep(),
       [](__isl_take isl_point *p, void *User) -> isl_stat {
-        auto &F =
-            *static_cast<const std::function<void(IslPtr<isl_point>)> *>(User);
+        auto &F = *static_cast<const std::function<void(isl::point)> *>(User);
         F(give(p));
         return isl_stat_ok;
       },
       const_cast<void *>(static_cast<const void *>(&F)));
 }
 
-void foreachPoint(IslPtr<isl_basic_set> BSet,
-                  const std::function<void(IslPtr<isl_point> P)> &F) {
+void foreachPoint(isl::basic_set BSet,
+                  const std::function<void(isl::point P)> &F) {
   foreachPoint(give(isl_set_from_basic_set(BSet.take())), F);
 }
 
-IslPtr<isl_union_set> expand(const IslPtr<isl_union_set> &Arg) {
+isl::union_set expand(const isl::union_set &Arg) {
   auto USet = Arg;
   simplify(USet);
-  IslPtr<isl_union_set> Expanded =
+  isl::union_set Expanded =
       give(isl_union_set_empty(isl_union_set_get_space(USet.keep())));
-  foreachElt(USet, [&](IslPtr<isl_set> Set) {
-    foreachElt(Set, [&](IslPtr<isl_basic_set> BSet) {
+  foreachElt(USet, [&](isl::set Set) {
+    foreachElt(Set, [&](isl::basic_set BSet) {
       bool IsBounded = isl_basic_set_is_bounded(BSet.keep());
       if (IsBounded) {
-        foreachPoint(Set, [&](IslPtr<isl_point> P) {
+        foreachPoint(Set, [&](isl::point P) {
           Expanded = give(isl_union_set_add_set(Expanded.take(),
                                                 isl_set_from_point(P.copy())));
         });
@@ -213,18 +211,18 @@ IslPtr<isl_union_set> expand(const IslPtr<isl_union_set> &Arg) {
     });
   });
   return Expanded;
-  // foreachPoint(USet, [] (IslPtr<isl_point> P) { llvm::errs().indent(2)  << P
+  // foreachPoint(USet, [] (isl::point P) { llvm::errs().indent(2)  << P
   // << '\n'; });
 }
 
-void expandDump(const IslPtr<isl_union_set> &Arg) { expand(Arg).dump(); }
+void expandDump(const isl::union_set &Arg) { expand(Arg).dump(); }
 
-IslPtr<isl_union_map> expand(const IslPtr<isl_union_map> &Map) {
+isl::union_map expand(const isl::union_map &Map) {
   auto USet = expand(give(isl_union_map_wrap(Map.copy())));
   return give(isl_union_set_unwrap(USet.copy()));
 }
 
-void expandDump(const IslPtr<isl_union_map> &Arg) { expand(Arg).dump(); }
+void expandDump(const isl::union_map &Arg) { expand(Arg).dump(); }
 
 namespace {
 
@@ -394,10 +392,10 @@ isl::union_map computeReachingOverwrite(isl::union_map Schedule,
                               InclOverwrite);
 }
 
-bool isRecursiveValInstMap(const IslPtr<isl_union_map> &UMap) {
+bool isRecursiveValInstMap(const isl::union_map &UMap) {
   SmallPtrSet<Value *, 8> LHSVals;
   SmallPtrSet<Value *, 8> RHSVals;
-  foreachElt(UMap, [&](IslPtr<isl_map> Map) {
+  foreachElt(UMap, [&](isl::map Map) {
     auto Space = give(isl_map_get_space(Map.keep()));
     auto DomainSpace = give(isl_space_domain(Space.copy()));
     auto DomainMapSpace = give(isl_space_unwrap(DomainSpace.copy()));
@@ -540,8 +538,7 @@ isl::map computeScalarReachingDefinition( // { Domain[] -> Zone[] }
 /// @param Amount Value added to the shifted dimension.
 ///
 /// @return An isl_multi_aff for the map with this shifted dimension.
-IslPtr<isl_multi_aff> makeShiftDimAff(IslPtr<isl_space> Space, int Pos,
-                                      int Amount) {
+isl::multi_aff makeShiftDimAff(isl::space Space, int Pos, int Amount) {
   auto Identity = give(isl_multi_aff_identity(Space.take()));
   if (Amount == 0)
     return Identity;
@@ -560,8 +557,7 @@ IslPtr<isl_multi_aff> makeShiftDimAff(IslPtr<isl_space> Space, int Pos,
 /// @param Amount The offset to add to the specified dimension.
 ///
 /// @return The modified map.
-IslPtr<isl_map> shiftDim(IslPtr<isl_map> Map, isl_dim_type Type, int Pos,
-                         int Amount) {
+isl::map shiftDim(isl::map Map, isl_dim_type Type, int Pos, int Amount) {
   assert((Type == isl_dim_in || Type == isl_dim_out) &&
          "Cannot shift parameter dims");
   int NumDims = isl_map_dim(Map.keep(), Type);
@@ -589,10 +585,10 @@ IslPtr<isl_map> shiftDim(IslPtr<isl_map> Map, isl_dim_type Type, int Pos,
 /// @param Amount The offset to add to the specified dimension.
 ///
 /// @return The union of all modified maps.
-IslPtr<isl_union_map> shiftDim(IslPtr<isl_union_map> UMap, isl_dim_type Type,
-                               int Pos, int Amount) {
+isl::union_map shiftDim(isl::union_map UMap, isl_dim_type Type, int Pos,
+                        int Amount) {
   auto Result = give(isl_union_map_empty(isl_union_map_get_space(UMap.keep())));
-  foreachElt(UMap, [=, &Result](IslPtr<isl_map> Map) {
+  foreachElt(UMap, [=, &Result](isl::map Map) {
     auto Shifted = shiftDim(Map, Type, Pos, Amount);
     Result = give(isl_union_map_add_map(Result.take(), Shifted.take()));
   });
@@ -601,7 +597,7 @@ IslPtr<isl_union_map> shiftDim(IslPtr<isl_union_map> UMap, isl_dim_type Type,
 
 /// Input: { Domain[] -> [Range1[] -> Range2[]] }
 /// Output: { [Domain[] -> Range1[]] -> [Domain[] -> Range2[]] }
-IslPtr<isl_map> isl_map_distribute_domain(IslPtr<isl_map> Map) {
+isl::map isl_map_distribute_domain(isl::map Map) {
   auto Space = give(isl_map_get_space(Map.keep()));
   auto DomainSpace = give(isl_space_domain(Space.copy()));
   assert(DomainSpace);
@@ -646,10 +642,9 @@ IslPtr<isl_map> isl_map_distribute_domain(IslPtr<isl_map> Map) {
       isl_map_wrap(Map.copy()), isl_map_from_basic_map(Translator.copy()))));
 }
 
-IslPtr<isl_union_map>
-isl_union_map_distribute_domain(IslPtr<isl_union_map> UMap) {
+isl::union_map isl_union_map_distribute_domain(isl::union_map UMap) {
   auto Result = give(isl_union_map_empty(isl_union_map_get_space(UMap.keep())));
-  foreachElt(UMap, [=, &Result](IslPtr<isl_map> Map) {
+  foreachElt(UMap, [=, &Result](isl::map Map) {
     auto Distributed = isl_map_distribute_domain(Map);
     Result = give(isl_union_map_add_map(Result.take(), Distributed.copy()));
   });
@@ -659,7 +654,7 @@ isl_union_map_distribute_domain(IslPtr<isl_union_map> UMap) {
 /// Return whether @p Map maps to llvm::Undef.
 ///
 /// @param Map { [] -> ValInst[] }
-bool isMapToUndef(const IslPtr<isl_map> &Map) {
+bool isMapToUndef(const isl::map &Map) {
   if (!isl_map_has_tuple_id(Map.keep(), isl_dim_out))
     return false;
 
@@ -671,7 +666,7 @@ bool isMapToUndef(const IslPtr<isl_map> &Map) {
 /// Return whether @p Map maps to an unknown value.
 ///
 /// @param { [] -> ValInst[] }
-bool isMapToUnknown(const IslPtr<isl_map> &Map) {
+bool isMapToUnknown(const isl::map &Map) {
   auto Space = give(isl_space_range(isl_map_get_space(Map.keep())));
   return !isl_map_has_tuple_id(Map.keep(), isl_dim_set) &&
          !isl_space_is_wrapping(Space.keep());
@@ -683,9 +678,9 @@ bool isMapToUnknown(const IslPtr<isl_map> &Map) {
 /// @param UMap { [] -> ValInst[] }
 ///
 /// @return { [] -> ValInst[] }
-IslPtr<isl_union_map> removeUnknownValInst(const IslPtr<isl_union_map> &UMap) {
+isl::union_map removeUnknownValInst(const isl::union_map &UMap) {
   auto Result = give(isl_union_map_empty(isl_union_map_get_space(UMap.keep())));
-  foreachElt(UMap, [=, &Result](IslPtr<isl_map> Map) {
+  foreachElt(UMap, [=, &Result](isl::map Map) {
     if (!isMapToUnknown(Map))
       Result = give(isl_union_map_add_map(Result.take(), Map.take()));
   });
@@ -697,10 +692,9 @@ IslPtr<isl_union_map> removeUnknownValInst(const IslPtr<isl_union_map> &UMap) {
 /// @param UMap { Domain[] -> ValInst[] }
 ///
 /// @return { Domain[] }
-IslPtr<isl_union_set>
-getUnknownValInstDomain(const IslPtr<isl_union_map> &UMap) {
+isl::union_set getUnknownValInstDomain(const isl::union_map &UMap) {
   auto Result = give(isl_union_set_empty(isl_union_map_get_space(UMap.keep())));
-  foreachElt(UMap, [=, &Result](IslPtr<isl_map> Map) {
+  foreachElt(UMap, [=, &Result](isl::map Map) {
     if (isMapToUnknown(Map))
       Result = give(
           isl_union_set_add_set(Result.take(), isl_map_domain(Map.take())));
@@ -713,9 +707,9 @@ getUnknownValInstDomain(const IslPtr<isl_union_map> &UMap) {
 /// @param UMap { Domain[] -> ValInst[] }
 ///
 /// @return { Domain[] }
-IslPtr<isl_union_set> getUndefValInstDomain(const IslPtr<isl_union_map> &UMap) {
+isl::union_set getUndefValInstDomain(const isl::union_map &UMap) {
   auto Result = give(isl_union_set_empty(isl_union_map_get_space(UMap.keep())));
-  foreachElt(UMap, [=, &Result](IslPtr<isl_map> Map) {
+  foreachElt(UMap, [=, &Result](isl::map Map) {
     if (isMapToUndef(Map))
       Result = give(
           isl_union_set_add_set(Result.take(), isl_map_domain(Map.take())));
@@ -728,17 +722,17 @@ IslPtr<isl_union_set> getUndefValInstDomain(const IslPtr<isl_union_map> &UMap) {
 /// @param UMap { [] -> ValInst[] }
 ///
 /// @return { [] -> ValInst[] }
-IslPtr<isl_union_map> removeUndefValInst(const IslPtr<isl_union_map> &UMap) {
+isl::union_map removeUndefValInst(const isl::union_map &UMap) {
   auto Result = give(isl_union_map_empty(isl_union_map_get_space(UMap.keep())));
-  foreachElt(UMap, [=, &Result](IslPtr<isl_map> Map) {
+  foreachElt(UMap, [=, &Result](isl::map Map) {
     if (!isMapToUndef(Map))
       Result = give(isl_union_map_add_map(Result.take(), Map.take()));
   });
   return Result;
 }
 
-IslPtr<isl_union_map> applyRangeIfDefined(IslPtr<isl_union_map> UMap,
-                                          IslPtr<isl_union_map> PartialFn) {
+isl::union_map applyRangeIfDefined(isl::union_map UMap,
+                                   isl::union_map PartialFn) {
   auto Mapped = give(isl_union_map_apply_range(UMap.copy(), PartialFn.copy()));
 
   auto Defined = give(isl_union_map_domain(PartialFn.take()));
@@ -753,9 +747,9 @@ IslPtr<isl_union_map> applyRangeIfDefined(IslPtr<isl_union_map> UMap,
 /// @param UMap { [] -> ValInst[] }
 ///
 /// @return { [] -> ValInst[] }
-IslPtr<isl_union_map> filterKnownValInst(const IslPtr<isl_union_map> &UMap) {
+isl::union_map filterKnownValInst(const isl::union_map &UMap) {
   auto Result = give(isl_union_map_empty(isl_union_map_get_space(UMap.keep())));
-  foreachElt(UMap, [=, &Result](IslPtr<isl_map> Map) {
+  foreachElt(UMap, [=, &Result](isl::map Map) {
     if (!isMapToUnknown(Map) && !isMapToUndef(Map))
       Result = give(isl_union_map_add_map(Result.take(), Map.take()));
   });
@@ -820,7 +814,7 @@ class Knowledge {
 private:
   /// { [Element[] -> Zone[]] -> ValInst[] }
   /// The state of every array element at every unit zone.
-  IslPtr<isl_union_map> Lifetime;
+  isl::union_map Lifetime;
 
   /// An array element at any time has one of the three states. For efficiency,
   /// one of them can be represented implicitly by assuming that state when it
@@ -838,7 +832,7 @@ private:
   /// { [Element[] -> Scatter[]] -> ValInst[] }
   /// The write actions currently in the scop or that would be added when
   /// mapping a scalar.
-  IslPtr<isl_union_map> Written;
+  isl::union_map Written;
 
   /// Check whether this Knowledge object is well-formed.
   void checkConsistency() const {
@@ -881,8 +875,8 @@ public:
   Knowledge() {}
 
   /// Create a new object with the given members.
-  Knowledge(IslPtr<isl_union_map> Lifetime, bool ImplicitLifetimeIsUnknown,
-            IslPtr<isl_union_map> Written)
+  Knowledge(isl::union_map Lifetime, bool ImplicitLifetimeIsUnknown,
+            isl::union_map Written)
       : Lifetime(std::move(Lifetime)),
         ImplicitLifetimeIsUnknown(ImplicitLifetimeIsUnknown),
         Written(std::move(Written)) {
@@ -891,8 +885,7 @@ public:
   }
 
   /// Alternative constructor taking isl_maps instead isl_union_map.
-  Knowledge(IslPtr<isl_map> Lifetime, bool ImplicitLifetimeIsUnknown,
-            IslPtr<isl_map> Written)
+  Knowledge(isl::map Lifetime, bool ImplicitLifetimeIsUnknown, isl::map Written)
       : Knowledge(give(isl_union_map_from_map(Lifetime.take())),
                   ImplicitLifetimeIsUnknown,
                   give(isl_union_map_from_map(Written.take()))) {}
@@ -916,7 +909,7 @@ public:
   /// Dump the object content stderr. Meant to be called in a debugger.
   void dump() const;
 
-  void applyIfDefined_inplace(IslPtr<isl_union_map> Translator) {
+  void applyIfDefined_inplace(isl::union_map Translator) {
     Lifetime = applyRangeIfDefined(Lifetime, Translator);
     Written = applyRangeIfDefined(Written, Translator);
   }
@@ -1222,18 +1215,18 @@ protected:
   ///  Combined access relations of all MK_Array write accesses (union of
   ///  AllMayWrites and AllMustWrites).
   /// { DomainWrite[] -> Element[] }
-  IslPtr<isl_union_map> AllWrites;
+  isl::union_map AllWrites;
 
   /// The value instances written to array elements of all write accesses.
   /// { [Element[] -> DomainWrite[]] -> ValInst[] }
-  IslPtr<isl_union_map> AllWriteValInst;
+  isl::union_map AllWriteValInst;
 
   // { [Element[] -> DomainRead[]] -> ValInst[] }
-  IslPtr<isl_union_map> AllReadValInst;
+  isl::union_map AllReadValInst;
 
   /// All reaching definitions for MK_Array writes.
   /// { [Element[] -> Zone[]] -> DomainWrite[] }
-  IslPtr<isl_union_map> WriteReachDefZone;
+  isl::union_map WriteReachDefZone;
 
   /// Prepare the object before computing the zones of @p S.
   ZoneAlgorithm(Scop *S, LoopInfo *LI)
@@ -1557,7 +1550,7 @@ protected:
   ///              The write statements to get the reaching definition for.
   ///
   /// @return { Scatter[] -> DomainDef[] }
-  IslPtr<isl_map> getScalarReachingDefinition(IslPtr<isl_set> DomainDef) {
+  isl::map getScalarReachingDefinition(isl::set DomainDef) {
     auto DomId = give(isl_set_get_tuple_id(DomainDef.keep()));
     auto *Stmt = static_cast<ScopStmt *>(isl_id_get_user(DomId.keep()));
 
@@ -1567,21 +1560,21 @@ protected:
   }
 
   /// Create an isl_id that means 'don't know the value'.
-  IslPtr<isl_id> makeUnknownId() const { return nullptr; }
+  isl::id makeUnknownId() const { return nullptr; }
 
   /// Create an isl_space for unknown values.
-  IslPtr<isl_space> makeUnknownSpace() const {
+  isl::space makeUnknownSpace() const {
     return give(isl_space_set_from_params(ParamSpace.copy()));
   }
 
   /// Create a set with an unknown value in it.
-  IslPtr<isl_set> makeUnknownSet() const {
+  isl::set makeUnknownSet() const {
     auto Space = makeUnknownSpace();
     return give(isl_set_universe(Space.take()));
   }
 
   /// Create a union set with an unknown value in it.
-  IslPtr<isl_union_set> makeUnknownUSet() const {
+  isl::union_set makeUnknownUSet() const {
     return give(isl_union_set_from_set(makeUnknownSet().take()));
   }
 
@@ -1590,7 +1583,7 @@ protected:
   /// @param Domain { Domain[] }
   ///
   /// @return { Domain[] -> ValInst[] }
-  IslPtr<isl_map> makeUnknownForDomain(IslPtr<isl_set> Domain) const {
+  isl::map makeUnknownForDomain(isl::set Domain) const {
     return give(isl_map_from_domain(Domain.take()));
   }
 
@@ -1599,7 +1592,7 @@ protected:
   /// @param Stmt The statement whose instances are mapped to unknown.
   ///
   /// @return { Domain[] -> ValInst[] }
-  IslPtr<isl_map> makeUnknownForDomain(ScopStmt *Stmt) const {
+  isl::map makeUnknownForDomain(ScopStmt *Stmt) const {
     return give(isl_map_from_domain(getDomainFor(Stmt).take()));
   }
 
@@ -1608,13 +1601,12 @@ protected:
   /// @param Domain { Domain[] }
   ///
   /// @return { Domain[] -> ValInst[] }
-  IslPtr<isl_union_map>
-  makeUnknownForDomain(IslPtr<isl_union_set> Domain) const {
+  isl::union_map makeUnknownForDomain(isl::union_set Domain) const {
     return give(isl_union_map_from_domain(Domain.take()));
   }
 
   /// Create an isl_id that represents 'unused storage'.
-  IslPtr<isl_id> makeUndefId() const {
+  isl::id makeUndefId() const {
     auto &LLVMContext = S->getFunction().getContext();
     auto Ty = IntegerType::get(LLVMContext, 1);
     auto Val = UndefValue::get(Ty);
@@ -1622,25 +1614,25 @@ protected:
   }
 
   /// Create an isl_space for an undefined value.
-  IslPtr<isl_space> makeUndefSpace() const {
+  isl::space makeUndefSpace() const {
     auto Result = give(isl_space_set_from_params(ParamSpace.copy()));
     return give(isl_space_set_tuple_id(Result.take(), isl_dim_set,
                                        makeUndefId().take()));
   }
 
   /// Create a set with an undefined value in it.
-  IslPtr<isl_set> makeUndefSet() const {
+  isl::set makeUndefSet() const {
     auto Space = makeUndefSpace();
     return give(isl_set_universe(Space.take()));
   }
 
   /// Create a union set with an undefined value in it.
-  IslPtr<isl_union_set> makeUndefUSet() const {
+  isl::union_set makeUndefUSet() const {
     return give(isl_union_set_from_set(makeUndefSet().take()));
   }
 
   /// Create an isl_id that represents @p V.
-  IslPtr<isl_id> makeValueId(Value *V) const {
+  isl::id makeValueId(Value *V) const {
     if (!V)
       return makeUnknownId();
     if (isa<UndefValue>(V))
@@ -1651,22 +1643,21 @@ protected:
   }
 
   /// Create the space for an llvm::Value that is available everywhere.
-  IslPtr<isl_space> makeValueSpace(Value *V) const {
+  isl::space makeValueSpace(Value *V) const {
     auto Result = give(isl_space_set_from_params(ParamSpace.copy()));
     return give(isl_space_set_tuple_id(Result.take(), isl_dim_set,
                                        makeValueId(V).take()));
   }
 
   /// Create a set with the llvm::Value @p V which is available everywhere.
-  IslPtr<isl_set> makeValueSet(Value *V) const {
+  isl::set makeValueSet(Value *V) const {
     auto Space = makeValueSpace(V);
     return give(isl_set_universe(Space.take()));
   }
 
   // { UserDomain[] -> ValInst[] }
-  IslPtr<isl_map> makeValInst(Value *Val, ScopStmt *UserStmt,
-                              bool IsEntryPHIUser, Loop *Scope,
-                              bool IsCertain = true) {
+  isl::map makeValInst(Value *Val, ScopStmt *UserStmt, bool IsEntryPHIUser,
+                       Loop *Scope, bool IsCertain = true) {
     return makeValInst(Val, nullptr, UserStmt, getDomainFor(UserStmt),
                        IsEntryPHIUser, Scope, IsCertain);
   }
@@ -1705,10 +1696,9 @@ protected:
   /// false if the write is conditional.
   ///
   /// @return { DomainUse[] -> ValInst[] }
-  IslPtr<isl_map> makeValInst(Value *V, IslPtr<isl_set> DomainDef,
-                              ScopStmt *UseStmt, IslPtr<isl_set> DomainUse,
-                              bool IsEntryPHIUser, Loop *Scope,
-                              bool IsCertain = true) {
+  isl::map makeValInst(Value *V, isl::set DomainDef, ScopStmt *UseStmt,
+                       isl::set DomainUse, bool IsEntryPHIUser, Loop *Scope,
+                       bool IsCertain = true) {
     assert(DomainUse && "Must pass a user domain");
 
     // If the definition/write is conditional, the previous write may "shine
@@ -1922,11 +1912,11 @@ private:
 
   /// Target mapping for the MK_Value write or MK_PHI read.
   /// { Domain[] -> Element[] }
-  IslPtr<isl_map> Target;
+  isl::map Target;
 
   /// Lifetime expressed from the MK_Value write or MK_PHI read.
   /// { Domain[] -> Zone[] }
-  IslPtr<isl_map> Lifetime;
+  isl::map Lifetime;
 
   /// The constants that were checked before the transformation/applied to the
   /// common knowledge after the transformation.
@@ -1934,8 +1924,8 @@ private:
 
 public:
   MapReport(const ScopArrayInfo *SAI, MemoryAccess *PrimaryAcc,
-            ArrayRef<MemoryAccess *> SecondaryAccs, IslPtr<isl_map> Target,
-            IslPtr<isl_map> Lifetime, Knowledge Zone)
+            ArrayRef<MemoryAccess *> SecondaryAccs, isl::map Target,
+            isl::map Lifetime, Knowledge Zone)
       : SAI(SAI), PrimaryAcc(PrimaryAcc),
         SecondaryAccs(SecondaryAccs.begin(), SecondaryAccs.end()),
         Target(std::move(Target)), Lifetime(std::move(Lifetime)),
@@ -2273,8 +2263,9 @@ private:
   /// whether it can be done.
   ///
   /// @return          True if the transformation is valid.
-  bool mapValue(const ScopArrayInfo *SAI, IslPtr<isl_map> DefTarget,
-                Knowledge Proposed, bool DoIt) {
+  bool mapValue(const ScopArrayInfo *SAI, isl::map DefTarget,
+                isl::union_map UseTarget, isl::map Lifetime, Knowledge Proposed,
+                bool DoIt) {
 
     // { Element[] }
     auto EltSpace = give(isl_space_range(isl_map_get_space(DefTarget.keep())));
@@ -2332,13 +2323,13 @@ private:
   /// @param SAI The PHI scalar represented by a ScopArrayInfo.
   ///
   /// @return { PHIWriteDomain[] -> ValInst[] }
-  IslPtr<isl_union_map> determinePHIWrittenValues(const ScopArrayInfo *SAI) {
+  isl::union_map determinePHIWrittenValues(const ScopArrayInfo *SAI) {
     auto Result = makeEmptyUnionMap();
 
     // Collect the incoming values.
     for (auto *MA : DefUse.getPHIIncomings(SAI)) {
       // { DomainWrite[] -> ValInst[] }
-      IslPtr<isl_union_map> ValInst;
+      isl::union_map ValInst;
       auto *WriteStmt = MA->getStatement();
 
       auto Incoming = MA->getIncoming();
@@ -2504,7 +2495,7 @@ private:
 
     // { DomainPHIRead[] -> Value[] }
     auto IncomingValues = makeEmptyUnionMap();
-    foreachElt(IncomingWrites, [&, this](IslPtr<isl_map> Map) {
+    foreachElt(IncomingWrites, [&, this](isl::map Map) {
       auto Space = give(isl_map_get_space(Map.keep()));
       auto RangeSpace = give(isl_space_range(Space.copy()));
       auto RangeId = give(isl_space_get_tuple_id(Space.keep(), isl_dim_out));
@@ -2697,8 +2688,8 @@ private:
     return true;
   }
 
-  IslPtr<isl_union_map> ComputedPHIs = makeEmptyUnionMap();
-  IslPtr<isl_union_map> translateComputedPHI(IslPtr<isl_union_map> UMap) {
+  isl::union_map ComputedPHIs = makeEmptyUnionMap();
+  isl::union_map translateComputedPHI(isl::union_map UMap) {
     // auto Untranslatable = give(isl_union_map_subtract_range(
     //   UMap.copy(), isl_union_map_domain(ComputedPHIs.copy())));
 
@@ -2710,11 +2701,11 @@ private:
     simplify(Result);
     return Result;
   }
-  IslPtr<isl_union_map> translateComputedPHI(IslPtr<isl_map> Map) {
+  isl::union_map translateComputedPHI(isl::map Map) {
     return translateComputedPHI(give(isl_union_map_from_map(Map.take())));
   }
 
-  bool applyComputedPHI(IslPtr<isl_union_map> ValInstTranslator) {
+  bool applyComputedPHI(isl::union_map ValInstTranslator) {
     auto Fn = applyRangeIfDefined(ValInstTranslator, ComputedPHIs);
     auto NewComputedPHIs = give(isl_union_map_union(
         Fn.copy(), applyRangeIfDefined(ComputedPHIs, Fn).take()));
@@ -2923,7 +2914,7 @@ private:
   /// future) and its value at that time.
   ///
   /// @return { [Element[] -> Zone[]] -> ValInst[] }
-  IslPtr<isl_union_map> computeLifetime() const {
+  isl::union_map computeLifetime() const {
     // { [Element[] -> Zone[]] }
     auto ArrayUnused = computeArrayUnused(Schedule, AllMustWrites, AllReads,
                                           false, false, true);
@@ -2967,7 +2958,7 @@ private:
   /// written.
   ///
   /// @return { [Element[] -> Scatter[]] -> ValInst[] }
-  IslPtr<isl_union_map> computeWritten() const {
+  isl::union_map computeWritten() const {
     // { Element[] -> Element[] }
     auto AllElementsId = makeIdentityMap(AllElements, false);
 
@@ -3029,7 +3020,7 @@ public:
     }
 
     DefUse.compute(S);
-    IslPtr<isl_union_map> EltLifetime, EltWritten;
+    isl::union_map EltLifetime, EltWritten;
 
     {
       IslMaxOperationsGuard MaxOpGuard(IslCtx.get(), DelicmMaxOps);
@@ -3226,18 +3217,18 @@ struct KnownReport {
   /// Array elements that store the same value when the MemoryAcceess is
   /// executed.
   // { Domain[] -> Element[] }
-  IslPtr<isl_union_map> Candidates;
+  isl::union_map Candidates;
 
   /// The chosen array elements, one for each element execution.
   // { Domain[] -> Element[] }
-  IslPtr<isl_map> Target;
+  isl::map Target;
 
   /// Value each MemoryAccess instance expects to read, either from
   // { Domain[] -> Value[] }
-  IslPtr<isl_map> RequiredValue;
+  isl::map RequiredValue;
 
-  KnownReport(MemoryAccess *ReadMA, IslPtr<isl_union_map> Candidates,
-              IslPtr<isl_map> Target, IslPtr<isl_map> RequiredValue)
+  KnownReport(MemoryAccess *ReadMA, isl::union_map Candidates, isl::map Target,
+              isl::map RequiredValue)
       : ReadMA(ReadMA), Candidates(std::move(Candidates)),
         Target(std::move(Target)), RequiredValue(std::move(RequiredValue)) {
     DEBUG(print(dbgs(), 0));
@@ -3266,7 +3257,7 @@ private:
   /// value.
   /// { [Element[] -> Zone[]] -> ValInst[] }
   /// @see computeKnown()
-  IslPtr<isl_union_map> Known;
+  isl::union_map Known;
 
   /// List of redirect-scalar-access-to-known-array-element actions done.
   /// @see collapseKnownLoad()
@@ -3292,9 +3283,8 @@ private:
   /// @param RequiredValue { Domain[] -> ValInst[] }
   ///                      The value @p RA is expected to load. For report
   ///                      purposes only.
-  void collapseKnownLoad(MemoryAccess *RA, IslPtr<isl_map> Target,
-                         IslPtr<isl_union_map> Candidates,
-                         IslPtr<isl_map> RequiredValue) {
+  void collapseKnownLoad(MemoryAccess *RA, isl::map Target,
+                         isl::union_map Candidates, isl::map RequiredValue) {
     assert(RA->isRead());
     assert(RA->isLatestScalarKind());
     assert(isl_map_is_single_valued(Target.keep()));
@@ -3306,7 +3296,7 @@ private:
                               std::move(RequiredValue));
   }
 
-  static ScopStmt *getStmtOfMap(IslPtr<isl_map> Map, isl_dim_type DimType) {
+  static ScopStmt *getStmtOfMap(isl::map Map, isl_dim_type DimType) {
     auto Id = give(isl_map_get_tuple_id(Map.keep(), DimType));
     auto *Result = reinterpret_cast<ScopStmt *>(isl_id_get_user(Id.keep()));
     return Result;
@@ -3314,9 +3304,9 @@ private:
 
   bool canForwardTree(llvm::Value *UseVal, ScopStmt *UseStmt, Loop *UseLoop,
                       // { DomainUse[] -> Scatter[] }
-                      IslPtr<isl_map> UseScatter, ScopStmt *TargetStmt,
+                      isl::map UseScatter, ScopStmt *TargetStmt,
                       // { DomainUse[] -> DomainTarget[] }
-                      IslPtr<isl_map> UseToTargetMapping, int Depth, bool DoIt,
+                      isl::map UseToTargetMapping, int Depth, bool DoIt,
                       MemoryAccess *&ReuseMe) {
     assert(getStmtOfMap(UseToTargetMapping, isl_dim_in) == UseStmt);
     assert(getStmtOfMap(UseToTargetMapping, isl_dim_out) == TargetStmt);
@@ -3362,10 +3352,10 @@ private:
     // auto DefLoop = LI->getLoopFor(Inst->getParent());
 
     // { DomainDef[] -> Scatter[] }
-    IslPtr<isl_map> DefScatter;
+    isl::map DefScatter;
 
     // { DomainDef[] -> DomainTarget[] }
-    IslPtr<isl_map> DefToTargetMapping;
+    isl::map DefToTargetMapping;
 
     if (UseStmt == DefStmt) {
       DefScatter = UseScatter;
@@ -3405,7 +3395,7 @@ private:
       auto ToExpectedVal = give(
           isl_map_apply_domain(ExpectedVal.copy(), DefToTargetMapping.copy()));
 
-      IslPtr<isl_union_map> Candidates;
+      isl::union_map Candidates;
       // { DomainTo[] -> Element[] }
       auto SameVal = containsSameValue(ToExpectedVal, getScatterFor(TargetStmt),
                                        Candidates);
@@ -3488,11 +3478,11 @@ private:
   }
 
   // { Domain[] -> Element[] }
-  IslPtr<isl_map> containsSameValue(
+  isl::map containsSameValue(
       // { Domain[] -> ValInst[] }
-      IslPtr<isl_map> ValInst,
+      isl::map ValInst,
       // { Domain[] -> Scatter[] }
-      IslPtr<isl_map> Sched, IslPtr<isl_union_map> &MustKnownMap) {
+      isl::map Sched, isl::union_map &MustKnownMap) {
 
     // { Domain[] }
     auto Domain = give(isl_map_domain(ValInst.copy()));
@@ -3529,39 +3519,37 @@ private:
         isl_union_map_domain(isl_union_map_uncurry(MustKnownInst.take())))));
     simplify(MustKnownMap);
 
-    IslPtr<isl_map> Result;
+    isl::map Result;
 
     // MemoryAccesses can read only elements from a single array (not: { Dom[0]
     // -> A[0]; Dom[1] -> B[1] }). Look through all arrays until we find one
     // that contains exactly the wanted values.
-    foreachEltWithBreak(
-        MustKnownMap, [&, this](IslPtr<isl_map> Map) -> isl_stat {
-          // Get the array this is accessing.
-          auto ArrayId = give(isl_map_get_tuple_id(Map.keep(), isl_dim_out));
-          auto SAI =
-              static_cast<ScopArrayInfo *>(isl_id_get_user(ArrayId.keep()));
+    foreachEltWithBreak(MustKnownMap, [&, this](isl::map Map) -> isl_stat {
+      // Get the array this is accessing.
+      auto ArrayId = give(isl_map_get_tuple_id(Map.keep(), isl_dim_out));
+      auto SAI = static_cast<ScopArrayInfo *>(isl_id_get_user(ArrayId.keep()));
 
-          // No support for generation of indirect array accesses.
-          if (SAI->getBasePtrOriginSAI())
-            return isl_stat_ok; // continue
+      // No support for generation of indirect array accesses.
+      if (SAI->getBasePtrOriginSAI())
+        return isl_stat_ok; // continue
 
-          // Determine whether this map contains all wanted values.
-          auto MapDom = give(isl_map_domain(Map.copy()));
-          if (!isl_set_is_subset(Domain.keep(), MapDom.keep()))
-            return isl_stat_ok; // continue
+      // Determine whether this map contains all wanted values.
+      auto MapDom = give(isl_map_domain(Map.copy()));
+      if (!isl_set_is_subset(Domain.keep(), MapDom.keep()))
+        return isl_stat_ok; // continue
 
-          // TODO: Check requirement that it maps not only to the same location,
-          // otherwise we don't gain anything; DeLICM already does this.
+      // TODO: Check requirement that it maps not only to the same location,
+      // otherwise we don't gain anything; DeLICM already does this.
 
-          // There might be multiple array elements the contain the same value,
-          // but
-          // choose only one of them. lexmin is used because it returns a
-          // one-value
-          // mapping, we currently do not care about which one.
-          // TODO: Get the simplest access function.
-          Result = give(isl_map_lexmin(Map.take()));
-          return isl_stat_error; // break
-        });
+      // There might be multiple array elements the contain the same value,
+      // but
+      // choose only one of them. lexmin is used because it returns a
+      // one-value
+      // mapping, we currently do not care about which one.
+      // TODO: Get the simplest access function.
+      Result = give(isl_map_lexmin(Map.take()));
+      return isl_stat_error; // break
+    });
 
     return Result;
   }
@@ -3616,41 +3604,39 @@ private:
     // MemoryAccesses can read only elements from a single array (not: { Dom[0]
     // -> A[0]; Dom[1] -> B[1] }). Look through all arrays until we find one
     // that contains exactly the wanted values.
-    foreachEltWithBreak(
-        MustKnownMap, [&, this](IslPtr<isl_map> Map) -> isl_stat {
-          // Get the array this is accessing.
-          auto ArrayId = give(isl_map_get_tuple_id(Map.keep(), isl_dim_out));
-          auto SAI =
-              static_cast<ScopArrayInfo *>(isl_id_get_user(ArrayId.keep()));
+    foreachEltWithBreak(MustKnownMap, [&, this](isl::map Map) -> isl_stat {
+      // Get the array this is accessing.
+      auto ArrayId = give(isl_map_get_tuple_id(Map.keep(), isl_dim_out));
+      auto SAI = static_cast<ScopArrayInfo *>(isl_id_get_user(ArrayId.keep()));
 
-          // No support for generation of indirect array accesses.
-          if (SAI->getBasePtrOriginSAI())
-            return isl_stat_ok; // continue
+      // No support for generation of indirect array accesses.
+      if (SAI->getBasePtrOriginSAI())
+        return isl_stat_ok; // continue
 
-          // Determine whether this map contains all wanted values.
-          auto Dom = getDomainFor(RA);
-          auto MapDom = give(isl_map_domain(Map.copy()));
-          if (!isl_set_is_subset(Dom.keep(), MapDom.keep()))
-            return isl_stat_ok; // continue
+      // Determine whether this map contains all wanted values.
+      auto Dom = getDomainFor(RA);
+      auto MapDom = give(isl_map_domain(Map.copy()));
+      if (!isl_set_is_subset(Dom.keep(), MapDom.keep()))
+        return isl_stat_ok; // continue
 
-          // TODO: Check requirement that it maps not only to the same location,
-          // otherwise we don't gain anything; DeLICM already does this.
+      // TODO: Check requirement that it maps not only to the same location,
+      // otherwise we don't gain anything; DeLICM already does this.
 
-          // There might be multiple array elements the contain the same value,
-          // but
-          // choose only one of them. lexmin is used because it returns a
-          // one-value
-          // mapping, we currently do not care about which one.
-          // TODO: Get the simplest access function.
-          auto Target = give(isl_map_lexmin(Map.take()));
+      // There might be multiple array elements the contain the same value,
+      // but
+      // choose only one of them. lexmin is used because it returns a
+      // one-value
+      // mapping, we currently do not care about which one.
+      // TODO: Get the simplest access function.
+      auto Target = give(isl_map_lexmin(Map.take()));
 
-          // Do the transformation which we determined is valid.
-          collapseKnownLoad(RA, std::move(Target), MustKnownMap, ValInst);
+      // Do the transformation which we determined is valid.
+      collapseKnownLoad(RA, std::move(Target), MustKnownMap, ValInst);
 
-          // We were successful and do not need to look for more candidates.
-          Modified = true;
-          return isl_stat_error; // break
-        });
+      // We were successful and do not need to look for more candidates.
+      Modified = true;
+      return isl_stat_error; // break
+    });
 
     return Modified;
   }
@@ -3662,7 +3648,7 @@ public:
   /// if the definition is a MUST_WRITE.
   ///
   /// @return { [Element[] -> Zone[]] -> ValInst[] }
-  IslPtr<isl_union_map> computeKnownFromMustWrites() const {
+  isl::union_map computeKnownFromMustWrites() const {
     // { [Element[] -> Zone[]] -> DomainWrite[] }
     auto MustWriteReachDefZone = give(isl_union_map_intersect_range(
         WriteReachDefZone.copy(), isl_union_map_domain(AllMustWrites.copy())));
@@ -3688,7 +3674,7 @@ public:
   /// reads from that array element in that period.
   ///
   /// @return { [Element[] -> Zone[]] -> ValInst[] }
-  IslPtr<isl_union_map> computeKnownFromLoad() const {
+  isl::union_map computeKnownFromLoad() const {
 
     // { Scatter[] }
     auto ScatterUniverse =
@@ -3759,7 +3745,7 @@ public:
   /// loaded value as known.
   ///
   /// @return { [Element[] -> Zone[]] -> ValInst[] }
-  IslPtr<isl_union_map> computeKnownFromInit() const {
+  isl::union_map computeKnownFromInit() const {
     // { Element[] }
     auto NotWrittenElts =
         give(isl_union_set_subtract(isl_union_map_range(AllReads.copy()),
@@ -3812,7 +3798,7 @@ public:
   ///
   /// @return True if the computed #Known is usable.
   bool computeKnown() {
-    IslPtr<isl_union_map> MustKnown, KnownFromLoad, KnownFromInit;
+    isl::union_map MustKnown, KnownFromLoad, KnownFromInit;
 
     // Check that nothing strange occurs.
     if (!isCompatibleScop()) {
@@ -4013,12 +3999,11 @@ INITIALIZE_PASS_BEGIN(Known, "polly-known",
 INITIALIZE_PASS_END(Known, "polly-known", "Polly - Scalar accesses to explicit",
                     false, false)
 
-IslPtr<isl_union_map>
-polly::computeArrayLifetime(IslPtr<isl_union_map> Schedule,
-                            IslPtr<isl_union_map> Writes,
-                            IslPtr<isl_union_map> Reads, bool ReadEltInSameInst,
+isl::union_map
+polly::computeArrayLifetime(isl::union_map Schedule, isl::union_map Writes,
+                            isl::union_map Reads, bool ReadEltInSameInst,
                             bool InclWrite, bool InclLastRead, bool ExitReads) {
-  IslPtr<isl_union_map> ExitRays;
+  isl::union_map ExitRays;
   if (ExitReads) {
     // Add all writes that are never overwritten as rays.
 
@@ -4075,12 +4060,12 @@ polly::computeArrayLifetime(IslPtr<isl_union_map> Schedule,
   return Result;
 }
 
-bool polly::isConflicting(IslPtr<isl_union_map> ExistingLifetime,
+bool polly::isConflicting(isl::union_map ExistingLifetime,
                           bool ExistingImplicitLifetimeIsUnknown,
-                          IslPtr<isl_union_map> ExistingWritten,
-                          IslPtr<isl_union_map> ProposedLifetime,
+                          isl::union_map ExistingWritten,
+                          isl::union_map ProposedLifetime,
                           bool ProposedImplicitLifetimeIsUnknown,
-                          IslPtr<isl_union_map> ProposedWritten) {
+                          isl::union_map ProposedWritten) {
   Knowledge Existing(std::move(ExistingLifetime),
                      ExistingImplicitLifetimeIsUnknown,
                      std::move(ExistingWritten));

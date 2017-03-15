@@ -252,9 +252,6 @@ std::string getIslCompatibleName(const std::string &Prefix,
 // previously a function polly::give() which did the very same thing and we
 // did not want yet to introduce the isl:: prefix to each call of give.
 using isl::give;
-DECLARE_TRAITS(point)
-DECLARE_TRAITS(ast_expr)
-DECLARE_TRAITS(ast_build)
 
 inline llvm::DiagnosticInfoOptimizationBase &
 operator<<(llvm::DiagnosticInfoOptimizationBase &OS,

@@ -39,9 +39,9 @@ STATISTIC(ScopsModified, "Number of SCoPs modified");
 struct CleanupReport {
   std::string StmtBaseName;
   Value *Scalar;
-  IslPtr<isl_map> AccRel;
+  isl::map AccRel;
 
-  CleanupReport(std::string Stmt, Value *Scalar, IslPtr<isl_map> AccRel)
+  CleanupReport(std::string Stmt, Value *Scalar, isl::map AccRel)
       : StmtBaseName(Stmt), Scalar(Scalar), AccRel(std::move(AccRel)) {
     DEBUG(print(llvm::dbgs(), 0));
   }

@@ -653,9 +653,9 @@ void BlockGenerator::generateComputedPHIs(ScopStmt &Stmt, LoopToScevMapT &LTS,
     auto ScheduleValues = give(
         isl_union_map_apply_domain(IncomingValues.copy(), USchedule2.copy()));
 
-    SmallVector<IslPtr<isl_set>, 8> RestrictDomains;
-    SmallVector<IslPtr<isl_map>, 8> Maps;
-    foreachElt(ScheduleValues, [&, this](IslPtr<isl_map> Map) {
+    SmallVector<isl::set, 8> RestrictDomains;
+    SmallVector<isl::map, 8> Maps;
+    foreachElt(ScheduleValues, [&, this](isl::map Map) {
       Maps.push_back(Map);
       auto Dom = give(isl_map_domain(Map.copy()));
       RestrictDomains.push_back(Dom);
@@ -700,8 +700,7 @@ void BlockGenerator::generateComputedPHIs(ScopStmt &Stmt, LoopToScevMapT &LTS,
   }
 }
 
-Value *BlockGenerator::buildContainsCondition(ScopStmt &Stmt,
-                                              IslPtr<isl_set> Set) {
+Value *BlockGenerator::buildContainsCondition(ScopStmt &Stmt, isl::set Set) {
   auto AstBuild = give(isl_ast_build_copy(Stmt.getAstBuild()));
   // auto USchedule = give(isl_ast_build_get_schedule(AstBuild.keep()));
   auto Domain = give(Stmt.getDomain());

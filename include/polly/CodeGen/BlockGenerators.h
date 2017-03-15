@@ -341,7 +341,7 @@ protected:
   void generateComputedPHIs(ScopStmt &Stmt, LoopToScevMapT &LTS,
                             ValueMapT &BBMap);
 
-  Value *buildContainsCondition(ScopStmt &Stmt, IslPtr<isl_set> Set);
+  Value *buildContainsCondition(ScopStmt &Stmt, isl::set Set);
 
   /// Generate the scalar stores for the given statement.
   ///

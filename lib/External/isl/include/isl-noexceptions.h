@@ -1153,6 +1153,8 @@ public:
   inline isl::union_map unite(isl::union_map umap2) const;
   inline isl::union_set wrap() const;
   inline isl::union_map zip() const;
+
+    void dump() const { isl_union_map_dump(keep() ); }
 };
 
 // declarations for isl::union_pw_aff
@@ -1289,6 +1291,8 @@ public:
   inline isl::union_set subtract(isl::union_set uset2) const;
   inline isl::union_set unite(isl::union_set uset2) const;
   inline isl::union_map unwrap() const;
+
+  void dump() const { isl_union_set_dump(keep() ); }
 };
 
 // declarations for isl::val
