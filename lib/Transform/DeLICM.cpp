@@ -380,16 +380,16 @@ public:
   }
 };
 
-IslPtr<isl_union_map> computeReachingDefinition(IslPtr<isl_union_map> Schedule,
-                                                IslPtr<isl_union_map> Writes,
-                                                bool InclDef, bool InclRedef) {
+isl::union_map computeReachingDefinition(isl::union_map Schedule,
+                                         isl::union_map Writes, bool InclDef,
+                                         bool InclRedef) {
   return computeReachingWrite(Schedule, Writes, false, InclDef, InclRedef);
 }
 
-IslPtr<isl_union_map> computeReachingOverwrite(IslPtr<isl_union_map> Schedule,
-                                               IslPtr<isl_union_map> Writes,
-                                               bool InclPrevWrite,
-                                               bool InclOverwrite) {
+isl::union_map computeReachingOverwrite(isl::union_map Schedule,
+                                        isl::union_map Writes,
+                                        bool InclPrevWrite,
+                                        bool InclOverwrite) {
   return computeReachingWrite(Schedule, Writes, true, InclPrevWrite,
                               InclOverwrite);
 }
@@ -435,10 +435,10 @@ bool isRecursiveValInstMap(const IslPtr<isl_union_map> &UMap) {
 ///                      of the overwrite itself.
 ///
 /// @return { Scatter[] -> DomainDef[] }
-IslPtr<isl_union_map>
-computeScalarReachingOverwrite(IslPtr<isl_union_map> Schedule,
-                               IslPtr<isl_union_set> Writes, bool InclPrevWrite,
-                               bool InclOverwrite) {
+isl::union_map computeScalarReachingOverwrite(isl::union_map Schedule,
+                                              isl::union_set Writes,
+                                              bool InclPrevWrite,
+                                              bool InclOverwrite) {
 
   // { DomainWrite[] }
   auto WritesMap = give(isl_union_map_from_domain(Writes.take()));
@@ -459,10 +459,9 @@ computeScalarReachingOverwrite(IslPtr<isl_union_map> Schedule,
 /// @param InclOverwrite Include the overwrite to the result.
 ///
 /// @return { Scatter[] -> DomainWrite[] }
-IslPtr<isl_map> computeScalarReachingOverwrite(IslPtr<isl_union_map> Schedule,
-                                               IslPtr<isl_set> Writes,
-                                               bool InclPrevWrite,
-                                               bool InclOverwrite) {
+isl::map computeScalarReachingOverwrite(isl::union_map Schedule,
+                                        isl::set Writes, bool InclPrevWrite,
+                                        bool InclOverwrite) {
   auto ScatterSpace = getScatterSpace(Schedule);
   auto DomSpace = give(isl_set_get_space(Writes.keep()));
 
@@ -487,10 +486,9 @@ IslPtr<isl_map> computeScalarReachingOverwrite(IslPtr<isl_union_map> Schedule,
 /// @param InclRedef Include the timepoint of the overwrite into the result.
 ///
 /// @return { Scatter[] -> DomainWrite[] }
-IslPtr<isl_union_map>
-computeScalarReachingDefinition(IslPtr<isl_union_map> Schedule,
-                                IslPtr<isl_union_set> Writes, bool InclDef,
-                                bool InclRedef) {
+isl::union_map computeScalarReachingDefinition(isl::union_map Schedule,
+                                               isl::union_set Writes,
+                                               bool InclDef, bool InclRedef) {
 
   // { DomainWrite[] -> Element[] }
   auto Defs = give(isl_union_map_from_domain(Writes.take()));
@@ -515,9 +513,8 @@ computeScalarReachingDefinition(IslPtr<isl_union_map> Schedule,
 /// @param InclRedef Include the timepoint of the overwrite into the result.
 ///
 /// @return { Scatter[] -> DomainWrite[] }
-IslPtr<isl_map> computeScalarReachingDefinition( // { Domain[] -> Zone[] }
-    IslPtr<isl_union_map> Schedule, IslPtr<isl_set> Writes, bool InclDef,
-    bool InclRedef) {
+isl::map computeScalarReachingDefinition( // { Domain[] -> Zone[] }
+    isl::union_map Schedule, isl::set Writes, bool InclDef, bool InclRedef) {
   auto DomainSpace = give(isl_set_get_space(Writes.keep()));
   auto ScatterSpace = getScatterSpace(Schedule);
 
@@ -774,8 +771,7 @@ IslPtr<isl_union_map> filterKnownValInst(const IslPtr<isl_union_map> &UMap) {
 /// @return A map with that associates the domain elements of @p Relevant to the
 ///         same elements and in addition the elements of @p Universe to some
 ///         undefined elements. The function prefers to return simple maps.
-IslPtr<isl_union_map> expandMapping(IslPtr<isl_union_map> Relevant,
-                                    IslPtr<isl_union_set> Universe) {
+isl::union_map expandMapping(isl::union_map Relevant, isl::union_set Universe) {
   Relevant = give(isl_union_map_coalesce(Relevant.take()));
   auto RelevantDomain = give(isl_union_map_domain(Relevant.copy()));
   auto Simplified =
@@ -1191,7 +1187,7 @@ protected:
   /// Cached reaching definitions for each ScopStmt.
   ///
   /// Use getScalarReachingDefinition() to get its contents.
-  DenseMap<ScopStmt *, IslPtr<isl_map>> ScalarReachDefZone;
+  DenseMap<ScopStmt *, isl::map> ScalarReachDefZone;
 
   /// The analyzed Scop.
   Scop *S;
@@ -1199,29 +1195,29 @@ protected:
   LoopInfo *LI;
 
   /// Parameter space that does not need realignment.
-  IslPtr<isl_space> ParamSpace;
+  isl::space ParamSpace;
 
   /// Space the schedule maps to.
-  IslPtr<isl_space> ScatterSpace;
+  isl::space ScatterSpace;
 
   /// Cached version of the schedule and domains.
-  IslPtr<isl_union_map> Schedule;
+  isl::union_map Schedule;
 
   /// Set of all referenced elements.
   /// { Element[] -> Element[] }
-  IslPtr<isl_union_set> AllElements;
+  isl::union_set AllElements;
 
   /// Combined access relations of all MemoryKind::Array READ accesses.
   /// { DomainRead[] -> Element[] }
-  IslPtr<isl_union_map> AllReads;
+  isl::union_map AllReads;
 
   /// Combined access relations of all MemoryKind::Array, MAY_WRITE accesses.
   /// { DomainMayWrite[] -> Element[] }
-  IslPtr<isl_union_map> AllMayWrites;
+  isl::union_map AllMayWrites;
 
   /// Combined access relations of all MemoryKind::Array, MUST_WRITE accesses.
   /// { DomainMustWrite[] -> Element[] }
-  IslPtr<isl_union_map> AllMustWrites;
+  isl::union_map AllMustWrites;
 
   ///  Combined access relations of all MK_Array write accesses (union of
   ///  AllMayWrites and AllMustWrites).
@@ -1467,11 +1463,11 @@ private:
   }
 
 protected:
-  IslPtr<isl_union_set> makeEmptyUnionSet() {
+  isl::union_set makeEmptyUnionSet() {
     return give(isl_union_set_empty(ParamSpace.copy()));
   }
 
-  IslPtr<isl_union_map> makeEmptyUnionMap() {
+  isl::union_map makeEmptyUnionMap() {
     return give(isl_union_map_empty(ParamSpace.copy()));
   }
 
@@ -1487,24 +1483,24 @@ protected:
   /// Get the schedule for @p Stmt.
   ///
   /// The domain of the result is as narrow as possible.
-  IslPtr<isl_map> getScatterFor(ScopStmt *Stmt) const {
+  isl::map getScatterFor(ScopStmt *Stmt) const {
     auto ResultSpace = give(isl_space_map_from_domain_and_range(
         Stmt->getDomainSpace(), ScatterSpace.copy()));
     return give(isl_union_map_extract_map(Schedule.keep(), ResultSpace.take()));
   }
 
   /// Get the schedule of @p MA's parent statement.
-  IslPtr<isl_map> getScatterFor(MemoryAccess *MA) const {
+  isl::map getScatterFor(MemoryAccess *MA) const {
     return getScatterFor(MA->getStatement());
   }
 
   /// Get the schedule for the statement instances of @p Domain.
-  IslPtr<isl_union_map> getScatterFor(IslPtr<isl_union_set> Domain) const {
+  isl::union_map getScatterFor(isl::union_set Domain) const {
     return give(isl_union_map_intersect_domain(Schedule.copy(), Domain.take()));
   }
 
   /// Get the schedule for the statement instances of @p Domain.
-  IslPtr<isl_map> getScatterFor(IslPtr<isl_set> Domain) const {
+  isl::map getScatterFor(isl::set Domain) const {
     auto ResultSpace = give(isl_space_map_from_domain_and_range(
         isl_set_get_space(Domain.keep()), ScatterSpace.copy()));
     auto UDomain = give(isl_union_set_from_set(Domain.copy()));
@@ -1516,19 +1512,19 @@ protected:
   }
 
   /// Get the domain of @p Stmt.
-  IslPtr<isl_set> getDomainFor(ScopStmt *Stmt) const {
+  isl::set getDomainFor(ScopStmt *Stmt) const {
     return give(Stmt->getDomain());
   }
 
   /// Get the domain @p MA's parent statement.
-  IslPtr<isl_set> getDomainFor(MemoryAccess *MA) const {
+  isl::set getDomainFor(MemoryAccess *MA) const {
     return getDomainFor(MA->getStatement());
   }
 
   /// Get the access relation of @p MA.
   ///
   /// The domain of the result is as narrow as possible.
-  IslPtr<isl_map> getAccessRelationFor(MemoryAccess *MA) const {
+  isl::map getAccessRelationFor(MemoryAccess *MA) const {
     auto Domain = getDomainFor(MA);
     auto AccRel = give(MA->getLatestAccessRelation());
     return give(isl_map_intersect_domain(AccRel.take(), Domain.take()));
@@ -1542,7 +1538,7 @@ protected:
   /// @param Stmt The statement in which a scalar is defined.
   ///
   /// @return { Scatter[] -> DomainDef[] }
-  IslPtr<isl_map> getScalarReachingDefinition(ScopStmt *Stmt) {
+  isl::map getScalarReachingDefinition(ScopStmt *Stmt) {
     auto &Result = ScalarReachDefZone[Stmt];
     if (Result)
       return Result;
@@ -1872,7 +1868,7 @@ protected:
 
     // { Element[] }
     AllElements = makeEmptyUnionSet();
-    foreachElt(AllWrites, [this](IslPtr<isl_map> Write) {
+    foreachElt(AllWrites, [this](isl::map Write) {
       auto Space = give(isl_map_get_space(Write.keep()));
       auto EltSpace = give(isl_space_range(Space.take()));
       auto EltUniv = give(isl_set_universe(EltSpace.take()));
@@ -2066,7 +2062,7 @@ private:
   /// @return { DomainDef[] -> DomainUse[] }, { DomainDef[] -> Zone[] }
   ///         First element is the set of uses for each definition.
   ///         The second is the lifetime of each definition.
-  std::tuple<IslPtr<isl_union_map>, IslPtr<isl_map>>
+  std::tuple<isl::union_map, isl::map>
   computeValueUses(const ScopArrayInfo *SAI) {
     assert(SAI->isValueKind());
 
@@ -2123,7 +2119,7 @@ private:
   /// @param SAI The ScopArrayInfo representing the PHI's storage.
   ///
   /// @return { DomainPHIRead[] -> DomainPHIWrite[] }
-  IslPtr<isl_union_map> computePerPHI(const ScopArrayInfo *SAI) {
+  isl::union_map computePerPHI(const ScopArrayInfo *SAI) {
     assert(SAI->isPHIKind());
 
     // { DomainPHIWrite[] -> Scatter[] }
@@ -2168,7 +2164,7 @@ private:
   ///                  Suggestion where to map a scalar to when at a timepoint.
   ///
   /// @return true if the scalar was successfully mapped.
-  bool tryMapValue(const ScopArrayInfo *SAI, IslPtr<isl_map> TargetElt) {
+  bool tryMapValue(const ScopArrayInfo *SAI, isl::map TargetElt) {
     assert(SAI->isValueKind());
 
     auto *DefMA = DefUse.getValueDef(SAI);
@@ -2200,10 +2196,10 @@ private:
     }
 
     // { DomainDef[] -> Zone[] }
-    IslPtr<isl_map> Lifetime;
+    isl::map Lifetime;
 
     // { DomainDef[] -> DomainUse[] }
-    IslPtr<isl_union_map> DefUses;
+    isl::union_map DefUses;
 
     std::tie(DefUses, Lifetime) = computeValueUses(SAI);
     simplify(Lifetime);
@@ -2278,7 +2274,6 @@ private:
   ///
   /// @return          True if the transformation is valid.
   bool mapValue(const ScopArrayInfo *SAI, IslPtr<isl_map> DefTarget,
-                IslPtr<isl_union_map> UseTarget, IslPtr<isl_map> Lifetime,
                 Knowledge Proposed, bool DoIt) {
 
     // { Element[] }
@@ -2380,7 +2375,7 @@ private:
   ///                  timepoint.
   ///
   /// @return true if the PHI scalar has been mapped.
-  bool tryMapPHI(const ScopArrayInfo *SAI, IslPtr<isl_map> TargetElt) {
+  bool tryMapPHI(const ScopArrayInfo *SAI, isl::map TargetElt) {
     if (!DelicmMapPHI)
       return false;
 
@@ -2745,8 +2740,8 @@ private:
   /// @param Lifetime    { DomainRead[] -> Zone[] }
   ///                    The lifetime of each PHI for reporting.
   /// @param Proposed    Mapping constraints for reporting.
-  void mapPHI(const ScopArrayInfo *SAI, IslPtr<isl_map> ReadTarget,
-              IslPtr<isl_union_map> WriteTarget, IslPtr<isl_map> Lifetime,
+  void mapPHI(const ScopArrayInfo *SAI, isl::map ReadTarget,
+              isl::union_map WriteTarget, isl::map Lifetime,
               Knowledge Proposed) {
 
     auto ElementSpace =

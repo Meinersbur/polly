@@ -1,3 +1,16 @@
+//===------ Simplify.cpp ----------------------------------------*- C++ -*-===//
+//
+//                     The LLVM Compiler Infrastructure
+//
+// This file is distributed under the University of Illinois Open Source
+// License. See LICENSE.TXT for details.
+//
+//===----------------------------------------------------------------------===//
+//
+// Simplify a SCoP by removing unnecessary statements and accesses.
+//
+//===----------------------------------------------------------------------===//
+
 #include "polly/Simplify.h"
 #include "polly/CodeGen/BlockGenerators.h"
 #include "polly/ScopInfo.h"

@@ -16,6 +16,7 @@
 #define POLLY_LINKALLPASSES_H
 
 #include "polly/Config/config.h"
+#include "polly/Simplify.h"
 #include "polly/Support/DumpModulePass.h"
 #include "polly/DumpDebugPass.h"
 #include "llvm/ADT/StringRef.h"

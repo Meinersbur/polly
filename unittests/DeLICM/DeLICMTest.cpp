@@ -145,9 +145,9 @@ TEST(DeLICM, ArrayPerWriteLifetimeZone) {
 }
 
 /// Get the universes of all spaces in @p USet.
-IslPtr<isl_union_set> unionSpace(const IslPtr<isl_union_set> &USet) {
+isl::union_set unionSpace(const isl::union_set &USet) {
   auto Result = give(isl_union_set_empty(isl_union_set_get_space(USet.keep())));
-  foreachElt(USet, [=, &Result](IslPtr<isl_set> Set) {
+  foreachElt(USet, [=, &Result](isl::set Set) {
     auto Space = give(isl_set_get_space(Set.keep()));
     auto Universe = give(isl_set_universe(Space.take()));
     Result = give(isl_union_set_add_set(Result.take(), Universe.take()));

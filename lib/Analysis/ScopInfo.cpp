@@ -1978,6 +1978,7 @@ void ScopStmt::removeSingleMemoryAccess(MemoryAccess *MA) {
       InstructionToAccess.erase(MA->getAccessInstruction());
   }
 }
+}
 
 //===----------------------------------------------------------------------===//
 /// Scop class implement

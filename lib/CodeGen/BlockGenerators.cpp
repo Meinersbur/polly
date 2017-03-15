@@ -313,8 +313,7 @@ void BlockGenerator::copyInstruction(ScopStmt &Stmt, Instruction *Inst,
   }
 
   if (auto *Store = dyn_cast<StoreInst>(Inst)) {
-    // If there is no MemoryAccess for this store, it has been identified as
-    // redundant.
+    // Identified as redundant by -polly-simplify.
     if (!Stmt.getArrayAccessOrNULLFor(Store))
       return;
 
@@ -1284,7 +1283,7 @@ void VectorBlockGenerator::copyInstruction(
 
   if (hasVectorOperands(Inst, VectorMap)) {
     if (auto *Store = dyn_cast<StoreInst>(Inst)) {
-      // Identified as redundant by DeLICM.
+      // Identified as redundant by -polly-simplify.
       if (!Stmt.getArrayAccessOrNULLFor(Store))
         return;
 

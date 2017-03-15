@@ -1,4 +1,4 @@
-//===------ DeLICM.h --------------------------------------------*- C++ -*-===//
+//===------ Simplify.h ------------------------------------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,24 +7,24 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Undo the effect of Loop Invariant Code Motion (LICM) and
-// GVN Partial Redundancy Elimination (PRE) on SCoP-level.
-//
-// Namely, remove register/scalar dependencies by mapping them back to array
-// elements.
+// Simplify a SCoP by removing unnecessary statements and accesses.
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef POLLY_SIMPLIFY_H
-#define POLLY_SIMPLIFY_H
+#ifndef POLLY_TRANSFORM_SIMPLIFY_H
+#define POLLY_TRANSFORM_SIMPLIFY_H
+
 namespace llvm {
 class PassRegistry;
 class Pass;
 } // namespace llvm
+
 namespace polly {
 llvm::Pass *createSimplifyPass();
 } // namespace polly
+
 namespace llvm {
 void initializeSimplifyPass(llvm::PassRegistry &);
 } // namespace llvm
-#endif /* POLLY_SIMPLIFY_H */
+
+#endif /* POLLY_TRANSFORM_SIMPLIFY_H */

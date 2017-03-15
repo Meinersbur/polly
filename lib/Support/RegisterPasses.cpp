@@ -33,6 +33,7 @@
 #include "polly/PruneUnprofitable.h"
 #include "polly/ScopDetection.h"
 #include "polly/ScopInfo.h"
+#include "polly/Simplify.h"
 #include "polly/Support/DumpModulePass.h"
 #include "llvm/Analysis/CFGPrinter.h"
 #include "llvm/IR/LegacyPassManager.h"
@@ -203,7 +204,7 @@ static cl::opt<bool>
 
 static cl::opt<bool>
     EnableSimplify("polly-enable-simplify",
-                   cl::desc("Simplify SCoP after optimizations"), cl::Hidden,
+                   cl::desc("Simplify SCoP after optimizations"),
                    cl::init(false), cl::cat(PollyCategory));
 
 // TODO: Instead of enabling by command switch, can activate if any
