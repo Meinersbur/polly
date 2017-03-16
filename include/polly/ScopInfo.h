@@ -1237,6 +1237,7 @@ private:
 
   std::string BaseName;
 
+  /// The closest loop that contains this statement.
   Loop *SurroundingLoop;
 
   void removeAccessData(MemoryAccess *MA);
@@ -1342,12 +1343,37 @@ public:
   /// statements, return its entry block.
   BasicBlock *getEntryBlock() const;
 
-  bool contains(BasicBlock *BB) const {
-    if (isRegionStmt())
-      return getRegion()->contains(BB);
-    return getBasicBlock() == BB;
+   /// Return whether @p L is boxed within this statement.
+  bool contains(const Loop *L) const {
+    // Block statements never contain loops.
+    if (isBlockStmt())
+      return false;
+
+    return getRegion()->contains(L);
   }
+  
   bool contains(Instruction *Inst) const { return contains(Inst->getParent()); }
+
+  }
+
+  /// Return the closest innermost loop that contains this statement, but is not
+  /// contained in it.
+  ///
+  /// For block statement, this is just the loop that contains the block. Region
+  /// statements can contain boxed loops, so getting the loop of one of the
+  /// region's BBs might return such an inner loop. For instance, the region's
+  /// entry could be a header of a loop, but the region might extend to BBs
+  /// after the loop exit. Similarly, the region might only contain parts of the
+  /// loop body and still include the loop header.
+  ///
+  /// Most of the time the surrounding loop is the top element of #NestLoops,
+  /// except when it is empty. In that case it return the loop that the whole
+  /// SCoP is contained in. That can be nullptr if there is no such loop.
+  Loop *getSurroundingLoop() const {
+    assert(!isCopyStmt() &&
+           "No surrounding loop for artificially created statements");
+    return SurroundingLoop;
+  }
 
   /// Return true if this statement does not contain any accesses.
   bool isEmpty() const { return MemAccs.empty(); }
@@ -1919,7 +1945,8 @@ private:
   /// vector
   /// and map.
   ///
-  /// @param BB         The basic block we build the statement for.
+  /// @param BB              The basic block we build the statement for.
+  /// @param SurroundingLoop The loop the created statement is contained in.
   void addScopStmt(BasicBlock *BB, Loop *SurroundingLoop);
 
   /// Create a new SCoP statement for @p R.
@@ -1927,7 +1954,8 @@ private:
   /// A new statement for @p R will be created and added to the statement vector
   /// and map.
   ///
-  /// @param R          The region we build the statement for.
+  /// @param R               The region we build the statement for.
+  /// @param SurroundingLoop The loop the created statement is contained in.
   void addScopStmt(Region *R, Loop *SurroundingLoop);
 
   /// Update access dimensionalities.
