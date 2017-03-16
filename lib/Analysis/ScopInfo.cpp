@@ -1701,10 +1701,9 @@ ScopStmt::ScopStmt(Scop &parent, BasicBlock &bb, Loop *SurroundingLoop)
 }
 
 ScopStmt::ScopStmt(Scop &parent, __isl_take isl_map *SourceRel,
-                   __isl_take isl_map *TargetRel, __isl_take isl_set *NewDomain,
-                   Loop *SurroundingLoop)
+                   __isl_take isl_map *TargetRel, __isl_take isl_set *NewDomain)
     : Parent(parent), InvalidDomain(nullptr), Domain(NewDomain), BB(nullptr),
-      R(nullptr), Build(nullptr), SurroundingLoop(SurroundingLoop) {
+      R(nullptr), Build(nullptr) {
   BaseName = getIslCompatibleName("CopyStmt_", "",
                                   std::to_string(parent.getCopyStmtsNum()));
   auto *Id = isl_id_alloc(getIslCtx(), getBaseName(), this);
@@ -4629,7 +4628,7 @@ ScopStmt *Scop::addScopStmt(__isl_take isl_map *SourceRel,
   isl_set_free(SourceDomain);
   isl_set_free(TargetDomain);
 #endif
-  Stmts.emplace_back(*this, SourceRel, TargetRel, Domain, nullptr);
+  Stmts.emplace_back(*this, SourceRel, TargetRel, Domain);
   CopyStmtsNum++;
   return &(Stmts.back());
 }

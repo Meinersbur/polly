@@ -1540,7 +1540,6 @@ protected:
     Result = computeScalarReachingDefinition(Schedule, Domain, false, true);
     simplify(Result);
 
-    assert(Result);
     return Result;
   }
 

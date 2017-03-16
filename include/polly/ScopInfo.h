@@ -1143,8 +1143,7 @@ public:
   /// @param Domain     The original domain under which copy statement whould
   ///                   be executed.
   ScopStmt(Scop &parent, __isl_take isl_map *SourceRel,
-           __isl_take isl_map *TargetRel, __isl_take isl_set *Domain,
-           Loop *SurroundingLoop);
+           __isl_take isl_map *TargetRel, __isl_take isl_set *Domain);
 
   /// Initialize members after all MemoryAccesses have been added.
   void init(LoopInfo &LI);
@@ -1268,8 +1267,6 @@ private:
 public:
   ~ScopStmt();
 
-  Loop *getSurroundingLoop() const { return SurroundingLoop; }
-
   /// Get an isl_ctx pointer.
   isl_ctx *getIslCtx() const;
 
@@ -1343,7 +1340,7 @@ public:
   /// statements, return its entry block.
   BasicBlock *getEntryBlock() const;
 
-   /// Return whether @p L is boxed within this statement.
+  /// Return whether @p L is boxed within this statement.
   bool contains(const Loop *L) const {
     // Block statements never contain loops.
     if (isBlockStmt())
@@ -1351,10 +1348,15 @@ public:
 
     return getRegion()->contains(L);
   }
-  
-  bool contains(Instruction *Inst) const { return contains(Inst->getParent()); }
 
+  bool contains(BasicBlock *BB) const {
+    if (isCopyStmt())
+      return false;
+    if (isBlockStmt())
+      return BB == getBasicBlock();
+    return getRegion()->contains(BB);
   }
+  bool contains(Instruction *Inst) const { return contains(Inst->getParent()); }
 
   /// Return the closest innermost loop that contains this statement, but is not
   /// contained in it.
