@@ -1,4 +1,4 @@
-//===- PruneUnprofitable.cpp ------------------------------------*- C++ -*-===//
+//===- PruneUnprofitable.h --------------------------------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef POLLY_PRUNEUNPROFITABLE_H
-#define POLLY_PRUNEUNPROFITABLE_H
+#ifndef POLLY_ANALYSIS_PRUNEUNPROFITABLE_H
+#define POLLY_ANALYSIS_PRUNEUNPROFITABLE_H
 
 namespace llvm {
 class PassRegistry;
@@ -27,4 +27,4 @@ namespace llvm {
 void initializePruneUnprofitablePass(llvm::PassRegistry &);
 } // namespace llvm
 
-#endif /* POLLY_PRUNEUNPROFITABLE_H */
+#endif /* POLLY_ANALYSIS_PRUNEUNPROFITABLE_H */

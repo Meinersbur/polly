@@ -17,6 +17,7 @@
 
 #include "polly/Config/config.h"
 #include "polly/DumpDebugPass.h"
+#include "polly/PruneUnprofitable.h"
 #include "polly/Simplify.h"
 #include "polly/Support/DumpModulePass.h"
 #include "llvm/ADT/StringRef.h"

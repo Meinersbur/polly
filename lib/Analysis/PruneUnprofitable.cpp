@@ -14,13 +14,15 @@
 #include "polly/PruneUnprofitable.h"
 #include "polly/ScopInfo.h"
 #include "polly/ScopPass.h"
-#define DEBUG_TYPE "polly-unprofitable"
+#define DEBUG_TYPE "polly-prune-unprofitable"
 
 using namespace polly;
 using namespace llvm;
 
 namespace {
 
+STATISTIC(ScopsProcessed,
+          "Number of SCoPs considered for unprofitability pruning");
 STATISTIC(ScopsPruned, "Number of pruned SCoPs because it they cannot be "
                        "optimized in a significant way");
 
@@ -39,17 +41,15 @@ public:
   }
 
   virtual bool runOnScop(Scop &S) override {
-    if (!PollyProcessUnprofitable) {
+    if (PollyProcessUnprofitable) {
       DEBUG(dbgs() << "NOTE: -polly-process-unprofitable active, won't prune "
                       "anything\n");
-      return true;
+      return false;
     }
 
-    if (UnprofitableScalarAccs)
-      DEBUG(dbgs() << "WARNING: -polly-unprofitable-scalar-accs=true; anything "
-                      "that could have been pruned is already gone\n");
+    ScopsProcessed++;
 
-    if (!S.isProfitable(false)) {
+    if (!S.isProfitable(true)) {
       DEBUG(dbgs() << "SCoP pruned because it probably cannot be optimized in "
                       "a significant way\n");
       ScopsPruned++;
@@ -65,7 +65,7 @@ char PruneUnprofitable::ID;
 
 Pass *polly::createPruneUnprofitablePass() { return new PruneUnprofitable(); }
 
-INITIALIZE_PASS_BEGIN(PruneUnprofitable, "polly-unprofitable",
+INITIALIZE_PASS_BEGIN(PruneUnprofitable, "polly-prune-unprofitable",
                       "Polly - Prune unprofitable SCoPs", false, false)
-INITIALIZE_PASS_END(PruneUnprofitable, "polly-unprofitable",
+INITIALIZE_PASS_END(PruneUnprofitable, "polly-prune-unprofitable",
                     "Polly - Prune unprofitable SCoPs", false, false)
