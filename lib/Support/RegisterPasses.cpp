@@ -309,9 +309,6 @@ void registerPollyPasses(llvm::legacy::PassManagerBase &PM) {
   if (EnablePruneUnprofitable)
     PM.add(polly::createPruneUnprofitablePass());
 
-  if (EnableLatePrune)
-    PM.add(polly::createPruneUnprofitablePass());
-
   if (Target == TARGET_GPU) {
     // GPU generation provides its own scheduling optimization strategy.
   } else {
