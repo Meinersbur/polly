@@ -26,7 +26,7 @@
 // These optimizations include:
 //
 //  - Tiling of the innermost tilable bands
-//  - Prevectorization - The coice of a possible outer loop that is strip-mined
+//  - Prevectorization - The choice of a possible outer loop that is strip-mined
 //                       to the innermost level to enable inner-loop
 //                       vectorization.
 //  - Some optimizations for spatial locality are also planned.
@@ -36,7 +36,7 @@
 //
 // Polyhedral AST generation is more than scanning polyhedra
 // Tobias Grosser, Sven Verdoolaege, Albert Cohen
-// ACM Transations on Programming Languages and Systems (TOPLAS),
+// ACM Transactions on Programming Languages and Systems (TOPLAS),
 // 37(4), July 2015
 // http://www.grosser.es/#pub-polyhedral-AST-generation
 //
@@ -1250,10 +1250,26 @@ isolateAndUnrollMatMulInnerLoops(__isl_take isl_schedule_node *Node,
   return Node;
 }
 
+/// Mark @p BasePtr with "Inter iteration alias-free" mark node.
+///
+/// @param Node The child of the mark node to be inserted.
+/// @param BasePtr The pointer to be marked.
+/// @return The modified isl_schedule_node.
+static isl_schedule_node *markInterIterationAliasFree(isl_schedule_node *Node,
+                                                      llvm::Value *BasePtr) {
+  if (!BasePtr)
+    return Node;
+
+  auto *Ctx = isl_schedule_node_get_ctx(Node);
+  auto *Id = isl_id_alloc(Ctx, "Inter iteration alias-free", BasePtr);
+  return isl_schedule_node_child(isl_schedule_node_insert_mark(Node, Id), 0);
+}
+
 __isl_give isl_schedule_node *ScheduleTreeOptimizer::optimizeMatMulPattern(
     __isl_take isl_schedule_node *Node, const llvm::TargetTransformInfo *TTI,
     MatMulInfoTy &MMI) {
   assert(TTI && "The target transform info should be provided.");
+  Node = markInterIterationAliasFree(Node, MMI.WriteToC->getLatestBaseAddr());
   int DimOutNum = isl_schedule_node_band_n_member(Node);
   assert(DimOutNum > 2 && "In case of the matrix multiplication the loop nest "
                           "and, consequently, the corresponding scheduling "

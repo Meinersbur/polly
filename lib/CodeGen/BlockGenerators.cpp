@@ -44,10 +44,12 @@ static cl::opt<bool> Aligned("enable-polly-aligned",
                              cl::Hidden, cl::init(false), cl::ZeroOrMore,
                              cl::cat(PollyCategory));
 
-static cl::opt<bool> DebugPrinting(
+bool PollyDebugPrinting;
+static cl::opt<bool, true> DebugPrintingX(
     "polly-codegen-add-debug-printing",
     cl::desc("Add printf calls that show the values loaded/stored."),
-    cl::Hidden, cl::init(false), cl::ZeroOrMore, cl::cat(PollyCategory));
+    cl::location(PollyDebugPrinting), cl::Hidden, cl::init(false),
+    cl::ZeroOrMore, cl::cat(PollyCategory));
 
 #if 1 // Trace output
 static cl::opt<bool> TraceStmts(
@@ -264,7 +266,7 @@ Value *BlockGenerator::generateArrayLoad(ScopStmt &Stmt, LoadInst *Load,
   Value *ScalarLoad = Builder.CreateAlignedLoad(
       NewPointer, Load->getAlignment(), Load->getName() + "_p_scalar_");
 
-  if (DebugPrinting)
+  if (PollyDebugPrinting)
     RuntimeDebugBuilder::createCPUPrinter(Builder, "Load from ", NewPointer,
                                           ": ", ScalarLoad, "\n");
 
@@ -279,7 +281,7 @@ void BlockGenerator::generateArrayStore(ScopStmt &Stmt, StoreInst *Store,
   Value *ValueOperand = getNewValue(Stmt, Store->getValueOperand(), BBMap, LTS,
                                     getLoopForStmt(Stmt));
 
-  if (DebugPrinting)
+  if (PollyDebugPrinting)
     RuntimeDebugBuilder::createCPUPrinter(Builder, "Store to  ", NewPointer,
                                           ": ", ValueOperand, "\n");
 
@@ -1706,13 +1708,11 @@ void RegionGenerator::generateScalarStores(
 void RegionGenerator::addOperandToPHI(ScopStmt &Stmt, PHINode *PHI,
                                       PHINode *PHICopy, BasicBlock *IncomingBB,
                                       LoopToScevMapT &LTS) {
-  Region *StmtR = Stmt.getRegion();
-
   // If the incoming block was not yet copied mark this PHI as incomplete.
   // Once the block will be copied the incoming value will be added.
   BasicBlock *BBCopy = BlockMap[IncomingBB];
   if (!BBCopy) {
-    assert(StmtR->contains(IncomingBB) &&
+    assert(Stmt.contains(IncomingBB) &&
            "Bad incoming block for PHI in non-affine region");
     IncompletePHINodeMap[IncomingBB].push_back(std::make_pair(PHI, PHICopy));
     return;
@@ -1723,7 +1723,7 @@ void RegionGenerator::addOperandToPHI(ScopStmt &Stmt, PHINode *PHI,
 
   Value *OpCopy = nullptr;
 
-  if (StmtR->contains(IncomingBB)) {
+  if (Stmt.contains(IncomingBB)) {
     Value *Op = PHI->getIncomingValueForBlock(IncomingBB);
 
     // If the current insert block is different from the PHIs incoming block

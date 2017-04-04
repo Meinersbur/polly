@@ -21,6 +21,7 @@
 
 #include "polly/CodeGen/IslAst.h"
 #include "polly/CodeGen/IslNodeBuilder.h"
+#include "polly/CodeGen/PerfMonitor.h"
 #include "polly/CodeGen/Utils.h"
 #include "polly/DependenceInfo.h"
 #include "polly/LinkAllPasses.h"
@@ -46,9 +47,14 @@ static cl::opt<bool> Verify("polly-codegen-verify",
                             cl::Hidden, cl::init(true), cl::ZeroOrMore,
                             cl::cat(PollyCategory));
 
+static cl::opt<bool>
+    PerfMonitoring("polly-codegen-perf-monitoring",
+                   cl::desc("Add run-time performance monitoring"), cl::Hidden,
+                   cl::init(false), cl::ZeroOrMore, cl::cat(PollyCategory));
 STATISTIC(NumGenerationSkips, "Number of skipped SCoPs");
 STATISTIC(NumGeneratedScops, "Number of successfully generated SCoPs");
 STATISTIC(NumGeneratedFails, "Number of unsuccessfully generated SCoPs");
+
 
 namespace {
 class CodeGeneration : public ScopPass {
@@ -151,6 +157,18 @@ public:
 
     IslNodeBuilder NodeBuilder(Builder, Annotator, this, *DL, *LI, *SE, *DT, S,
                                StartBlock);
+
+    if (PerfMonitoring) {
+      PerfMonitor P(EnteringBB->getParent()->getParent());
+      P.initialize();
+      P.insertRegionStart(SplitBlock->getTerminator());
+
+      BasicBlock *MergeBlock = SplitBlock->getTerminator()
+                                   ->getSuccessor(0)
+                                   ->getUniqueSuccessor()
+                                   ->getUniqueSuccessor();
+      P.insertRegionEnd(MergeBlock->getTerminator());
+    }
 
     // First generate code for the hoisted invariant loads and transitively the
     // parameters they reference. Afterwards, for the remaining parameters that

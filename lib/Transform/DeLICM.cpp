@@ -884,12 +884,6 @@ public:
     checkConsistency();
   }
 
-  /// Alternative constructor taking isl_maps instead isl_union_map.
-  Knowledge(isl::map Lifetime, bool ImplicitLifetimeIsUnknown, isl::map Written)
-      : Knowledge(give(isl_union_map_from_map(Lifetime.take())),
-                  ImplicitLifetimeIsUnknown,
-                  give(isl_union_map_from_map(Written.take()))) {}
-
   /// Return whether this object was default-constructed.
   bool isUsable() const { return Lifetime && Written; }
 
@@ -1196,10 +1190,6 @@ protected:
   /// Cached version of the schedule and domains.
   isl::union_map Schedule;
 
-  /// Set of all referenced elements.
-  /// { Element[] -> Element[] }
-  isl::union_set AllElements;
-
   /// Combined access relations of all MemoryKind::Array READ accesses.
   /// { DomainRead[] -> Element[] }
   isl::union_map AllReads;
@@ -1456,11 +1446,11 @@ private:
   }
 
 protected:
-  isl::union_set makeEmptyUnionSet() {
+  isl::union_set makeEmptyUnionSet() const {
     return give(isl_union_set_empty(ParamSpace.copy()));
   }
 
-  isl::union_map makeEmptyUnionMap() {
+  isl::union_map makeEmptyUnionMap() const {
     return give(isl_union_map_empty(ParamSpace.copy()));
   }
 
@@ -1854,16 +1844,6 @@ protected:
     // { DomainWrite[] -> Element[] }
     AllWrites =
         give(isl_union_map_union(AllMustWrites.copy(), AllMayWrites.copy()));
-
-    // { Element[] }
-    AllElements = makeEmptyUnionSet();
-    foreachElt(AllWrites, [this](isl::map Write) {
-      auto Space = give(isl_map_get_space(Write.keep()));
-      auto EltSpace = give(isl_space_range(Space.take()));
-      auto EltUniv = give(isl_set_universe(EltSpace.take()));
-      AllElements =
-          give(isl_union_set_add_set(AllElements.take(), EltUniv.take()));
-    });
 
     // { Element[] -> Element[] }
     auto AllElementsId = makeIdentityMap(AllElements, false);

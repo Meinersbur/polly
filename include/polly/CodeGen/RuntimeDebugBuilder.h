@@ -154,4 +154,6 @@ struct RuntimeDebugBuilder {
 };
 } // namespace polly
 
+extern bool PollyDebugPrinting;
+
 #endif
