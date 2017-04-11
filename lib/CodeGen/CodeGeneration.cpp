@@ -55,7 +55,6 @@ STATISTIC(NumGenerationSkips, "Number of skipped SCoPs");
 STATISTIC(NumGeneratedScops, "Number of successfully generated SCoPs");
 STATISTIC(NumGeneratedFails, "Number of unsuccessfully generated SCoPs");
 
-
 namespace {
 class CodeGeneration : public ScopPass {
 public:

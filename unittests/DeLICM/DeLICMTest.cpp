@@ -160,11 +160,11 @@ bool checkIsConflictingNonsymmetric(
     const char *ExistingUndefStr, const char *ExistingWrittenStr,
     const char *ProposedKnownStr, const char *ProposedUnknownStr,
     const char *ProposedUndefStr, const char *ProposedWrittenStr) {
-isl::union_set parseSetOrNull(isl_ctx *Ctx, const char *Str) {
-  if (!Str)
-    return nullptr;
-  return isl::union_set(Ctx, Str);
-}
+  isl::union_set parseSetOrNull(isl_ctx * Ctx, const char *Str) {
+    if (!Str)
+      return nullptr;
+    return isl::union_set(Ctx, Str);
+  }
 
   std::unique_ptr<isl_ctx, decltype(&isl_ctx_free)> Ctx(isl_ctx_alloc(),
                                                         &isl_ctx_free);
