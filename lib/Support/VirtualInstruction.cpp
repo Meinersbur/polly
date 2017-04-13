@@ -179,20 +179,20 @@ static void addRoots(ScopStmt *Stmt,
     if (!MA->isWrite())
       continue;
 
-    // Writes to arrays are always used
+    // Writes to arrays are always used.
     if (MA->isLatestArrayKind()) {
       // auto Inst = MA->getAccessInstruction();
       // RootInsts.emplace_back(&Stmt, Inst);
       RootAccs.push_back(MA);
     }
 
-    // Values are roots if they are escaping
+    // Values are roots if they are escaping.
     else if (MA->isLatestValueKind()) {
       if (Local || isEscaping(MA))
         RootAccs.push_back(MA);
     }
 
-    // Exit phis are, by definition, escaping
+    // Exit phis are, by definition, escaping.
     else if (MA->isLatestExitPHIKind()) {
       // auto ComputingInst=  dyn_cast<Instruction>( MA->getAccessValue());
       // if (ComputingInst)

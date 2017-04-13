@@ -37,6 +37,11 @@ STATISTIC(InBetweenStore, "Number of Load-Store pairs NOT removed because "
                           "there is another store between them");
 STATISTIC(TotalRedundantWritesRemoved,
           "Number of writes of same value removed in any SCoP");
+STATISTIC(TotalDoubleWritesRemoved, "Number of writes removed that are "
+                                    "overwritten without being read first in "
+                                    "any SCoP");
+STATISTIC(TotalWritesCoalesced, "Number of writes coalesced with another");
+
 STATISTIC(TotalDeadAccessesRemoved, "Number of partial accesses removed");
 STATISTIC(TotalDeadComputedPHIs, "Number of dead computed PHIs removed");
 STATISTIC(TotalStmtsRemoved, "Number of statements removed in any SCoP");
@@ -79,6 +84,10 @@ private:
   /// Number of redundant writes removed from this SCoP.
   int RedundantWritesRemoved = 0;
 
+  int DoubleWritesRemoved = 0;
+
+  int WritesCoalesced = 0;
+
   int EmptyPartialAccessesRemoved = 0;
 
   int DeadAccessesRemoved = 0;
@@ -90,12 +99,11 @@ private:
 
   /// Return whether at least one simplification has been applied.
   bool isModified() const {
-    return RedundantWritesRemoved > 0 || StmtsRemoved > 0 ||
+    return RedundantWritesRemoved > 0 || DoubleWritesRemoved > 0 ||
+           WritesCoalesced > 0 || StmtsRemoved > 0 ||
            EmptyPartialAccessesRemoved > 0 || DeadComputedPHIs > 0 ||
            DeadAccessesRemoved > 0;
   }
-
-  // ScalarDefUseChains DefUse;
 
   /// Hold a reference to the isl_ctx to avoid it being freed before we released
   /// all of the ISL objects.
@@ -289,6 +297,122 @@ private:
     }
   }
 
+  void removeDoubleWrites(ScopStmt *Stmt) {
+    auto Domain = isl::manage(Stmt->getDomain());
+    auto ParamSpace =
+        isl::manage(isl_space_params(isl_set_get_space(Domain.keep())));
+    isl::union_map Overwritten = isl::union_map::empty(ParamSpace);
+
+    SmallVector<MemoryAccess *, 8> StoresToRemove;
+
+    for (auto *MA : reverse(*Stmt)) {
+      if (!MA->isExplicit())
+        continue;
+
+      auto AccRel = isl ::manage(MA->getAccessRelation());
+      AccRel =
+          AccRel.intersect_domain(isl::manage(MA->getStatement()->getDomain()));
+
+      if (MA->isRead()) {
+        Overwritten = Overwritten.subtract(AccRel);
+        continue;
+      }
+
+      if (isl::union_map(AccRel).is_subset(Overwritten)) {
+        StoresToRemove.push_back(MA);
+        continue;
+      }
+
+      if (!MA->isMustWrite())
+        continue;
+
+      Overwritten = Overwritten.add_map(AccRel);
+    }
+
+    for (auto *WA : StoresToRemove) {
+      Stmt->removeSingleMemoryAccess(WA);
+
+      DoubleWritesRemoved++;
+      TotalDoubleWritesRemoved++;
+    }
+  }
+
+  void removeDoubleWrites() {
+    for (auto &Stmt : *S)
+      removeDoubleWrites(&Stmt);
+  }
+
+  // TODO: Merge with removeDoubleWrites()
+  void coalescePartialWrites(ScopStmt *Stmt) {
+    auto Domain = isl::manage(Stmt->getDomain());
+    SmallVector<MemoryAccess *, 8> StoresToRemove;
+    DenseMap<llvm::Value *, SmallVector<MemoryAccess *, 2>> WrittenBy;
+    // DenseMap<llvm::Value*, isl::union_map > WrittenTo;
+
+    for (auto *MA : *Stmt) {
+      // We currently only handle implicit writes so we don't have to look reads
+      // between them. All implicit writes take place at the end of a statement.
+      if (!(MA->isImplicit() && MA->isMustWrite()))
+        continue;
+
+      // TODO: The same value can have multiple names if used in a PHINode. Try
+      // to find all alternative names.
+      WrittenBy[MA->getAccessValue()].push_back(MA);
+    }
+
+    for (auto &Pair : WrittenBy) {
+      auto &MAList = Pair.second;
+      auto Count = MAList.size();
+
+      // Nothing to coalesce if there is just a single access.
+      if (Count <= 1)
+        continue;
+
+      for (int i = 0; i < Count; i += 1) {
+        if (!MAList[i])
+          continue;
+
+        for (int j = i; j < Count; j += 1) {
+          if (!MAList[j])
+            continue;
+
+          // Cannot coalesce if they access two different arrays.
+          if (MAList[i]->getLatestScopArrayInfo() !=
+              MAList[j]->getLatestScopArrayInfo())
+            continue;
+
+          auto IAccRel = isl::manage(MAList[i]->getAccessRelation());
+          auto JAccRel = isl::manage(MAList[j]->getAccessRelation());
+          auto CommonDomain = isl::manage(isl_set_intersect(
+              isl_set_intersect(isl_map_domain(IAccRel.copy()),
+                                isl_map_domain(JAccRel.copy())),
+              Domain.copy()));
+
+          // Cannot coalesce if the common parts access different elements.
+          if (IAccRel.intersect_domain(CommonDomain)
+                  .is_equal(JAccRel.intersect_domain(CommonDomain))
+                  .is_false_or_error())
+            continue;
+
+          // Coalesce: Combine both accesses into a single.
+          auto NewAccRel = IAccRel.unite(JAccRel);
+          MAList[i]->setNewAccessRelation(NewAccRel.take());
+
+          Stmt->removeSingleMemoryAccess(MAList[j]);
+          MAList[j] = nullptr;
+
+          WritesCoalesced++;
+          TotalWritesCoalesced++;
+        }
+      }
+    }
+  }
+
+  void coalescePartialWrites() {
+    for (auto &Stmt : *S)
+      coalescePartialWrites(&Stmt);
+  }
+
   /// Remove statements without side effects.
   void removeUnnecessayStmts() {
     auto NumStmtsBefore = S->getSize();
@@ -378,6 +502,10 @@ private:
     OS.indent(Indent) << "Statistics {\n";
     OS.indent(Indent + 4) << "Redundant writes removed: "
                           << RedundantWritesRemoved << "\n";
+    OS.indent(Indent + 4) << "Double writes removed: " << DoubleWritesRemoved
+                          << "\n";
+    OS.indent(Indent + 4) << "Partial writes coalesced: " << WritesCoalesced
+                          << "\n";
     OS.indent(Indent + 4) << "Empty partial access removed: "
                           << EmptyPartialAccessesRemoved << "\n";
     OS.indent(Indent + 4) << "Dead accesses removed: " << DeadAccessesRemoved
@@ -421,6 +549,12 @@ public:
     DEBUG(dbgs() << "Removing redundant writes...\n");
     removeRedundantWrites();
 
+    DEBUG(dbgs() << "Removing double writes...\n");
+    removeDoubleWrites();
+
+    DEBUG(dbgs() << "Coalesce partial writes...\n");
+    coalescePartialWrites();
+
     DEBUG(dbgs() << "Removing partial writes that never happen...\n");
     removeEmptyPartialAccesses();
 
@@ -455,6 +589,8 @@ public:
   virtual void releaseMemory() override {
     S = nullptr;
     RedundantWritesRemoved = 0;
+    DoubleWritesRemoved = 0;
+    WritesCoalesced = 0;
     EmptyPartialAccessesRemoved = 0;
     DeadAccessesRemoved = 0;
     DeadComputedPHIs = 0;

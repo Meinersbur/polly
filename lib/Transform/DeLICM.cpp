@@ -884,6 +884,8 @@ public:
     checkConsistency();
   }
 
+  isl::union_map getWritten() const { return Written; }
+
   /// Return whether this object was default-constructed.
   bool isUsable() const { return Lifetime && Written; }
 
@@ -2461,7 +2463,7 @@ private:
       return false;
 
     mapPHI(SAI, std::move(PHITarget), std::move(WritesTarget),
-           std::move(Lifetime), std::move(Proposed));
+           std::move(Lifetime), std::move(Proposed), std::move(WrittenValue));
     return true;
   }
 
@@ -2710,6 +2712,13 @@ private:
     return true;
   }
 
+  // { [Element[] -> Scatter[]] -> ValInst[] }
+  bool isWriteNecessary(isl::union_map ValInst) {
+    return ValInst.is_subset(Zone.getWritten()).is_false_or_error();
+  }
+
+  MemoryAccess *findExistingWrite(ScopStmt *Stmt) {}
+
   /// Map a MemoryKind::PHI scalar to an array element.
   ///
   /// Callers must have ensured that the mapping is valid and not conflicting
@@ -2724,9 +2733,10 @@ private:
   /// @param Lifetime    { DomainRead[] -> Zone[] }
   ///                    The lifetime of each PHI for reporting.
   /// @param Proposed    Mapping constraints for reporting.
+  /// @param WrittenValue { DomainWrite[] -> ValInst[] }
   void mapPHI(const ScopArrayInfo *SAI, isl::map ReadTarget,
-              isl::union_map WriteTarget, isl::map Lifetime,
-              Knowledge Proposed) {
+              isl::union_map WriteTarget, isl::map Lifetime, Knowledge Proposed,
+              isl::union_map WrittenValue) {
 
     auto ElementSpace =
         give(isl_space_range(isl_map_get_space(ReadTarget.keep())));
@@ -2738,6 +2748,29 @@ private:
       auto Domain = getDomainFor(MA);
       auto DomainSpace = give(isl_set_get_space(Domain.keep()));
 
+      // { DomainWrite[] -> Scatter[] }
+      auto Schedule = getScatterFor(Domain);
+
+#if 0
+	  // { DomainWrite[] -> Element[] }
+	  auto MAWriteTarget =   WriteTarget.intersect_domain(Domain);
+	  
+	  // { DomainWrite[] -> [Element[] -> Scatter[]] }
+	  auto DomToEltScatter = isl::manage( isl_union_map_range_product( MAWriteTarget.copy(), isl::union_map(  Schedule).take() ));
+
+	  // { DomainWrite[] -> ValInst[] }
+	  auto MAWrittenValue =   WrittenValue.intersect_domain(Domain);
+	  
+	  // { [Element[] -> Scatter[]] -> ValInst[] } 
+	  auto MAWritten = MAWrittenValue.apply_domain(DomToEltScatter);
+
+
+	  if (!isWriteNecessary( MAWritten )) {
+		  MA->getStatement()->removeSingleMemoryAccess(MA);
+		  continue;
+	  }
+#endif
+
       // { DomainWrite[] -> Element[] }
       auto NewAccRel = give(isl_union_map_intersect_domain(
           WriteTarget.copy(), isl_union_set_from_set(Domain.take())));
@@ -2746,6 +2779,7 @@ private:
       // assert(isl_union_map_n_map(NewAccRel.keep()) == 1);
       auto ExpectedSpace = give(isl_space_map_from_domain_and_range(
           DomainSpace.copy(), ElementSpace.copy()));
+
       MA->setNewAccessRelation(singleton(NewAccRel, ExpectedSpace).take());
       SecondaryAccs.push_back(MA);
     }

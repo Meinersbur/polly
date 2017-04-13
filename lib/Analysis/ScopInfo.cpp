@@ -1159,7 +1159,10 @@ void MemoryAccess::print(raw_ostream &OS, bool Oneline) const {
     OS.indent(11) << "new: " << getNewAccessRelationStr() << ";\n";
 }
 
-void MemoryAccess::dump() const { print(errs(), true); }
+void MemoryAccess::dump() const {
+  print(errs(), true);
+  errs() << '\n';
+}
 
 __isl_give isl_pw_aff *MemoryAccess::getPwAff(const SCEV *E) {
   auto *Stmt = getStatement();
