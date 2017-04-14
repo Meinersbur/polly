@@ -2149,7 +2149,8 @@ private:
   ///                  Suggestion where to map a scalar to when at a timepoint.
   ///
   /// @return true if the scalar was successfully mapped.
-  bool tryMapValue(const ScopArrayInfo *SAI, isl::map TargetElt) {
+  bool tryMapValue(const ScopArrayInfo *SAI, isl::map TargetElt,
+                   DenseMap<ScopStmt *, MemoryAccess *> &WriteAccesses) {
     assert(SAI->isValueKind());
 
     auto *DefMA = DefUse.getValueDef(SAI);
@@ -2221,15 +2222,16 @@ private:
         isl_union_map_apply_range(isl_union_map_reverse(DefUses.take()),
                                   isl_union_map_from_map(DefTarget.copy())));
 
-    bool isValid =
-        mapValue(SAI, DefTarget, UseTarget, Lifetime, Proposed, false);
+    bool isValid = mapValue(SAI, DefTarget, UseTarget, Lifetime, Proposed,
+                            false, WriteAccesses);
     if (!isValid) {
       MapUndefinedReject++;
       return false;
     }
 
-    isValid = mapValue(SAI, std::move(DefTarget), std::move(UseTarget),
-                       std::move(Lifetime), std::move(Proposed), true);
+    isValid =
+        mapValue(SAI, std::move(DefTarget), std::move(UseTarget),
+                 std::move(Lifetime), std::move(Proposed), true, WriteAccesses);
     assert(isValid);
 
     return true;
@@ -2260,7 +2262,8 @@ private:
   /// @return          True if the transformation is valid.
   bool mapValue(const ScopArrayInfo *SAI, isl::map DefTarget,
                 isl::union_map UseTarget, isl::map Lifetime, Knowledge Proposed,
-                bool DoIt) {
+                bool DoIt,
+                DenseMap<ScopStmt *, MemoryAccess *> &WriteAccesses) {
 
     // { Element[] }
     auto EltSpace = give(isl_space_range(isl_map_get_space(DefTarget.keep())));
@@ -2281,8 +2284,6 @@ private:
           UseTarget.copy(), isl_union_set_from_set(Domain.copy())));
       auto NewAccRelMap = singleton(NewAccRel, NewAccRelSpace);
 
-      simplify(NewAccRelMap);
-
       auto DefinedDomain = give(isl_map_domain(NewAccRelMap.copy()));
       if (isl_set_is_subset(Domain.keep(), DefinedDomain.keep()) !=
           isl_bool_true)
@@ -2291,7 +2292,8 @@ private:
       if (!DoIt)
         continue;
 
-      MA->setNewAccessRelation(NewAccRelMap.copy());
+      simplify(NewAccRelMap);
+      MA->setNewAccessRelation(NewAccRelMap.take());
       SecondaryAccs.push_back(MA);
     }
 
@@ -2302,12 +2304,23 @@ private:
       MapRequiredUndefined++;
 
     auto *WA = DefUse.getValueDef(SAI);
-    WA->setNewAccessRelation(DefTarget.copy());
+
+    auto *Stmt = WA->getStatement();
+    auto *&ReuseWA = WriteAccesses[Stmt];
+    if (ReuseWA) {
+      DefTarget = DefTarget.unite(isl::manage(ReuseWA->getAccessRelation()));
+      Stmt->removeSingleMemoryAccess(WA);
+      WA = nullptr;
+    } else {
+      ReuseWA = WA;
+    }
+
+    ReuseWA->setNewAccessRelation(DefTarget.copy());
     applyLifetime(Proposed);
 
     MappedValueScalars++;
     NumberOfMappedValueScalars += 1;
-    MapReports.emplace_back(SAI, WA, SecondaryAccs, DefTarget, Lifetime,
+    MapReports.emplace_back(SAI, ReuseWA, SecondaryAccs, DefTarget, Lifetime,
                             std::move(Proposed));
     return true;
   }
@@ -2361,7 +2374,8 @@ private:
   ///                  timepoint.
   ///
   /// @return true if the PHI scalar has been mapped.
-  bool tryMapPHI(const ScopArrayInfo *SAI, isl::map TargetElt) {
+  bool tryMapPHI(const ScopArrayInfo *SAI, isl::map TargetElt,
+                 DenseMap<ScopStmt *, MemoryAccess *> &WriteAccesses) {
     if (!DelicmMapPHI)
       return false;
 
@@ -2463,7 +2477,8 @@ private:
       return false;
 
     mapPHI(SAI, std::move(PHITarget), std::move(WritesTarget),
-           std::move(Lifetime), std::move(Proposed), std::move(WrittenValue));
+           std::move(Lifetime), std::move(Proposed), std::move(WrittenValue),
+           WriteAccesses);
     return true;
   }
 
@@ -2736,7 +2751,8 @@ private:
   /// @param WrittenValue { DomainWrite[] -> ValInst[] }
   void mapPHI(const ScopArrayInfo *SAI, isl::map ReadTarget,
               isl::union_map WriteTarget, isl::map Lifetime, Knowledge Proposed,
-              isl::union_map WrittenValue) {
+              isl::union_map WrittenValue,
+              DenseMap<ScopStmt *, MemoryAccess *> &WriteAccesses) {
 
     auto ElementSpace =
         give(isl_space_range(isl_map_get_space(ReadTarget.keep())));
@@ -2774,14 +2790,25 @@ private:
       // { DomainWrite[] -> Element[] }
       auto NewAccRel = give(isl_union_map_intersect_domain(
           WriteTarget.copy(), isl_union_set_from_set(Domain.take())));
-      simplify(NewAccRel);
 
       // assert(isl_union_map_n_map(NewAccRel.keep()) == 1);
       auto ExpectedSpace = give(isl_space_map_from_domain_and_range(
           DomainSpace.copy(), ElementSpace.copy()));
 
-      MA->setNewAccessRelation(singleton(NewAccRel, ExpectedSpace).take());
-      SecondaryAccs.push_back(MA);
+      auto *Stmt = MA->getStatement();
+      auto *&ReuseMA = WriteAccesses[Stmt];
+      auto NewAccRelMap = singleton(NewAccRel, ExpectedSpace);
+      if (ReuseMA) {
+        NewAccRelMap =
+            NewAccRelMap.unite(isl::manage(ReuseMA->getLatestAccessRelation()));
+        Stmt->removeSingleMemoryAccess(MA);
+        MA = nullptr;
+      } else {
+        ReuseMA = MA;
+      }
+      simplify(NewAccRelMap);
+      ReuseMA->setNewAccessRelation(NewAccRelMap.take());
+      SecondaryAccs.push_back(ReuseMA);
     }
 
     // Redirect the PHI read.
@@ -2805,7 +2832,9 @@ private:
   /// There is currently no preference in which order scalars are tried.
   /// Ideally, we would direct it towards a load instruction of the same array
   /// element.
-  bool collapseScalarsToStore(MemoryAccess *TargetStoreMA) {
+  bool
+  collapseScalarsToStore(MemoryAccess *TargetStoreMA,
+                         DenseMap<ScopStmt *, MemoryAccess *> &WriteAccesses) {
     assert(TargetStoreMA->isLatestArrayKind());
     assert(TargetStoreMA->isMustWrite());
 
@@ -2882,7 +2911,7 @@ private:
 
       // Try to map MemoryKind::Value scalars.
       if (SAI->isValueKind()) {
-        if (!tryMapValue(SAI, EltTarget))
+        if (!tryMapValue(SAI, EltTarget, WriteAccesses))
           continue;
 
         auto *DefAcc = DefUse.getValueDef(SAI);
@@ -2894,7 +2923,7 @@ private:
 
       // Try to map MemoryKind::PHI scalars.
       if (SAI->isPHIKind()) {
-        if (tryMapPHI(SAI, EltTarget)) {
+        if (tryMapPHI(SAI, EltTarget, WriteAccesses)) {
           // Add inputs of all incoming statements to the worklist.
           for (auto *PHIWrite : DefUse.getPHIIncomings(SAI))
             ProcessAllIncoming(PHIWrite->getStatement());
@@ -3088,6 +3117,7 @@ public:
   /// the first processed element claims it.
   void greedyCollapse() {
     bool Modified = false;
+    DenseMap<ScopStmt *, MemoryAccess *> WriteAccesses;
 
     for (auto &Stmt : *S) {
       // collapseScalarsToStore() can add more MemoryAccesses (tryComputedPHI),
@@ -3134,8 +3164,10 @@ public:
         }
 
         NumberOfCompatibleTargets++;
+        WriteAccesses.clear();
+        // WriteAccesses[&Stmt] = MA;
         DEBUG(dbgs() << "Analyzing target access " << MA << "\n");
-        if (collapseScalarsToStore(MA))
+        if (collapseScalarsToStore(MA, WriteAccesses))
           Modified = true;
       }
     }
