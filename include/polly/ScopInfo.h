@@ -69,6 +69,8 @@ extern bool UnprofitableScalarAccs;
 
 //===---------------------------------------------------------------------===//
 
+extern bool UseInstructionNames;
+
 /// Enumeration of assumptions Polly can take.
 enum AssumptionKind {
   ALIASING,
@@ -373,6 +375,16 @@ public:
   /// If the array is read only
   bool isReadOnly();
 
+  /// Verify that @p Array is compatible to this ScopArrayInfo.
+  ///
+  /// Two arrays are compatible if their dimensionality, the sizes of their
+  /// dimensions, and their element sizes match.
+  ///
+  /// @param Array The array to compare against.
+  ///
+  /// @returns True, if the arrays are compatible, False otherwise.
+  bool isCompatibleWith(const ScopArrayInfo *Array) const;
+
 private:
   void addDerivedSAI(ScopArrayInfo *DerivedSAI) {
     DerivedSAIs.insert(DerivedSAI);
@@ -613,6 +625,13 @@ private:
 
   /// Updated access relation read from JSCOP file.
   isl_map *NewAccessRelation;
+
+  /// Fortran arrays that are created using "Allocate" are stored in terms
+  /// of a descriptor struct. This maintains a raw pointer to the memory,
+  /// along with auxiliary fields with information such as dimensions.
+  /// We hold a reference to the descriptor corresponding to a MemoryAccess
+  /// into a Fortran array. FAD for "Fortran Array Descriptor"
+  AssertingVH<GlobalValue> FAD;
   // @}
 
   __isl_give isl_basic_map *createBasicAccessMap(ScopStmt *Statement);
@@ -703,11 +722,10 @@ public:
   /// @param Kind       The kind of memory accessed.
   /// @param Subscripts Subscipt expressions
   /// @param Sizes      Dimension lengths of the accessed array.
-  /// @param BaseName   Name of the acessed array.
   MemoryAccess(ScopStmt *Stmt, Instruction *AccessInst, AccessType AccType,
                Value *BaseAddress, Type *ElemType, bool Affine,
                ArrayRef<const SCEV *> Subscripts, ArrayRef<const SCEV *> Sizes,
-               Value *AccessValue, MemoryKind Kind, StringRef BaseName);
+               Value *AccessValue, MemoryKind Kind);
 
   /// Create a new MemoryAccess that corresponds to @p AccRel.
   ///
@@ -816,22 +834,14 @@ public:
   /// Get an isl string representing a new access function, if available.
   std::string getNewAccessRelationStr() const;
 
-  /// Get the base address of this access (e.g. A for A[i+j]) when
+  /// Get the original base address of this access (e.g. A for A[i+j]) when
   /// detected.
-  Value *getOriginalBaseAddr() const {
-    assert(!getOriginalScopArrayInfo() /* may noy yet be initialized */ ||
-           getOriginalScopArrayInfo()->getBasePtr() == BaseAddr);
-    return BaseAddr;
-  }
-
-  /// Get the base address of this access (e.g. A for A[i+j]) after a
-  /// potential change by setNewAccessRelation().
-  Value *getLatestBaseAddr() const {
-    return getLatestScopArrayInfo()->getBasePtr();
-  }
-
-  /// Old name for getOriginalBaseAddr().
-  Value *getBaseAddr() const { return getOriginalBaseAddr(); }
+  ///
+  /// This adress may differ from the base address referenced by the Original
+  /// ScopArrayInfo to which this array belongs, as this memory access may
+  /// have been unified to a ScopArray which has a different but identically
+  /// valued base pointer in case invariant load hoisting is enabled.
+  Value *getOriginalBaseAddr() const { return BaseAddr; }
 
   /// Get the detection-time base array isl_id for this access.
   __isl_give isl_id *getOriginalArrayId() const;
@@ -1019,6 +1029,10 @@ public:
 
   /// Get the reduction type of this access
   ReductionType getReductionType() const { return RedType; }
+
+  /// Set the array descriptor corresponding to the Array on which the
+  /// memory access is performed.
+  void setFortranArrayDescriptor(GlobalValue *FAD);
 
   /// Update the original access relation.
   ///
@@ -1738,6 +1752,12 @@ private:
   /// List of invariant accesses.
   InvariantEquivClassesTy InvariantEquivClasses;
 
+  /// The smallest array index not yet assigned.
+  long ArrayIdx = 0;
+
+  /// The smallest statement index not yet assigned.
+  long StmtIdx = 0;
+
   /// Scop constructor; invoked from ScopBuilder::buildScop.
   Scop(Region &R, ScalarEvolution &SE, LoopInfo &LI,
        ScopDetection::DetectionContext &DC);
@@ -1909,6 +1929,34 @@ private:
   /// Required inv. loads: LB[0], LB[1], (V, if it may alias with A or LB)
   ///
   void hoistInvariantLoads();
+
+  /// Canonicalize arrays with base pointers from the same equivalence class.
+  ///
+  /// Some context: in our normal model we assume that each base pointer is
+  /// related to a single specific memory region, where memory regions
+  /// associated with different base pointers are disjoint. Consequently we do
+  /// not need to compute additional data dependences that model possible
+  /// overlaps of these memory regions. To verify our assumption we compute
+  /// alias checks that verify that modeled arrays indeed do not overlap. In
+  /// case an overlap is detected the runtime check fails and we fall back to
+  /// the original code.
+  ///
+  /// In case of arrays where the base pointers are know to be identical,
+  /// because they are dynamically loaded by accesses that are in the same
+  /// invariant load equivalence class, such run-time alias check would always
+  /// be false.
+  ///
+  /// This function makes sure that we do not generate consistently failing
+  /// run-time checks for code that contains distinct arrays with known
+  /// equivalent base pointers. It identifies for each invariant load
+  /// equivalence class a single canonical array and canonicalizes all memory
+  /// accesses that reference arrays that have base pointers that are known to
+  /// be equal to the base pointer of such a canonical array to this canonical
+  /// array.
+  ///
+  /// We currently do not canonicalize arrays for which certain memory accesses
+  /// have been hoisted as loop invariant.
+  void canonicalizeDynamicBasePtrs();
 
   /// Add invariant loads listed in @p InvMAs with the domain of @p Stmt.
   void addInvariantLoads(ScopStmt &Stmt, InvariantAccessesTy &InvMAs);
@@ -2509,6 +2557,18 @@ public:
   ///
   /// @param BasePtr   The base pointer the object has been stored for.
   /// @param Kind      The kind of array info object.
+  ///
+  /// @returns The ScopArrayInfo pointer or NULL if no such pointer is
+  ///          available.
+  const ScopArrayInfo *getScopArrayInfoOrNull(Value *BasePtr, MemoryKind Kind);
+
+  /// Return the cached ScopArrayInfo object for @p BasePtr.
+  ///
+  /// @param BasePtr   The base pointer the object has been stored for.
+  /// @param Kind      The kind of array info object.
+  ///
+  /// @returns The ScopArrayInfo pointer (may assert if no such pointer is
+  ///          available).
   const ScopArrayInfo *getScopArrayInfo(Value *BasePtr, MemoryKind Kind);
 
   /// Invalidate ScopArrayInfo object for base address.
@@ -2654,6 +2714,18 @@ public:
   ///                      When true, also removes statements without
   ///                      side-effects.
   void simplifySCoP(bool AfterHoisting);
+
+  /// Get the next free array index.
+  ///
+  /// This function returns a unique index which can be used to identify an
+  /// array.
+  long getNextArrayIdx() { return ArrayIdx++; }
+
+  /// Get the next free statement index.
+  ///
+  /// This function returns a unique index which can be used to identify a
+  /// statement.
+  long getNextStmtIdx() { return StmtIdx++; }
 };
 
 /// Print Scop scop to raw_ostream O.

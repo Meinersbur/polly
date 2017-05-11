@@ -23,6 +23,7 @@
 #include "polly/Canonicalization.h"
 #include "polly/CodeGen/CodeGeneration.h"
 #include "polly/CodeGen/CodegenCleanup.h"
+#include "polly/CodeGen/PPCGCodeGeneration.h"
 #include "polly/DeLICM.h"
 #include "polly/DependenceInfo.h"
 #include "polly/DumpDebugPass.h"
@@ -108,6 +109,23 @@ static cl::opt<TargetChoice>
 #endif
                           ),
            cl::init(TARGET_CPU), cl::ZeroOrMore, cl::cat(PollyCategory));
+
+#ifdef GPU_CODEGEN
+static cl::opt<GPURuntime> GPURuntimeChoice(
+    "polly-gpu-runtime", cl::desc("The GPU Runtime API to target"),
+    cl::values(clEnumValN(GPURuntime::CUDA, "libcudart",
+                          "use the CUDA Runtime API"),
+               clEnumValN(GPURuntime::OpenCL, "libopencl",
+                          "use the OpenCL Runtime API")),
+    cl::init(GPURuntime::CUDA), cl::ZeroOrMore, cl::cat(PollyCategory));
+
+static cl::opt<GPUArch>
+    GPUArchChoice("polly-gpu-arch", cl::desc("The GPU Architecture to target"),
+                  cl::values(clEnumValN(GPUArch::NVPTX64, "nvptx64",
+                                        "target NVIDIA 64-bit architecture")),
+                  cl::init(GPUArch::NVPTX64), cl::ZeroOrMore,
+                  cl::cat(PollyCategory));
+#endif
 
 VectorizerChoice polly::PollyVectorizerChoice;
 static cl::opt<polly::VectorizerChoice, true> Vectorizer(
@@ -327,7 +345,8 @@ void registerPollyPasses(llvm::legacy::PassManagerBase &PM) {
 
   if (Target == TARGET_GPU) {
 #ifdef GPU_CODEGEN
-    PM.add(polly::createPPCGCodeGenerationPass());
+    PM.add(
+        polly::createPPCGCodeGenerationPass(GPUArchChoice, GPURuntimeChoice));
 #endif
   } else {
     switch (CodeGeneration) {

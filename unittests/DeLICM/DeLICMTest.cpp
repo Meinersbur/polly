@@ -147,34 +147,63 @@ TEST(DeLICM, ArrayPerWriteLifetimeZone) {
 /// Get the universes of all spaces in @p USet.
 isl::union_set unionSpace(const isl::union_set &USet) {
   auto Result = give(isl_union_set_empty(isl_union_set_get_space(USet.keep())));
-  foreachElt(USet, [=, &Result](isl::set Set) {
+  USet.foreach_set([=, &Result](isl::set Set) -> isl::stat {
     auto Space = give(isl_set_get_space(Set.keep()));
     auto Universe = give(isl_set_universe(Space.take()));
     Result = give(isl_union_set_add_set(Result.take(), Universe.take()));
+    return isl::stat::ok;
   });
   return Result;
 }
 
+void completeLifetime(isl::union_set Universe, isl::union_map OccupiedAndKnown,
+                      isl::union_set &Occupied, isl::union_map &Known,
+  auto ParamSpace = give(isl_union_set_get_space(Universe.keep()));
+
+  if (Undef && !Occupied) {
+    assert(!Occupied);
+    Occupied = give(isl_union_set_subtract(Universe.copy(), Undef.copy()));
+  }
+
+  if (OccupiedAndKnown) {
+    assert(!Known);
+
+    Known = isl::union_map::empty(ParamSpace);
+
+    if (!Occupied)
+      Occupied = OccupiedAndKnown.domain();
+
+    OccupiedAndKnown.foreach_map([&Known](isl::map Map) -> isl::stat {
+      if (isl_map_has_tuple_name(Map.keep(), isl_dim_out) != isl_bool_true)
+        return isl::stat::ok;
+      Known = give(isl_union_map_add_map(Known.take(), Map.take()));
+      return isl::stat::ok;
+    });
+    assert(Occupied);
+    Undef = give(isl_union_set_subtract(Universe.copy(), Occupied.copy()));
+
+  if (!Known) { // By default, nothing is known.
+    Known = isl::union_map::empty(ParamSpace);
+  }
+
+  // Conditions that must hold when returning.
+  assert(Occupied);
+  assert(Undef);
+  assert(Known);
+} KnowledgeStr;
 isl::union_set parseSetOrNull(isl_ctx *Ctx, const char *Str) {
   if (!Str)
     return nullptr;
   return isl::union_set(Ctx, Str);
 }
 
-bool checkIsConflictingNonsymmetric(
-    const char *ExistingKnownStr, const char *ExistingUnknownStr,
-    const char *ExistingUndefStr, const char *ExistingWrittenStr,
-    const char *ProposedKnownStr, const char *ProposedUnknownStr,
-    const char *ProposedUndefStr, const char *ProposedWrittenStr) {
+isl::union_map parseMapOrNull(isl_ctx *Ctx, const char *Str) {
+  if (!Str)
+    return nullptr;
+  return isl::union_map(Ctx, Str);
+}
 
-  std::unique_ptr<isl_ctx, decltype(&isl_ctx_free)> Ctx(isl_ctx_alloc(),
-                                                        &isl_ctx_free);
   LLVMContext C;
-
-  auto ExistingKnown =
-      give(isl_union_map_read_from_str(Ctx.get(), ExistingKnownStr));
-  auto ExistingUnknown =
-      ExistingUnknownStr
           ? give(isl_union_set_read_from_str(Ctx.get(), ExistingUnknownStr))
           : nullptr;
   auto ExistingUndef =
@@ -183,10 +212,6 @@ bool checkIsConflictingNonsymmetric(
           : nullptr;
   auto ExistingWritten =
       give(isl_union_map_read_from_str(Ctx.get(), ExistingWrittenStr));
-
-  auto ProposedKnown =
-      give(isl_union_map_read_from_str(Ctx.get(), ProposedKnownStr));
-  auto ProposedUnknown =
       ProposedUnknownStr
           ? give(isl_union_set_read_from_str(Ctx.get(), ProposedUnknownStr))
           : nullptr;
@@ -197,19 +222,31 @@ bool checkIsConflictingNonsymmetric(
   auto ProposedWritten =
       give(isl_union_map_read_from_str(Ctx.get(), ProposedWrittenStr));
 
-  auto UndefVal = UndefValue::get(IntegerType::get(C, 8));
-  auto UndefId = give(isl_id_alloc(Ctx.get(), "Undef", UndefVal));
-  auto UndefSpace = give(isl_space_set_tuple_id(
-      isl_space_set_alloc(Ctx.get(), 0, 0), isl_dim_set, UndefId.take()));
-  auto UndefSet = give(isl_set_universe(UndefSpace.take()));
+bool checkIsConflictingNonsymmetricCommon(
+    isl_ctx *Ctx, isl::union_map ExistingOccupiedAndKnown,
+    isl::union_set ExistingUnused, isl::union_map ExistingWritten,
+    isl::union_map ProposedOccupiedAndKnown, isl::union_set ProposedUnused,
+    isl::union_map ProposedWritten) {
   auto UndefUSet = give(isl_union_set_from_set(UndefSet.take()));
+  auto Universe = give(isl_union_set_empty(isl_space_params_alloc(Ctx, 0)));
+  if (ExistingOccupiedAndKnown)
+    Universe = give(isl_union_set_union(
+        Universe.take(), ExistingOccupiedAndKnown.domain().take()));
+    Universe = give(
+        isl_union_set_union(Universe.take(), ExistingWritten.domain().take()));
+  if (ProposedOccupiedAndKnown)
+    Universe = give(isl_union_set_union(
+        Universe.take(), ProposedOccupiedAndKnown.domain().take()));
+    Universe = give(
+        isl_union_set_union(Universe.take(), ProposedWritten.domain().take()));
+
 
   auto ExistingDefined = give(isl_union_map_domain(ExistingKnown.copy()));
   auto ExistingLifetime = ExistingKnown;
-  if (ExistingUnknown) {
+  isl::id NewId = give(isl_id_alloc(Ctx, "Unrelated", &NewId));
     ExistingDefined = give(
         isl_union_set_union(ExistingDefined.take(), ExistingUnknown.copy()));
-    ExistingLifetime = give(
+  auto NewSpace = give(isl_space_set_alloc(Ctx, 0, 1));
         isl_union_map_union(ExistingLifetime.take(),
                             isl_union_map_from_domain(ExistingUnknown.copy())));
   }
@@ -222,10 +259,10 @@ bool checkIsConflictingNonsymmetric(
   }
 
   auto ProposedDefined = give(isl_union_map_domain(ProposedKnown.copy()));
-  auto ProposedLifetime = ProposedKnown;
-  if (ProposedUnknown) {
-    ProposedDefined = give(
-        isl_union_set_union(ProposedDefined.take(), ProposedUnknown.copy()));
+  isl::union_set ExistingOccupied;
+  isl::union_map ExistingKnown;
+  completeLifetime(Universe, ExistingOccupiedAndKnown, ExistingOccupied,
+                   ExistingKnown, ExistingUnused);
     ProposedLifetime = give(
         isl_union_map_union(ProposedLifetime.take(),
                             isl_union_map_from_domain(ProposedUnknown.copy())));
@@ -238,15 +275,28 @@ bool checkIsConflictingNonsymmetric(
                                      ProposedUndef.copy(), UndefUSet.copy())));
   }
 
-  auto ExistingUniverse = unionSpace(ExistingDefined);
-  ExistingUniverse = give(isl_union_set_union(
-      ExistingUniverse.take(),
-      unionSpace(give(isl_union_map_domain(ExistingWritten.copy()))).take()));
+  isl::union_set ProposedOccupied;
+  isl::union_map ProposedKnown;
+  completeLifetime(Universe, ProposedOccupiedAndKnown, ProposedOccupied,
+                   ProposedKnown, ProposedUnused);
+
+  auto Result = isConflicting(ExistingOccupied, ExistingUnused, ExistingKnown,
+                              ExistingWritten, ProposedOccupied, ProposedUnused,
+                              ProposedKnown, ProposedWritten);
 
   auto ProposedUniverse = unionSpace(ProposedDefined);
   ProposedUniverse = give(isl_union_set_union(
       ProposedUniverse.take(),
       unionSpace(give(isl_union_map_domain(ProposedWritten.copy()))).take()));
+            isConflicting(ExistingOccupied, ExistingUnused, ExistingKnown,
+                          ExistingWritten, ProposedOccupied, {}, ProposedKnown,
+                          ProposedWritten));
+            isConflicting({}, ExistingUnused, ExistingKnown, ExistingWritten,
+                          ProposedOccupied, ProposedUnused, ProposedKnown,
+                          ProposedWritten));
+  EXPECT_EQ(Result, isConflicting({}, ExistingUnused, ExistingKnown,
+                                  ExistingWritten, ProposedOccupied, {},
+                                  ProposedKnown, ProposedWritten));
 
   // The 'universe' contains all statement instances; because there is no
   // isl_union_set_universe, we derive it from all statement domains passes ti
@@ -279,16 +329,52 @@ bool checkIsConflictingNonsymmetric(
                        ProposedLifetime, false, ProposedWritten);
 }
 
-bool checkIsConflicting(const char *ThisKnownStr, const char *ThisUnknownStr,
-                        const char *ThisUndefStr, const char *ThisWrittenStr,
-                        const char *ThatKnownStr, const char *ThatUnknownStr,
-                        const char *ThatUndefStr, const char *ThatWrittenStr) {
-  auto ThisExisting = checkIsConflictingNonsymmetric(
-      ThisKnownStr, ThisUnknownStr, ThisUndefStr, ThisWrittenStr, ThatKnownStr,
-      ThatUnknownStr, ThatUndefStr, ThatWrittenStr);
-  auto ThatExisting = checkIsConflictingNonsymmetric(
-      ThatKnownStr, ThatUnknownStr, ThatUndefStr, ThatWrittenStr, ThisKnownStr,
-      ThisUnknownStr, ThisUndefStr, ThisWrittenStr);
+bool checkIsConflictingNonsymmetricKnown(KnowledgeStr Existing,
+                                         KnowledgeStr Proposed) {
+  std::unique_ptr<isl_ctx, decltype(&isl_ctx_free)> Ctx(isl_ctx_alloc(),
+                                                        &isl_ctx_free);
+
+  // Parse knowledge.
+  auto ExistingOccupiedAndKnown =
+      parseMapOrNull(Ctx.get(), Existing.OccupiedStr);
+  auto ExistingUnused = parseSetOrNull(Ctx.get(), Existing.UndefStr);
+  auto ExistingWritten = parseMapOrNull(Ctx.get(), Existing.WrittenStr);
+
+  auto ProposedOccupiedAndKnown =
+      parseMapOrNull(Ctx.get(), Proposed.OccupiedStr);
+  auto ProposedUnused = parseSetOrNull(Ctx.get(), Proposed.UndefStr);
+  auto ProposedWritten = parseMapOrNull(Ctx.get(), Proposed.WrittenStr);
+
+  return checkIsConflictingNonsymmetricCommon(
+      Ctx.get(), ExistingOccupiedAndKnown, ExistingUnused, ExistingWritten,
+      ProposedOccupiedAndKnown, ProposedUnused, ProposedWritten);
+}
+
+bool checkIsConflictingNonsymmetric(KnowledgeStr Existing,
+                                    KnowledgeStr Proposed) {
+  std::unique_ptr<isl_ctx, decltype(&isl_ctx_free)> Ctx(isl_ctx_alloc(),
+                                                        &isl_ctx_free);
+
+  // Parse knowledge.
+  auto ExistingOccupied = parseSetOrNull(Ctx.get(), Existing.OccupiedStr);
+  auto ExistingUnused = parseSetOrNull(Ctx.get(), Existing.UndefStr);
+  auto ExistingWritten = parseSetOrNull(Ctx.get(), Existing.WrittenStr);
+
+  auto ProposedOccupied = parseSetOrNull(Ctx.get(), Proposed.OccupiedStr);
+  auto ProposedUnused = parseSetOrNull(Ctx.get(), Proposed.UndefStr);
+  auto ProposedWritten = parseSetOrNull(Ctx.get(), Proposed.WrittenStr);
+
+  return checkIsConflictingNonsymmetricCommon(
+      Ctx.get(),
+      isl::manage(isl_union_map_from_domain(ExistingOccupied.take())),
+      ExistingUnused,
+      isl::manage(isl_union_map_from_domain(ExistingWritten.take())),
+      isl::manage(isl_union_map_from_domain(ProposedOccupied.take())),
+      ProposedUnused,
+      isl::manage(isl_union_map_from_domain(ProposedWritten.take())));
+}
+
+bool checkIsConflicting(KnowledgeStr Existing, KnowledgeStr Proposed) {
 
   // isConflicting should be symmetric.
   EXPECT_EQ(ThisExisting, ThatExisting);
@@ -296,17 +382,46 @@ bool checkIsConflicting(const char *ThisKnownStr, const char *ThisUnknownStr,
   return ThisExisting || ThatExisting;
 }
 
-TEST(DeLICM, IsConflicting) {
-  EXPECT_FALSE(
-      checkIsConflicting("{}", "{}", nullptr, "{}", "{}", "{}", nullptr, "{}"));
-  EXPECT_FALSE(
-      checkIsConflicting("{}", nullptr, "{}", "{}", "{}", "{}", nullptr, "{}"));
+bool checkIsConflictingKnown(KnowledgeStr Existing, KnowledgeStr Proposed) {
+  auto Forward = checkIsConflictingNonsymmetricKnown(Existing, Proposed);
+  auto Backward = checkIsConflictingNonsymmetricKnown(Proposed, Existing);
+
+  // checkIsConflictingKnown should be symmetric.
+  EXPECT_EQ(Forward, Backward);
+
+  return Forward || Backward;
+}
+
 
   EXPECT_FALSE(checkIsConflicting("{}", nullptr, "{}", "{ Dom[0] -> Val[] }",
                                   "{}", "{}", nullptr, "{}"));
 
-  EXPECT_FALSE(checkIsConflicting("{}", nullptr, "{}", "{ Dom[0] -> [] }", "{}",
-                                  "{}", nullptr, "{}"));
+  // Check occupied vs. occupied with known values.
+  EXPECT_FALSE(checkIsConflictingKnown({"{ Dom[i] -> Val[] }", nullptr, "{}"},
+                                       {"{ Dom[i] -> Val[] }", nullptr, "{}"}));
+  EXPECT_TRUE(checkIsConflictingKnown({"{ Dom[i] -> ValA[] }", nullptr, "{}"},
+                                      {"{ Dom[i] -> ValB[] }", nullptr, "{}"}));
+  EXPECT_TRUE(checkIsConflictingKnown({"{ Dom[i] -> Val[] }", nullptr, "{}"},
+                                      {"{ Dom[i] -> [] }", nullptr, "{}"}));
+  EXPECT_FALSE(checkIsConflictingKnown({"{ Dom[0] -> Val[] }", nullptr, "{}"},
+                                       {nullptr, "{ Dom[0] }", "{}"}));
+  EXPECT_FALSE(checkIsConflictingKnown(
+      {"{ Dom[i] -> Val[]; Dom[i] -> Phi[] }", nullptr, "{}"},
+      {"{ Dom[i] -> Val[] }", nullptr, "{}"}));
+
+  // An implementation using subtract would have exponential runtime on patterns
+  // such as this one.
+  EXPECT_TRUE(checkIsConflictingKnown(
+      {"{ Dom[i0,i1,i2,i3,i4,i5,i6,i7,i8,i9,i10,i11,i12,i13,i14,i15]"
+       "-> Val[] }",
+       nullptr, "{}"},
+      {"[p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12,p13,p14,p15,q0,"
+       "q1,q2,q3,q4,q5,q6,q7,q8,q9,q10,q11,q12,q13,q14,q15] -> {"
+       "Dom[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0] -> Val[];"
+       "Dom[p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12,p13,p14,p15] -> Val[];"
+       "Dom[q0,q1,q2,q3,q4,q5,q6,q7,q8,q9,q10,q11,q12,q13,q14,q15] -> Val[] }",
+       "{}", "{}"}));
+
 
   EXPECT_FALSE(checkIsConflicting("{ Dom[0] -> Val[] }", nullptr, "{}", "{}",
                                   "{ Dom[0] -> Val[] }", "{}", nullptr, "{}"));
@@ -315,25 +430,25 @@ TEST(DeLICM, IsConflicting) {
                                   "{ Dom[i] : i <= 0 }", "{}", "{}", "{}",
                                   nullptr, "{ Dom[-1] -> [] }"));
 
-  EXPECT_FALSE(checkIsConflicting("{ Dom[i] -> Val[] : i <= 10 }", nullptr,
-                                  "{ Dom[i] :  10  < i }", "{}", "{}", "{}",
-                                  nullptr, "{ Dom[10] -> [] }"));
+  // Check occupied vs. written with known values.
+  EXPECT_FALSE(checkIsConflictingKnown({"{ Dom[i] -> Val[] }", nullptr, "{}"},
+                                       {"{}", nullptr, "{ Dom[0] -> Val[] }"}));
+  EXPECT_TRUE(checkIsConflictingKnown({"{ Dom[i] -> ValA[] }", nullptr, "{}"},
+                                      {"{}", nullptr, "{ Dom[0] -> ValB[] }"}));
+  EXPECT_TRUE(checkIsConflictingKnown({"{ Dom[i] -> Val[] }", nullptr, "{}"},
+                                      {"{}", nullptr, "{ Dom[0] -> [] }"}));
+  EXPECT_TRUE(checkIsConflictingKnown({"{ Dom[i] -> [] }", nullptr, "{}"},
+                                      {"{}", nullptr, "{ Dom[0] -> Val[] }"}));
 
-  EXPECT_FALSE(checkIsConflicting("{}", nullptr, "{ Dom[0] }", "{}",
-                                  "{ Dom[0] -> Val[] }", "{}", nullptr, "{}"));
-
-  EXPECT_FALSE(checkIsConflicting("{}", nullptr, "{ Dom[i] }", "{}", "{}", "{}",
-                                  nullptr, "{ Dom[0] -> Val[] }"));
-
-  EXPECT_TRUE(checkIsConflicting("{}", "{ Dom[i] }", nullptr, "{ }", "{}",
-                                 nullptr, "{}", "{ Dom[0] -> Val[] }"));
-
-  EXPECT_FALSE(checkIsConflicting("{}", nullptr, "{ Dom[i] }",
-                                  "{ Dom[0] -> Val[] }", "{ Dom[i] -> Val[] }",
-                                  "{}", nullptr, "{}"));
-
-  EXPECT_TRUE(checkIsConflicting("{ Dom[0] -> ValA[] }", nullptr, "{}", "{}",
-                                 "{ Dom[0] -> ValB[] }", "{}", nullptr, "{}"));
+  // The same value can be known under multiple names, for instance a PHINode
+  // has the same value as one of the incoming values. One matching pair
+  // suffices.
+  EXPECT_FALSE(checkIsConflictingKnown(
+      {"{ Dom[i] -> Val[]; Dom[i] -> Phi[] }", nullptr, "{}"},
+      {"{}", nullptr, "{ Dom[0] -> Val[] }"}));
+  EXPECT_FALSE(checkIsConflictingKnown(
+      {"{ Dom[i] -> Val[] }", nullptr, "{}"},
+      {"{}", nullptr, "{ Dom[0] -> Val[]; Dom[0] -> Phi[] }"}));
 
   EXPECT_TRUE(checkIsConflicting("{ Dom[0] -> Val[] }", nullptr, "{}", "{}",
                                  "{}", "{ Dom[0] }", nullptr, "{}"));
@@ -342,17 +457,17 @@ TEST(DeLICM, IsConflicting) {
                                  "{ Dom[] -> Val[] }", "{}", nullptr, "{}"));
 
   EXPECT_TRUE(checkIsConflicting("{ Dom[i] -> Val[] : 0 < i <= 10 }", nullptr,
-                                 "{}", "{}", "{}", "{}", nullptr,
-                                 "{ Dom[1] -> [] }"));
 
-  EXPECT_TRUE(checkIsConflicting("{ Dom[i] -> Val[] : 0 < i <= 10 }", nullptr,
-                                 "{}", "{}", "{}", "{}", nullptr,
-                                 "{ Dom[9] -> [] }"));
-
-  EXPECT_TRUE(checkIsConflicting("{ Dom[i] -> ValA[] }", nullptr, "{}", "{}",
-                                 "{ Dom[i] -> ValA[] }", "{}", nullptr,
-                                 "{ Dom[0] -> ValB[] }"));
-
+  // Check written vs. written with known values.
+  EXPECT_FALSE(checkIsConflictingKnown({"{}", nullptr, "{ Dom[0] -> Val[] }"},
+                                       {"{}", nullptr, "{ Dom[0] -> Val[] }"}));
+  EXPECT_TRUE(checkIsConflictingKnown({"{}", nullptr, "{ Dom[0] -> ValA[] }"},
+                                      {"{}", nullptr, "{ Dom[0] -> ValB[] }"}));
+  EXPECT_TRUE(checkIsConflictingKnown({"{}", nullptr, "{ Dom[0] -> Val[] }"},
+                                      {"{}", nullptr, "{ Dom[0] -> [] }"}));
+  EXPECT_FALSE(checkIsConflictingKnown(
+      {"{}", nullptr, "{ Dom[0] -> Val[]}"},
+      {"{}", nullptr, "{ Dom[0] -> Val[]; Dom[0] -> Phi[] }"}));
   EXPECT_TRUE(checkIsConflicting("{ Dom[i] -> Val[] }", nullptr, "{}", "{}",
                                  "{ Dom[i] -> Val[] }", "{}", nullptr,
                                  "{ Dom[0] -> [] }"));
