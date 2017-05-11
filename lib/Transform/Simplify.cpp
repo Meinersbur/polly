@@ -31,14 +31,43 @@ STATISTIC(PairUnequalAccRels, "Number of Load-Store pairs NOT removed because "
                               "of different access relations");
 STATISTIC(InBetweenStore, "Number of Load-Store pairs NOT removed because "
                           "there is another store between them");
+STATISTIC(TotalIdenticalWritesRemoved,
+          "Number of double writes removed in any SCoP");
 STATISTIC(TotalRedundantWritesRemoved,
           "Number of writes of same value removed in any SCoP");
 STATISTIC(TotalStmtsRemoved, "Number of statements removed in any SCoP");
+
+static Value*getWrittenScalar(MemoryAccess *WA){
+assert(WA->isWrite());
+
+if (WA->isAnyPHIKind()) {
+	Value *Result = nullptr;
+	for (auto Incoming:WA->getIncoming()) {
+		assert(Incoming.second);
+
+		if (!Result) {
+		Result = Incoming.second;
+		continue;
+		}
+
+		if (Result ==Incoming.second )
+			continue;
+
+		return nullptr;
+	}
+	return Result;
+}
+
+return WA->getAccessInstruction();
+}
 
 class Simplify : public ScopPass {
 private:
   /// The last/current SCoP that is/has been processed.
   Scop *S;
+
+    /// Number of double writes removed from this SCoP.
+  int IdenticalWritesRemoved = 0;
 
   /// Number of redundant writes removed from this SCoP.
   int RedundantWritesRemoved = 0;
@@ -48,7 +77,7 @@ private:
 
   /// Return whether at least one simplification has been applied.
   bool isModified() const {
-    return RedundantWritesRemoved > 0 || StmtsRemoved > 0;
+    return IdenticalWritesRemoved >0 || RedundantWritesRemoved > 0 || StmtsRemoved > 0;
   }
 
   MemoryAccess *getReadAccessForValue(ScopStmt *Stmt, llvm::Value *Val) {
@@ -120,6 +149,63 @@ private:
     assert(Stmt->isRegionStmt() &&
            "To must be encountered in block statements");
     return nullptr;
+  }
+
+  void removeIdenticalWrites() {
+	for (auto &Stmt : *S) {
+			 // Delay actual removal to not invalidate iterators.
+	SmallPtrSet  < MemoryAccess*, 4 >StoresToRemove;
+
+		auto Domain  = give(Stmt.getDomain());
+
+		// TODO: This has quadratic runtime. Accesses could be grouped by getAccessValue() to avoid.
+		for (auto *WA1 : Stmt) {
+if (!WA1->isMustWrite())
+continue;
+if (!WA1->isOriginalScalarKind())
+continue;
+if (StoresToRemove.count(WA1))
+continue;
+
+auto* WrittenScalar1= getWrittenScalar(WA1);
+if (!WrittenScalar1)
+continue;
+
+for (auto *WA2 : Stmt) {
+	if (WA1==WA2)
+		continue;
+	if (!WA2->isMustWrite())
+continue;
+if (!WA2->isOriginalScalarKind())
+continue;
+if (StoresToRemove.count(WA2))
+continue;
+
+auto *WrittenScalar2 = getWrittenScalar(WA2);
+if (WrittenScalar1 != WrittenScalar2)
+continue;
+
+auto AccRel1 = give( isl_map_intersect_domain(  WA1->getAccessRelation(), Domain.copy() ));
+auto AccRel2 = give( isl_map_intersect_domain(  WA2->getAccessRelation(), Domain.copy() ));
+if (isl_map_is_equal(AccRel1.keep(), AccRel2.keep()) != isl_bool_true)
+continue;
+
+DEBUG(dbgs() << "Remove identical writes:\n");
+DEBUG(dbgs() << "  First write  (kept)   : " << WA1 <<  '\n');
+DEBUG(dbgs() << "  Second write (removed): " << WA2 <<  '\n');
+StoresToRemove.insert(WA2);
+}
+		}
+
+		    for (auto *WA : StoresToRemove) {
+      auto *Stmt = WA->getStatement();
+
+      Stmt->removeSingleMemoryAccess(WA);
+
+      IdenticalWritesRemoved++;
+      TotalIdenticalWritesRemoved++;
+    }
+	}
   }
 
   /// Remove writes that just write the same value already stored in the
@@ -211,8 +297,8 @@ private:
   /// Print simplification statistics to @p OS.
   void printStatistics(llvm::raw_ostream &OS, int Indent = 0) const {
     OS.indent(Indent) << "Statistics {\n";
-    OS.indent(Indent + 4) << "Redundant writes removed: "
-                          << RedundantWritesRemoved << "\n";
+	OS.indent(Indent + 4) << "Identical writes removed: " << IdenticalWritesRemoved << '\n';
+    OS.indent(Indent + 4) << "Redundant writes removed: " << RedundantWritesRemoved << "\n";
     OS.indent(Indent + 4) << "Stmts removed: " << StmtsRemoved << "\n";
     OS.indent(Indent) << "}\n";
   }
@@ -244,6 +330,9 @@ public:
     // Prepare processing of this SCoP.
     this->S = &S;
     ScopsProcessed++;
+
+	DEBUG(dbgs() << "Removing identical writes...\n");
+	removeIdenticalWrites();
 
     DEBUG(dbgs() << "Removing redundant writes...\n");
     removeRedundantWrites();
