@@ -199,9 +199,9 @@ std::string polly::getIslCompatibleName(const std::string &Prefix,
                                         bool UseInstructionNames) {
   std::string S = Prefix;
 
-// DEFINE_ISLPTR(point)
-// DEFINE_ISLPTR(ast_expr)
-// DEFINE_ISLPTR(ast_build)
+  // DEFINE_ISLPTR(point)
+  // DEFINE_ISLPTR(ast_expr)
+  // DEFINE_ISLPTR(ast_build)
 
   if (UseInstructionNames)
     S += std::string("_") + Name;

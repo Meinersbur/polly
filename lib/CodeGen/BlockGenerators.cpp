@@ -733,10 +733,11 @@ void BlockGenerator::generateComputedPHIs(ScopStmt &Stmt, LoopToScevMapT &LTS,
 
     SmallVector<isl::set, 8> RestrictDomains;
     SmallVector<isl::map, 8> Maps;
-    foreachElt(ScheduleValues, [&, this](isl::map Map) {
+    ScheduleValues.foreach_map([&, this](isl::map Map) -> isl::stat {
       Maps.push_back(Map);
       auto Dom = give(isl_map_domain(Map.copy()));
       RestrictDomains.push_back(Dom);
+      return isl::stat::ok;
     });
     for (int i = RestrictDomains.size() - 1; i > 0; i--) {
       RestrictDomains[i - 1] = give(isl_set_union(RestrictDomains[i - 1].take(),

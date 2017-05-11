@@ -1096,7 +1096,6 @@ void MemoryAccess::setFortranArrayDescriptor(GlobalValue *FAD) {
 #endif
 }
 
-
 llvm::raw_ostream &polly::operator<<(llvm::raw_ostream &OS,
                                      const ScopArrayInfo *SAI) {
   if (!SAI) {

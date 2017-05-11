@@ -77,8 +77,6 @@ static Value *getWrittenScalar(MemoryAccess *WA) {
   return WA->getAccessInstruction();
 }
 
-
-
 struct CleanupReport {
   std::string StmtBaseName;
   Value *Scalar;
@@ -132,8 +130,8 @@ private:
 
   /// Return whether at least one simplification has been applied.
   bool isModified() const {
-    return IdenticalWritesRemoved > 0 || RedundantWritesRemoved > 0 || DoubleWritesRemoved > 0 ||
-           WritesCoalesced > 0 || StmtsRemoved > 0 ||
+    return IdenticalWritesRemoved > 0 || RedundantWritesRemoved > 0 ||
+           DoubleWritesRemoved > 0 || WritesCoalesced > 0 || StmtsRemoved > 0 ||
            EmptyPartialAccessesRemoved > 0 || DeadComputedPHIs > 0 ||
            DeadAccessesRemoved > 0;
   }
@@ -494,9 +492,9 @@ private:
               Domain.copy()));
 
           // Cannot coalesce if the common parts access different elements.
-          if (IAccRel.intersect_domain(CommonDomain)
-                  .is_equal(JAccRel.intersect_domain(CommonDomain))
-                  .is_false_or_error())
+          if (!IAccRel.intersect_domain(CommonDomain)
+                   .is_equal(JAccRel.intersect_domain(CommonDomain))
+                   .is_true())
             continue;
 
           // Coalesce: Combine both accesses into a single.

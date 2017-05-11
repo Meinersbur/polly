@@ -161,26 +161,26 @@ void completeLifetime(isl::union_set Universe, isl::union_map OccupiedAndKnown,
   auto ParamSpace = give(isl_union_set_get_space(Universe.keep()));
 
   if (Undef && !Occupied) {
-    assert(!Occupied);
-    Occupied = give(isl_union_set_subtract(Universe.copy(), Undef.copy()));
+  assert(!Occupied);
+  Occupied = give(isl_union_set_subtract(Universe.copy(), Undef.copy()));
   }
 
   if (OccupiedAndKnown) {
-    assert(!Known);
+  assert(!Known);
 
-    Known = isl::union_map::empty(ParamSpace);
+  Known = isl::union_map::empty(ParamSpace);
 
-    if (!Occupied)
-      Occupied = OccupiedAndKnown.domain();
+  if (!Occupied)
+    Occupied = OccupiedAndKnown.domain();
 
-    OccupiedAndKnown.foreach_map([&Known](isl::map Map) -> isl::stat {
-      if (isl_map_has_tuple_name(Map.keep(), isl_dim_out) != isl_bool_true)
-        return isl::stat::ok;
-      Known = give(isl_union_map_add_map(Known.take(), Map.take()));
+  OccupiedAndKnown.foreach_map([&Known](isl::map Map) -> isl::stat {
+    if (isl_map_has_tuple_name(Map.keep(), isl_dim_out) != isl_bool_true)
       return isl::stat::ok;
-    });
-    assert(Occupied);
-    Undef = give(isl_union_set_subtract(Universe.copy(), Occupied.copy()));
+    Known = give(isl_union_map_add_map(Known.take(), Map.take()));
+    return isl::stat::ok;
+  });
+  assert(Occupied);
+  Undef = give(isl_union_set_subtract(Universe.copy(), Occupied.copy()));
 
   if (!Known) { // By default, nothing is known.
     Known = isl::union_map::empty(ParamSpace);
@@ -232,30 +232,29 @@ bool checkIsConflictingNonsymmetricCommon(
   if (ExistingOccupiedAndKnown)
     Universe = give(isl_union_set_union(
         Universe.take(), ExistingOccupiedAndKnown.domain().take()));
-    Universe = give(
-        isl_union_set_union(Universe.take(), ExistingWritten.domain().take()));
+  Universe = give(
+      isl_union_set_union(Universe.take(), ExistingWritten.domain().take()));
   if (ProposedOccupiedAndKnown)
     Universe = give(isl_union_set_union(
         Universe.take(), ProposedOccupiedAndKnown.domain().take()));
-    Universe = give(
-        isl_union_set_union(Universe.take(), ProposedWritten.domain().take()));
-
+  Universe = give(
+      isl_union_set_union(Universe.take(), ProposedWritten.domain().take()));
 
   auto ExistingDefined = give(isl_union_map_domain(ExistingKnown.copy()));
   auto ExistingLifetime = ExistingKnown;
   isl::id NewId = give(isl_id_alloc(Ctx, "Unrelated", &NewId));
-    ExistingDefined = give(
-        isl_union_set_union(ExistingDefined.take(), ExistingUnknown.copy()));
+  ExistingDefined =
+      give(isl_union_set_union(ExistingDefined.take(), ExistingUnknown.copy()));
   auto NewSpace = give(isl_space_set_alloc(Ctx, 0, 1));
         isl_union_map_union(ExistingLifetime.take(),
                             isl_union_map_from_domain(ExistingUnknown.copy())));
   }
   if (ExistingUndef) {
-    ExistingDefined =
-        give(isl_union_set_union(ExistingDefined.take(), ExistingUndef.copy()));
-    ExistingLifetime = give(isl_union_map_union(
-        ExistingLifetime.take(), isl_union_map_from_domain_and_range(
-                                     ExistingUndef.copy(), UndefUSet.copy())));
+  ExistingDefined =
+      give(isl_union_set_union(ExistingDefined.take(), ExistingUndef.copy()));
+  ExistingLifetime = give(isl_union_map_union(
+      ExistingLifetime.take(), isl_union_map_from_domain_and_range(
+                                   ExistingUndef.copy(), UndefUSet.copy())));
   }
 
   auto ProposedDefined = give(isl_union_map_domain(ProposedKnown.copy()));
@@ -266,195 +265,228 @@ bool checkIsConflictingNonsymmetricCommon(
     ProposedLifetime = give(
         isl_union_map_union(ProposedLifetime.take(),
                             isl_union_map_from_domain(ProposedUnknown.copy())));
-  }
-  if (ProposedUndef) {
-    ProposedDefined =
-        give(isl_union_set_union(ProposedDefined.take(), ProposedUndef.copy()));
-    ProposedLifetime = give(isl_union_map_union(
-        ProposedLifetime.take(), isl_union_map_from_domain_and_range(
-                                     ProposedUndef.copy(), UndefUSet.copy())));
-  }
+} // namespace
+if (ProposedUndef) {
+  ProposedDefined =
+      give(isl_union_set_union(ProposedDefined.take(), ProposedUndef.copy()));
+  ProposedLifetime = give(isl_union_map_union(
+      ProposedLifetime.take(), isl_union_map_from_domain_and_range(
+                                   ProposedUndef.copy(), UndefUSet.copy())));
+}
 
-  isl::union_set ProposedOccupied;
-  isl::union_map ProposedKnown;
-  completeLifetime(Universe, ProposedOccupiedAndKnown, ProposedOccupied,
-                   ProposedKnown, ProposedUnused);
+isl::union_set ProposedOccupied;
+isl::union_map ProposedKnown;
+completeLifetime(Universe, ProposedOccupiedAndKnown, ProposedOccupied,
+                 ProposedKnown, ProposedUnused);
 
-  auto Result = isConflicting(ExistingOccupied, ExistingUnused, ExistingKnown,
-                              ExistingWritten, ProposedOccupied, ProposedUnused,
-                              ProposedKnown, ProposedWritten);
+auto Result = isConflicting(ExistingOccupied, ExistingUnused, ExistingKnown,
+                            ExistingWritten, ProposedOccupied, ProposedUnused,
+                            ProposedKnown, ProposedWritten);
 
-  auto ProposedUniverse = unionSpace(ProposedDefined);
-  ProposedUniverse = give(isl_union_set_union(
-      ProposedUniverse.take(),
-      unionSpace(give(isl_union_map_domain(ProposedWritten.copy()))).take()));
+auto ProposedUniverse = unionSpace(ProposedDefined);
+ProposedUniverse = give(isl_union_set_union(
+    ProposedUniverse.take(),
+    unionSpace(give(isl_union_map_domain(ProposedWritten.copy()))).take()));
             isConflicting(ExistingOccupied, ExistingUnused, ExistingKnown,
                           ExistingWritten, ProposedOccupied, {}, ProposedKnown,
                           ProposedWritten));
             isConflicting({}, ExistingUnused, ExistingKnown, ExistingWritten,
                           ProposedOccupied, ProposedUnused, ProposedKnown,
                           ProposedWritten));
-  EXPECT_EQ(Result, isConflicting({}, ExistingUnused, ExistingKnown,
-                                  ExistingWritten, ProposedOccupied, {},
-                                  ProposedKnown, ProposedWritten));
+            EXPECT_EQ(Result,
+                      isConflicting({}, ExistingUnused, ExistingKnown,
+                                    ExistingWritten, ProposedOccupied, {},
+                                    ProposedKnown, ProposedWritten));
 
-  // The 'universe' contains all statement instances; because there is no
-  // isl_union_set_universe, we derive it from all statement domains passes ti
-  // this function.
-  auto Universe = give(
-      isl_union_set_union(ExistingUniverse.take(), ProposedUniverse.take()));
+            // The 'universe' contains all statement instances; because there is
+            // no isl_union_set_universe, we derive it from all statement
+            // domains passes ti this function.
+            auto Universe = give(isl_union_set_union(ExistingUniverse.take(),
+                                                     ProposedUniverse.take()));
 
-  // If the user did not specify the Existing Undef zone, assume it to be the
-  // complement of all specified zones.
-  // The Existing's Unknown zone is already assumed to be implicit by
-  // isConflicting().
-  if (!ExistingUndefStr)
-    ExistingLifetime = give(isl_union_map_union(
-        ExistingLifetime.take(),
-        isl_union_map_from_domain_and_range(
-            isl_union_set_subtract(Universe.copy(), ExistingDefined.copy()),
-            UndefUSet.copy())));
+            // If the user did not specify the Existing Undef zone, assume it to
+            // be the complement of all specified zones. The Existing's Unknown
+            // zone is already assumed to be implicit by isConflicting().
+            if (!ExistingUndefStr)
+              ExistingLifetime = give(isl_union_map_union(
+                  ExistingLifetime.take(),
+                  isl_union_map_from_domain_and_range(
+                      isl_union_set_subtract(Universe.copy(),
+                                             ExistingDefined.copy()),
+                      UndefUSet.copy())));
 
-  // If the user did not specify the Proposed Unknown zone, assume it to be the
-  // complement of all specified zones.
-  // The Proposed's Unknown zone is already assumed to be implicit by
-  // isConflicting().
-  if (!ProposedUnknownStr)
-    ProposedLifetime = give(
-        isl_union_map_union(ProposedLifetime.take(),
-                            isl_union_map_from_domain(isl_union_set_subtract(
-                                Universe.copy(), ProposedDefined.copy()))));
+            // If the user did not specify the Proposed Unknown zone, assume it
+            // to be the complement of all specified zones. The Proposed's
+            // Unknown zone is already assumed to be implicit by
+            // isConflicting().
+            if (!ProposedUnknownStr)
+              ProposedLifetime = give(isl_union_map_union(
+                  ProposedLifetime.take(),
+                  isl_union_map_from_domain(isl_union_set_subtract(
+                      Universe.copy(), ProposedDefined.copy()))));
 
-  return isConflicting(ExistingLifetime, true, ExistingWritten,
-                       ProposedLifetime, false, ProposedWritten);
-}
+            return isConflicting(ExistingLifetime, true, ExistingWritten,
+                                 ProposedLifetime, false, ProposedWritten);
+            }
 
-bool checkIsConflictingNonsymmetricKnown(KnowledgeStr Existing,
-                                         KnowledgeStr Proposed) {
-  std::unique_ptr<isl_ctx, decltype(&isl_ctx_free)> Ctx(isl_ctx_alloc(),
-                                                        &isl_ctx_free);
+            bool checkIsConflictingNonsymmetricKnown(KnowledgeStr Existing,
+                                                     KnowledgeStr Proposed) {
+              std::unique_ptr<isl_ctx, decltype(&isl_ctx_free)> Ctx(
+                  isl_ctx_alloc(), &isl_ctx_free);
 
-  // Parse knowledge.
-  auto ExistingOccupiedAndKnown =
-      parseMapOrNull(Ctx.get(), Existing.OccupiedStr);
-  auto ExistingUnused = parseSetOrNull(Ctx.get(), Existing.UndefStr);
-  auto ExistingWritten = parseMapOrNull(Ctx.get(), Existing.WrittenStr);
+              // Parse knowledge.
+              auto ExistingOccupiedAndKnown =
+                  parseMapOrNull(Ctx.get(), Existing.OccupiedStr);
+              auto ExistingUnused =
+                  parseSetOrNull(Ctx.get(), Existing.UndefStr);
+              auto ExistingWritten =
+                  parseMapOrNull(Ctx.get(), Existing.WrittenStr);
 
-  auto ProposedOccupiedAndKnown =
-      parseMapOrNull(Ctx.get(), Proposed.OccupiedStr);
-  auto ProposedUnused = parseSetOrNull(Ctx.get(), Proposed.UndefStr);
-  auto ProposedWritten = parseMapOrNull(Ctx.get(), Proposed.WrittenStr);
+              auto ProposedOccupiedAndKnown =
+                  parseMapOrNull(Ctx.get(), Proposed.OccupiedStr);
+              auto ProposedUnused =
+                  parseSetOrNull(Ctx.get(), Proposed.UndefStr);
+              auto ProposedWritten =
+                  parseMapOrNull(Ctx.get(), Proposed.WrittenStr);
 
-  return checkIsConflictingNonsymmetricCommon(
-      Ctx.get(), ExistingOccupiedAndKnown, ExistingUnused, ExistingWritten,
-      ProposedOccupiedAndKnown, ProposedUnused, ProposedWritten);
-}
+              return checkIsConflictingNonsymmetricCommon(
+                  Ctx.get(), ExistingOccupiedAndKnown, ExistingUnused,
+                  ExistingWritten, ProposedOccupiedAndKnown, ProposedUnused,
+                  ProposedWritten);
+            }
 
-bool checkIsConflictingNonsymmetric(KnowledgeStr Existing,
+            bool checkIsConflictingNonsymmetric(KnowledgeStr Existing,
+                                                KnowledgeStr Proposed) {
+              std::unique_ptr<isl_ctx, decltype(&isl_ctx_free)> Ctx(
+                  isl_ctx_alloc(), &isl_ctx_free);
+
+              // Parse knowledge.
+              auto ExistingOccupied =
+                  parseSetOrNull(Ctx.get(), Existing.OccupiedStr);
+              auto ExistingUnused =
+                  parseSetOrNull(Ctx.get(), Existing.UndefStr);
+              auto ExistingWritten =
+                  parseSetOrNull(Ctx.get(), Existing.WrittenStr);
+
+              auto ProposedOccupied =
+                  parseSetOrNull(Ctx.get(), Proposed.OccupiedStr);
+              auto ProposedUnused =
+                  parseSetOrNull(Ctx.get(), Proposed.UndefStr);
+              auto ProposedWritten =
+                  parseSetOrNull(Ctx.get(), Proposed.WrittenStr);
+
+              return checkIsConflictingNonsymmetricCommon(
+                  Ctx.get(),
+                  isl::manage(
+                      isl_union_map_from_domain(ExistingOccupied.take())),
+                  ExistingUnused,
+                  isl::manage(
+                      isl_union_map_from_domain(ExistingWritten.take())),
+                  isl::manage(
+                      isl_union_map_from_domain(ProposedOccupied.take())),
+                  ProposedUnused,
+                  isl::manage(
+                      isl_union_map_from_domain(ProposedWritten.take())));
+            }
+
+            bool checkIsConflicting(KnowledgeStr Existing,
                                     KnowledgeStr Proposed) {
-  std::unique_ptr<isl_ctx, decltype(&isl_ctx_free)> Ctx(isl_ctx_alloc(),
-                                                        &isl_ctx_free);
 
-  // Parse knowledge.
-  auto ExistingOccupied = parseSetOrNull(Ctx.get(), Existing.OccupiedStr);
-  auto ExistingUnused = parseSetOrNull(Ctx.get(), Existing.UndefStr);
-  auto ExistingWritten = parseSetOrNull(Ctx.get(), Existing.WrittenStr);
+              // isConflicting should be symmetric.
+              EXPECT_EQ(ThisExisting, ThatExisting);
 
-  auto ProposedOccupied = parseSetOrNull(Ctx.get(), Proposed.OccupiedStr);
-  auto ProposedUnused = parseSetOrNull(Ctx.get(), Proposed.UndefStr);
-  auto ProposedWritten = parseSetOrNull(Ctx.get(), Proposed.WrittenStr);
+              return ThisExisting || ThatExisting;
+            }
 
-  return checkIsConflictingNonsymmetricCommon(
-      Ctx.get(),
-      isl::manage(isl_union_map_from_domain(ExistingOccupied.take())),
-      ExistingUnused,
-      isl::manage(isl_union_map_from_domain(ExistingWritten.take())),
-      isl::manage(isl_union_map_from_domain(ProposedOccupied.take())),
-      ProposedUnused,
-      isl::manage(isl_union_map_from_domain(ProposedWritten.take())));
-}
+            bool checkIsConflictingKnown(KnowledgeStr Existing,
+                                         KnowledgeStr Proposed) {
+              auto Forward =
+                  checkIsConflictingNonsymmetricKnown(Existing, Proposed);
+              auto Backward =
+                  checkIsConflictingNonsymmetricKnown(Proposed, Existing);
 
-bool checkIsConflicting(KnowledgeStr Existing, KnowledgeStr Proposed) {
+              // checkIsConflictingKnown should be symmetric.
+              EXPECT_EQ(Forward, Backward);
 
-  // isConflicting should be symmetric.
-  EXPECT_EQ(ThisExisting, ThatExisting);
+              return Forward || Backward;
+            }
 
-  return ThisExisting || ThatExisting;
-}
+            EXPECT_FALSE(checkIsConflicting("{}", nullptr, "{}",
+                                            "{ Dom[0] -> Val[] }", "{}", "{}",
+                                            nullptr, "{}"));
 
-bool checkIsConflictingKnown(KnowledgeStr Existing, KnowledgeStr Proposed) {
-  auto Forward = checkIsConflictingNonsymmetricKnown(Existing, Proposed);
-  auto Backward = checkIsConflictingNonsymmetricKnown(Proposed, Existing);
+            // Check occupied vs. occupied with known values.
+            EXPECT_FALSE(checkIsConflictingKnown(
+                {"{ Dom[i] -> Val[] }", nullptr, "{}"},
+                {"{ Dom[i] -> Val[] }", nullptr, "{}"}));
+            EXPECT_TRUE(checkIsConflictingKnown(
+                {"{ Dom[i] -> ValA[] }", nullptr, "{}"},
+                {"{ Dom[i] -> ValB[] }", nullptr, "{}"}));
+            EXPECT_TRUE(
+                checkIsConflictingKnown({"{ Dom[i] -> Val[] }", nullptr, "{}"},
+                                        {"{ Dom[i] -> [] }", nullptr, "{}"}));
+            EXPECT_FALSE(
+                checkIsConflictingKnown({"{ Dom[0] -> Val[] }", nullptr, "{}"},
+                                        {nullptr, "{ Dom[0] }", "{}"}));
+            EXPECT_FALSE(checkIsConflictingKnown(
+                {"{ Dom[i] -> Val[]; Dom[i] -> Phi[] }", nullptr, "{}"},
+                {"{ Dom[i] -> Val[] }", nullptr, "{}"}));
 
-  // checkIsConflictingKnown should be symmetric.
-  EXPECT_EQ(Forward, Backward);
+            // An implementation using subtract would have exponential runtime
+            // on patterns such as this one.
+            EXPECT_TRUE(checkIsConflictingKnown(
+                {"{ Dom[i0,i1,i2,i3,i4,i5,i6,i7,i8,i9,i10,i11,i12,i13,i14,i15]"
+                 "-> Val[] }",
+                 nullptr, "{}"},
+                {"[p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12,p13,p14,p15,q0,"
+                 "q1,q2,q3,q4,q5,q6,q7,q8,q9,q10,q11,q12,q13,q14,q15] -> {"
+                 "Dom[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0] -> Val[];"
+                 "Dom[p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12,p13,p14,p15] "
+                 "-> Val[];"
+                 "Dom[q0,q1,q2,q3,q4,q5,q6,q7,q8,q9,q10,q11,q12,q13,q14,q15] "
+                 "-> Val[] }",
+                 "{}", "{}"}));
 
-  return Forward || Backward;
-}
+            EXPECT_FALSE(checkIsConflicting("{ Dom[0] -> Val[] }", nullptr,
+                                            "{}", "{}", "{ Dom[0] -> Val[] }",
+                                            "{}", nullptr, "{}"));
 
+            EXPECT_FALSE(checkIsConflicting("{ Dom[i] -> Val[] : 0 < i  }",
+                                            nullptr, "{ Dom[i] : i <= 0 }",
+                                            "{}", "{}", "{}", nullptr,
+                                            "{ Dom[-1] -> [] }"));
 
-  EXPECT_FALSE(checkIsConflicting("{}", nullptr, "{}", "{ Dom[0] -> Val[] }",
-                                  "{}", "{}", nullptr, "{}"));
+            // Check occupied vs. written with known values.
+            EXPECT_FALSE(checkIsConflictingKnown(
+                {"{ Dom[i] -> Val[] }", nullptr, "{}"},
+                {"{}", nullptr, "{ Dom[0] -> Val[] }"}));
+            EXPECT_TRUE(checkIsConflictingKnown(
+                {"{ Dom[i] -> ValA[] }", nullptr, "{}"},
+                {"{}", nullptr, "{ Dom[0] -> ValB[] }"}));
+            EXPECT_TRUE(
+                checkIsConflictingKnown({"{ Dom[i] -> Val[] }", nullptr, "{}"},
+                                        {"{}", nullptr, "{ Dom[0] -> [] }"}));
+            EXPECT_TRUE(checkIsConflictingKnown(
+                {"{ Dom[i] -> [] }", nullptr, "{}"},
+                {"{}", nullptr, "{ Dom[0] -> Val[] }"}));
 
-  // Check occupied vs. occupied with known values.
-  EXPECT_FALSE(checkIsConflictingKnown({"{ Dom[i] -> Val[] }", nullptr, "{}"},
-                                       {"{ Dom[i] -> Val[] }", nullptr, "{}"}));
-  EXPECT_TRUE(checkIsConflictingKnown({"{ Dom[i] -> ValA[] }", nullptr, "{}"},
-                                      {"{ Dom[i] -> ValB[] }", nullptr, "{}"}));
-  EXPECT_TRUE(checkIsConflictingKnown({"{ Dom[i] -> Val[] }", nullptr, "{}"},
-                                      {"{ Dom[i] -> [] }", nullptr, "{}"}));
-  EXPECT_FALSE(checkIsConflictingKnown({"{ Dom[0] -> Val[] }", nullptr, "{}"},
-                                       {nullptr, "{ Dom[0] }", "{}"}));
-  EXPECT_FALSE(checkIsConflictingKnown(
-      {"{ Dom[i] -> Val[]; Dom[i] -> Phi[] }", nullptr, "{}"},
-      {"{ Dom[i] -> Val[] }", nullptr, "{}"}));
+            // The same value can be known under multiple names, for instance a
+            // PHINode has the same value as one of the incoming values. One
+            // matching pair suffices.
+            EXPECT_FALSE(checkIsConflictingKnown(
+                {"{ Dom[i] -> Val[]; Dom[i] -> Phi[] }", nullptr, "{}"},
+                {"{}", nullptr, "{ Dom[0] -> Val[] }"}));
+            EXPECT_FALSE(checkIsConflictingKnown(
+                {"{ Dom[i] -> Val[] }", nullptr, "{}"},
+                {"{}", nullptr, "{ Dom[0] -> Val[]; Dom[0] -> Phi[] }"}));
 
-  // An implementation using subtract would have exponential runtime on patterns
-  // such as this one.
-  EXPECT_TRUE(checkIsConflictingKnown(
-      {"{ Dom[i0,i1,i2,i3,i4,i5,i6,i7,i8,i9,i10,i11,i12,i13,i14,i15]"
-       "-> Val[] }",
-       nullptr, "{}"},
-      {"[p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12,p13,p14,p15,q0,"
-       "q1,q2,q3,q4,q5,q6,q7,q8,q9,q10,q11,q12,q13,q14,q15] -> {"
-       "Dom[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0] -> Val[];"
-       "Dom[p0,p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12,p13,p14,p15] -> Val[];"
-       "Dom[q0,q1,q2,q3,q4,q5,q6,q7,q8,q9,q10,q11,q12,q13,q14,q15] -> Val[] }",
-       "{}", "{}"}));
+            EXPECT_TRUE(checkIsConflicting("{ Dom[0] -> Val[] }", nullptr, "{}",
+                                           "{}", "{}", "{ Dom[0] }", nullptr,
+                                           "{}"));
 
-
-  EXPECT_FALSE(checkIsConflicting("{ Dom[0] -> Val[] }", nullptr, "{}", "{}",
-                                  "{ Dom[0] -> Val[] }", "{}", nullptr, "{}"));
-
-  EXPECT_FALSE(checkIsConflicting("{ Dom[i] -> Val[] : 0 < i  }", nullptr,
-                                  "{ Dom[i] : i <= 0 }", "{}", "{}", "{}",
-                                  nullptr, "{ Dom[-1] -> [] }"));
-
-  // Check occupied vs. written with known values.
-  EXPECT_FALSE(checkIsConflictingKnown({"{ Dom[i] -> Val[] }", nullptr, "{}"},
-                                       {"{}", nullptr, "{ Dom[0] -> Val[] }"}));
-  EXPECT_TRUE(checkIsConflictingKnown({"{ Dom[i] -> ValA[] }", nullptr, "{}"},
-                                      {"{}", nullptr, "{ Dom[0] -> ValB[] }"}));
-  EXPECT_TRUE(checkIsConflictingKnown({"{ Dom[i] -> Val[] }", nullptr, "{}"},
-                                      {"{}", nullptr, "{ Dom[0] -> [] }"}));
-  EXPECT_TRUE(checkIsConflictingKnown({"{ Dom[i] -> [] }", nullptr, "{}"},
-                                      {"{}", nullptr, "{ Dom[0] -> Val[] }"}));
-
-  // The same value can be known under multiple names, for instance a PHINode
-  // has the same value as one of the incoming values. One matching pair
-  // suffices.
-  EXPECT_FALSE(checkIsConflictingKnown(
-      {"{ Dom[i] -> Val[]; Dom[i] -> Phi[] }", nullptr, "{}"},
-      {"{}", nullptr, "{ Dom[0] -> Val[] }"}));
-  EXPECT_FALSE(checkIsConflictingKnown(
-      {"{ Dom[i] -> Val[] }", nullptr, "{}"},
-      {"{}", nullptr, "{ Dom[0] -> Val[]; Dom[0] -> Phi[] }"}));
-
-  EXPECT_TRUE(checkIsConflicting("{ Dom[0] -> Val[] }", nullptr, "{}", "{}",
-                                 "{}", "{ Dom[0] }", nullptr, "{}"));
-
-  EXPECT_TRUE(checkIsConflicting("{}", nullptr, "{}", "{}",
-                                 "{ Dom[] -> Val[] }", "{}", nullptr, "{}"));
+            EXPECT_TRUE(checkIsConflicting("{}", nullptr, "{}", "{}",
+                                           "{ Dom[] -> Val[] }", "{}", nullptr,
+                                           "{}"));
 
   EXPECT_TRUE(checkIsConflicting("{ Dom[i] -> Val[] : 0 < i <= 10 }", nullptr,
 
@@ -513,5 +545,5 @@ bool checkIsConflictingKnown(KnowledgeStr Existing, KnowledgeStr Proposed) {
   EXPECT_FALSE(checkIsConflicting("{}", "{}", nullptr,
                                   "{ Dom[0] -> ValA[]; Dom[0] -> ValB[] }",
                                   "{}", "{}", nullptr, "{  }"));
-}
-} // anonymous namespace
+  }
+  } // anonymous namespace
