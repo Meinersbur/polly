@@ -696,6 +696,7 @@ public:
 
   virtual void releaseMemory() override {
     S = nullptr;
+    IdenticalWritesRemoved = 0;
     RedundantWritesRemoved = 0;
     DoubleWritesRemoved = 0;
     WritesCoalesced = 0;
