@@ -649,8 +649,8 @@ public:
     IslCtx = S.getSharedIslCtx();
     ScopsProcessed++;
 
-	DEBUG(dbgs() << "Removing identical writes...\n");
-	removeIdenticalWrites();
+    DEBUG(dbgs() << "Removing identical writes...\n");
+    removeIdenticalWrites();
 
     DEBUG(dbgs() << "Removing identical writes...\n");
     removeIdenticalWrites();

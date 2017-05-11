@@ -825,15 +825,15 @@ isl::union_map expandMapping(isl::union_map Relevant, isl::union_set Universe) {
       isl_union_map_intersect_domain(Simplified.take(), Universe.take()));
 }
 
-static MemoryAccess* findInputAccessOf (ScopStmt *Stmt, Value *Val) {
-	if (auto *InputMA =  Stmt->lookupValueReadOf(Val))
-	return InputMA;
+static MemoryAccess *findInputAccessOf(ScopStmt *Stmt, Value *Val) {
+  if (auto *InputMA = Stmt->lookupValueReadOf(Val))
+    return InputMA;
 
-	if (isa<PHINode> (Val) )
-			if (auto InputMA = Stmt->lookupPHIReadOf(cast<PHINode>(Val)))
-				return InputMA;
+  if (isa<PHINode>(Val))
+    if (auto InputMA = Stmt->lookupPHIReadOf(cast<PHINode>(Val)))
+      return InputMA;
 
-	return nullptr;
+  return nullptr;
 }
 
 /// Represent the knowledge of the contents of any array elements in any zone or
@@ -2856,17 +2856,17 @@ private:
       }
     };
 
-	auto ProcessIncoming = [&](ScopStmt *Stmt, Value *Val) {
-	if (auto *WrittenValInputMA = findInputAccessOf(Stmt, Val)) 
-		 Worklist.push_back(WrittenValInputMA);
-	else
-		ProcessAllIncoming(Stmt);
-	};
+    auto ProcessIncoming = [&](ScopStmt *Stmt, Value *Val) {
+      if (auto *WrittenValInputMA = findInputAccessOf(Stmt, Val))
+        Worklist.push_back(WrittenValInputMA);
+      else
+        ProcessAllIncoming(Stmt);
+    };
 
     // Add initial scalar. Either the value written by the store, or all inputs
     // of its statement.
-	auto *WrittenVal = TargetStoreMA->getAccessInstruction()->getOperand(0);
-	ProcessIncoming(TargetStmt,WrittenVal );
+    auto *WrittenVal = TargetStoreMA->getAccessInstruction()->getOperand(0);
+    ProcessIncoming(TargetStmt, WrittenVal);
 
     auto AnyMapped = false;
     auto &DL = S->getRegion().getEntry()->getModule()->getDataLayout();
@@ -2909,20 +2909,21 @@ private:
       if (SAI->isPHIKind()) {
         if (tryMapPHI(SAI, EltTarget, WriteAccesses)) {
           // Add inputs of all incoming statements to the worklist.
-        for (auto *PHIWrite : DefUse.getPHIIncomings(SAI)) {
-			bool FoundAny = false;
-		  for (auto Incoming : PHIWrite->getIncoming()) {
-			  auto* IncomingInputMA  = findInputAccessOf(PHIWrite->getStatement(), Incoming.second) ;
-			  if (!IncomingInputMA) 
-				  continue;
+          for (auto *PHIWrite : DefUse.getPHIIncomings(SAI)) {
+            bool FoundAny = false;
+            for (auto Incoming : PHIWrite->getIncoming()) {
+              auto *IncomingInputMA =
+                  findInputAccessOf(PHIWrite->getStatement(), Incoming.second);
+              if (!IncomingInputMA)
+                continue;
 
-			  Worklist.push_back(IncomingInputMA);
-			  FoundAny = true;
-		  }
+              Worklist.push_back(IncomingInputMA);
+              FoundAny = true;
+            }
 
-		  if (!FoundAny)
-          ProcessAllIncoming(PHIWrite->getStatement() );
-		}
+            if (!FoundAny)
+              ProcessAllIncoming(PHIWrite->getStatement());
+          }
 
           AnyMapped = true;
         } else if (tryComputePHI(SAI)) {

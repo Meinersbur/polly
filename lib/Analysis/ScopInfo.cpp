@@ -1414,16 +1414,16 @@ void ScopStmt::buildAccessRelations() {
 }
 
 MemoryAccess *ScopStmt::lookupPHIReadOf(PHINode *PHI) const {
-	for (auto *MA : *this) {
-		if (!MA->isRead())
-			continue;
-		if (!MA->isLatestAnyPHIKind())
-			continue;
+  for (auto *MA : *this) {
+    if (!MA->isRead())
+      continue;
+    if (!MA->isLatestAnyPHIKind())
+      continue;
 
-		if (MA->getAccessInstruction() == PHI)
-			return MA;
-	}
-	return nullptr;
+    if (MA->getAccessInstruction() == PHI)
+      return MA;
+  }
+  return nullptr;
 }
 
 void ScopStmt::addAccess(MemoryAccess *Access) {
