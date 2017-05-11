@@ -605,8 +605,6 @@ private:
     OS.indent(Indent) << "Statistics {\n";
     OS.indent(Indent + 4) << "Identical writes removed: "
                           << IdenticalWritesRemoved << '\n';
-    OS.indent(Indent + 4) << "Redundant writes removed: "
-                          << RedundantWritesRemoved << "\n";
     OS.indent(Indent + 4) << "Double writes removed: " << DoubleWritesRemoved
                           << "\n";
     OS.indent(Indent + 4) << "Partial writes coalesced: " << WritesCoalesced
@@ -650,6 +648,9 @@ public:
     this->S = &S;
     IslCtx = S.getSharedIslCtx();
     ScopsProcessed++;
+
+	DEBUG(dbgs() << "Removing identical writes...\n");
+	removeIdenticalWrites();
 
     DEBUG(dbgs() << "Removing identical writes...\n");
     removeIdenticalWrites();

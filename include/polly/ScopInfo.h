@@ -1444,6 +1444,8 @@ public:
     return ValueReads.lookup(Inst);
   }
 
+  MemoryAccess *lookupPHIReadOf(PHINode *PHI) const;
+
   /// Return the PHI write MemoryAccess for the incoming values from any
   ///        basic block in this ScopStmt, or nullptr if not existing,
   ///        respectively not yet added.
