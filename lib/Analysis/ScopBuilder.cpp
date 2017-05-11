@@ -41,10 +41,12 @@ static cl::opt<bool, true> XModelReadOnlyScalars(
     cl::location(ModelReadOnlyScalars), cl::Hidden, cl::ZeroOrMore,
     cl::init(true), cl::cat(PollyCategory));
 
-static cl::opt<bool> UnprofitableScalarAccs(
+bool polly::UnprofitableScalarAccs;
+static cl::opt<bool, true> XUnprofitableScalarAccs(
     "polly-unprofitable-scalar-accs",
     cl::desc("Count statements with scalar accesses as not optimizable"),
-    cl::Hidden, cl::init(false), cl::cat(PollyCategory));
+    cl::Hidden, cl::location(UnprofitableScalarAccs), cl::init(false),
+    cl::cat(PollyCategory));
 
 static cl::opt<bool> DetectFortranArrays(
     "polly-detect-fortran-arrays",

@@ -65,8 +65,6 @@ class Scop;
 class ScopStmt;
 class ScopBuilder;
 
-extern bool UnprofitableScalarAccs;
-
 //===---------------------------------------------------------------------===//
 
 extern bool UseInstructionNames;

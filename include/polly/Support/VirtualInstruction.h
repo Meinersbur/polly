@@ -212,8 +212,8 @@ public:
 /// reads the scalar. Return nullptr otherwise (if the value is defined in the
 /// scop, or is synthesizable)
 MemoryAccess *
-getInputAccessOf(Value *InputVal, ScopStmt *UserStmt,
-                 bool IsEntryPHIUser /*, bool AllowArrayLoads =false*/);
+getInputAccessOf(Value *InputVal,
+                 ScopStmt *UserStmt /*, bool AllowArrayLoads =false*/);
 
 MemoryAccess *getOutputAccessFor(Value *OutputVal, ScopStmt *Stmt);
 
@@ -221,11 +221,6 @@ class VirtualInstruction {
 private:
   ScopStmt *Stmt = nullptr;
   Instruction *Inst = nullptr;
-
-public:
-  MemoryAccess *findInputAccess(Value *Val, Instruction *UserInst) const {
-    return getInputAccessOf(Val, Stmt, UserInst);
-  }
 
 private:
   MemoryAccess *findOutputAccess(Value *Val) const {

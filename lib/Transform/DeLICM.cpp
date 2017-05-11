@@ -3379,7 +3379,7 @@ private:
 
     case VirtualUse::ReadOnly:
       if (DoIt && ModelReadOnlyScalars &&
-          !getInputAccessOf(UseVal, TargetStmt, false)) {
+          !getInputAccessOf(UseVal, TargetStmt)) {
         auto *SAI = S->getOrCreateScopArrayInfo(UseVal, UseVal->getType(), {},
                                                 MemoryKind::Value);
         auto *Access = new MemoryAccess(TargetStmt, nullptr, MemoryAccess::READ,
@@ -3505,6 +3505,8 @@ private:
 
       return true;
     }
+
+    llvm_unreachable("Case unhandled");
   }
 
   bool tryForwardTree(MemoryAccess *RA) {
