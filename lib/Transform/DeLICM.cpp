@@ -2901,32 +2901,32 @@ private:
 
       // Try to map MemoryKind::PHI scalars.
       if (SAI->isPHIKind()) {
-        if (!tryMapPHI(SAI, EltTarget))
-          continue;
-        // Add inputs of all incoming statements to the worklist. Prefer the
-        // input accesses of the incoming blocks.
-        for (auto *PHIWrite : DefUse.getPHIIncomings(SAI)) {
-          auto *PHIWriteStmt = PHIWrite->getStatement();
-          bool FoundAny = false;
-          for (auto Incoming : PHIWrite->getIncoming()) {
-            auto *IncomingInputMA =
-                PHIWriteStmt->lookupInputAccessOf(Incoming.second);
-            if (!IncomingInputMA)
-              continue;
+        if (tryMapPHI(SAI, EltTarget, WriteAccesses)) {
 
-            Worklist.push_back(IncomingInputMA);
-            FoundAny = true;
+          // Add inputs of all incoming statements to the worklist. Prefer the
+          // input accesses of the incoming blocks.
+          for (auto *PHIWrite : DefUse.getPHIIncomings(SAI)) {
+            auto *PHIWriteStmt = PHIWrite->getStatement();
+            bool FoundAny = false;
+            for (auto Incoming : PHIWrite->getIncoming()) {
+              auto *IncomingInputMA =
+                  PHIWriteStmt->lookupInputAccessOf(Incoming.second);
+              if (!IncomingInputMA)
+                continue;
+
+              Worklist.push_back(IncomingInputMA);
+              FoundAny = true;
+            }
+
+            if (!FoundAny)
+              ProcessAllIncoming(PHIWrite->getStatement());
           }
-
-          if (!FoundAny)
-            ProcessAllIncoming(PHIWrite->getStatement());
-        }
-
-          AnyMapped = true;
         } else if (tryComputePHI(SAI)) {
           auto *PHIAcc = DefUse.getPHIRead(SAI);
           ProcessAllIncoming(PHIAcc->getStatement());
         }
+
+        AnyMapped = true;
       }
     }
 
@@ -3404,7 +3404,7 @@ private:
 
     case VirtualUse::ReadOnly:
       if (DoIt && ModelReadOnlyScalars &&
-          !getInputAccessOf(UseVal, TargetStmt)) {
+          !TargetStmt->lookupInputAccessOf(UseVal)) {
         auto *SAI = S->getOrCreateScopArrayInfo(UseVal, UseVal->getType(), {},
                                                 MemoryKind::Value);
         auto *Access = new MemoryAccess(TargetStmt, nullptr, MemoryAccess::READ,

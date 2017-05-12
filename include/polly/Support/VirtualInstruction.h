@@ -208,13 +208,6 @@ public:
 #endif
 };
 
-/// If InputVal is not defined in the stmt itself, return the MemoryAccess that
-/// reads the scalar. Return nullptr otherwise (if the value is defined in the
-/// scop, or is synthesizable)
-MemoryAccess *
-getInputAccessOf(Value *InputVal,
-                 ScopStmt *UserStmt /*, bool AllowArrayLoads =false*/);
-
 MemoryAccess *getOutputAccessFor(Value *OutputVal, ScopStmt *Stmt);
 
 class VirtualInstruction {

@@ -18,11 +18,10 @@
 using namespace polly;
 using namespace llvm;
 
-bool isInLoop(MemoryAccess *MA) {
+static bool isInLoop(MemoryAccess *MA) {
   auto Stmt = MA->getStatement();
   return Stmt->getNumIterators() > 0;
 }
-} // anonymous namespace
 
 void ScalarDefUseChains::reset() {
   ValueDefAccs.clear();

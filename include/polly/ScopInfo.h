@@ -1252,8 +1252,6 @@ private:
   /// The closest loop that contains this statement.
   Loop *SurroundingLoop;
 
-  void removeAccessData(MemoryAccess *MA);
-
 public:
   MapVector<PHINode *, isl::union_map> ComputedPHIs;
 
