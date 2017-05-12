@@ -593,76 +593,6 @@ isl::union_map filterKnownValInst(const isl::union_map &UMap) {
   return Result;
 }
 
-/// Create a map that shifts one dimension by an offset.
-///
-/// Example:
-/// makeShiftDimAff({ [i0, i1] -> [o0, o1] }, 1, -2)
-///   = { [i0, i1] -> [i0, i1 - 1] }
-///
-/// @param Space  The map space of the result. Must have equal number of in- and
-/// out-dimensions.
-/// @param Pos    Position to shift.
-/// @param Amount Value added to the shifted dimension.
-///
-/// @return An isl_multi_aff for the map with this shifted dimension.
-isl::multi_aff makeShiftDimAff(isl::space Space, int Pos, int Amount) {
-  auto Identity = give(isl_multi_aff_identity(Space.take()));
-  if (Amount == 0)
-    return Identity;
-  auto ShiftAff = give(isl_multi_aff_get_aff(Identity.keep(), Pos));
-  ShiftAff = give(isl_aff_set_constant_si(ShiftAff.take(), Amount));
-  return give(isl_multi_aff_set_aff(Identity.take(), Pos, ShiftAff.take()));
-}
-
-/// Add a constant to one dimension of a map.
-///
-/// @param Map    The map to shift a dimension in.
-/// @param Type   A tuple of @p Map which contains the dimension to shift.
-/// @param Pos    The dimension to shift. If negative, the dimensions are
-/// counted from the end instead from the beginning. Eg. -1 is the last
-/// dimension in the tuple.
-/// @param Amount The offset to add to the specified dimension.
-///
-/// @return The modified map.
-isl::map shiftDim(isl::map Map, isl_dim_type Type, int Pos, int Amount) {
-  assert((Type == isl_dim_in || Type == isl_dim_out) &&
-         "Cannot shift parameter dims");
-  int NumDims = isl_map_dim(Map.keep(), Type);
-  if (Pos < 0)
-    Pos = NumDims + Pos;
-  assert(Pos < NumDims && "Dimension index must be in range");
-  auto Space = give(isl_map_get_space(Map.keep()));
-  Space = give((Type == isl_dim_in) ? isl_space_domain(Space.take())
-                                    : isl_space_range(Space.take()));
-  Space = give(isl_space_map_from_domain_and_range(Space.copy(), Space.copy()));
-  auto Translator = makeShiftDimAff(std::move(Space), Pos, Amount);
-  auto TranslatorMap = give(isl_map_from_multi_aff(Translator.take()));
-  return give((Type == isl_dim_in)
-                  ? isl_map_apply_domain(Map.take(), TranslatorMap.take())
-                  : isl_map_apply_range(Map.take(), TranslatorMap.take()));
-}
-
-/// Add a constant to one dimension of a each map in a union map.
-///
-/// @param UMap   The maps to shift a dimension in.
-/// @param Type   The tuple which contains the dimension to shift.
-/// @param Pos    The dimension to shift. If negative, the dimensions are
-/// counted from the ends of each map of union instead from their beginning. Eg.
-/// -1 is the last dimension of any map.
-/// @param Amount The offset to add to the specified dimension.
-///
-/// @return The union of all modified maps.
-isl::union_map shiftDim(isl::union_map UMap, isl_dim_type Type, int Pos,
-                        int Amount) {
-  auto Result = give(isl_union_map_empty(isl_union_map_get_space(UMap.keep())));
-  UMap.foreach_map([=, &Result](isl::map Map) -> isl::stat {
-    auto Shifted = shiftDim(Map, Type, Pos, Amount);
-    Result = give(isl_union_map_add_map(Result.take(), Shifted.take()));
-    return isl::stat::ok;
-  });
-  return Result;
-}
-
 /// Input: { Domain[] -> [Range1[] -> Range2[]] }
 /// Output: { [Domain[] -> Range1[]] -> [Domain[] -> Range2[]] }
 isl::map isl_map_distribute_domain(isl::map Map) {
@@ -720,18 +650,6 @@ isl::union_map isl_union_map_distribute_domain(isl::union_map UMap) {
   return Result;
 }
 
-/// Return whether @p Map maps to llvm::Undef.
-///
-/// @param Map { [] -> ValInst[] }
-bool isMapToUndef(const isl::map &Map) {
-  if (!isl_map_has_tuple_id(Map.keep(), isl_dim_out))
-    return false;
-
-  auto Id = give(isl_map_get_tuple_id(Map.keep(), isl_dim_out));
-  auto Val = static_cast<Value *>(isl_id_get_user(Id.keep()));
-  return Val && isa<UndefValue>(Val);
-}
-
 /// Remove unknown values from the mapping, leaving only mappings to
 /// llvm::Value's and llvm::Undef.
 ///
@@ -742,53 +660,6 @@ isl::union_map removeUnknownValInst(const isl::union_map &UMap) {
   auto Result = give(isl_union_map_empty(isl_union_map_get_space(UMap.keep())));
   UMap.foreach_map([=, &Result](isl::map Map) -> isl::stat {
     if (!isMapToUnknown(Map))
-      Result = give(isl_union_map_add_map(Result.take(), Map.take()));
-    return isl::stat::ok;
-  });
-  return Result;
-}
-
-/// Return the domain of everything that maps to an unknown value.
-///
-/// @param UMap { Domain[] -> ValInst[] }
-///
-/// @return { Domain[] }
-isl::union_set getUnknownValInstDomain(const isl::union_map &UMap) {
-  auto Result = give(isl_union_set_empty(isl_union_map_get_space(UMap.keep())));
-  UMap.foreach_map([=, &Result](isl::map Map) -> isl::stat {
-    if (isMapToUnknown(Map))
-      Result = give(
-          isl_union_set_add_set(Result.take(), isl_map_domain(Map.take())));
-    return isl::stat::ok;
-  });
-  return Result;
-}
-
-/// Return the domain of everything that maps to Undef.
-///
-/// @param UMap { Domain[] -> ValInst[] }
-///
-/// @return { Domain[] }
-isl::union_set getUndefValInstDomain(const isl::union_map &UMap) {
-  auto Result = give(isl_union_set_empty(isl_union_map_get_space(UMap.keep())));
-  UMap.foreach_map([=, &Result](isl::map Map) -> isl::stat {
-    if (isMapToUndef(Map))
-      Result = give(
-          isl_union_set_add_set(Result.take(), isl_map_domain(Map.take())));
-    return isl::stat::ok;
-  });
-  return Result;
-}
-
-/// Remove everything that maps to llvm::Undef.
-///
-/// @param UMap { [] -> ValInst[] }
-///
-/// @return { [] -> ValInst[] }
-isl::union_map removeUndefValInst(const isl::union_map &UMap) {
-  auto Result = give(isl_union_map_empty(isl_union_map_get_space(UMap.keep())));
-  UMap.foreach_map([=, &Result](isl::map Map) -> isl::stat {
-    if (!isMapToUndef(Map))
       Result = give(isl_union_map_add_map(Result.take(), Map.take()));
     return isl::stat::ok;
   });
@@ -823,17 +694,6 @@ isl::union_map expandMapping(isl::union_map Relevant, isl::union_set Universe) {
   Simplified = give(isl_union_map_coalesce(Simplified.take()));
   return give(
       isl_union_map_intersect_domain(Simplified.take(), Universe.take()));
-}
-
-static MemoryAccess *findInputAccessOf(ScopStmt *Stmt, Value *Val) {
-  if (auto *InputMA = Stmt->lookupValueReadOf(Val))
-    return InputMA;
-
-  if (isa<PHINode>(Val))
-    if (auto InputMA = Stmt->lookupPHIReadOf(cast<PHINode>(Val)))
-      return InputMA;
-
-  return nullptr;
 }
 
 /// Represent the knowledge of the contents of any array elements in any zone or
@@ -1341,43 +1201,6 @@ private:
     }
 
     return Val;
-  }
-
-  /// Determine whether an instruction is defined in a different statement
-  /// instance as in which it is used.
-  ///
-  /// We here assume that a BB/region cannot use a definition in the same
-  /// BB/region, which would be theoretically possible in loops within region
-  /// statements and with disconnected loops:
-  /// BB:
-  ///   ... = add i32 %def, 5
-  ///   %def = ...
-  ///   br label %BB
-  ///
-  /// @param Val      The instruction defining a value.
-  /// @param UserStmt The statement using @p Val. The use must not be a PHI,
-  ///                 they must handled separately.
-  ///
-  /// @return True iff a use of @p Val in @p UserStmt introduces a
-  ///         flow-dependency.
-  bool isXtraStmtUse(Value *Val, ScopStmt *UserStmt)
-      const { // TODO: Use getInputAccessOf or VirtualUse
-    assert(UserStmt);
-    auto *Inst = dyn_cast<Instruction>(Val);
-
-    // Non-instruction like literals do not add inter-stmt dependencies.
-    if (!Inst)
-      return false;
-
-    auto *DefStmt = S->getStmtFor(Inst);
-
-    // Read-only uses do not add inter-stmt dependencies.
-    if (!DefStmt)
-      return false;
-
-    // This assumes that there must be a PHI in the same statement if we are
-    // going to use a value from a previous execution of the same statement.
-    return DefStmt != UserStmt;
   }
 
   /// Check whether @p Stmt can be accurately analyzed by zones.
@@ -2728,11 +2551,6 @@ private:
     return true;
   }
 
-  // { [Element[] -> Scatter[]] -> ValInst[] }
-  bool isWriteNecessary(isl::union_map ValInst) {
-    return !ValInst.is_subset(Zone.getWritten()).is_true();
-  }
-
   // MemoryAccess *findExistingWrite(ScopStmt *Stmt) {}
 
   /// Map a MemoryKind::PHI scalar to an array element.
@@ -3468,7 +3286,7 @@ private:
         auto *RA = &DefStmt->getArrayAccessFor(LI);
 
         // { DomainDef[] -> ValInst[] }
-        auto ExpectedVal = makeValInst(UseVal, DefStmt, false, UseLoop);
+        auto ExpectedVal = makeValInst(UseVal, DefStmt, UseLoop);
 
         // { DomainTarget[] -> ValInst[] }
         auto ToExpectedVal = give(isl_map_apply_domain(
@@ -3883,7 +3701,7 @@ public:
 
     // Check that nothing strange occurs.
     if (!isCompatibleScop()) {
-      DeLICMIncompatible++;
+      KnownIncompatible++;
       return false;
     }
 
@@ -3943,36 +3761,8 @@ public:
       if (tryForwardTree(RA))
         Modified = true;
 
-#if 0
-    for (auto &Stmt : *S) {
-      for (auto *MA : Stmt) {
-        if (!MA->isLatestScalarKind())
-          continue;
-
-        if (!MA->isRead())
-          continue;
-
-        DEBUG(dbgs() << "Trying to collapse " << MA << "\n");
-        if (tryCollapseKnownLoad(MA))
-          Modified = true;
-      }
-    }
-#endif
-
     if (Modified)
       KnownScopsModified++;
-  }
-
-  void collectInsts(ScopStmt *Stmt, SmallVectorImpl<Instruction *> &List) {
-    if (!Stmt->isRegionStmt()) {
-      for (auto &Inst : *Stmt->getBasicBlock())
-        List.push_back(&Inst);
-      return;
-    }
-
-    for (auto *BB : Stmt->getRegion()->blocks())
-      for (auto &Inst : *BB)
-        List.push_back(&Inst);
   }
 
   /// Print the analysis result, performed transformations and the scop after

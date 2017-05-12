@@ -251,7 +251,7 @@ public:
   void dump() const;
 };
 
-static bool operator==(VirtualInstruction LHS, VirtualInstruction RHS) {
+static inline bool operator==(VirtualInstruction LHS, VirtualInstruction RHS) {
   return LHS.getStmt() == RHS.getStmt() &&
          LHS.getInstruction() == RHS.getInstruction();
 }
