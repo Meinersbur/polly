@@ -15,6 +15,7 @@
 #include "polly/ScopInfo.h"
 #include "polly/ScopPass.h"
 #include "polly/Support/GICHelper.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Support/Debug.h"
 #define DEBUG_TYPE "polly-simplify"
@@ -33,6 +34,7 @@ STATISTIC(InBetweenStore, "Number of Load-Store pairs NOT removed because "
                           "there is another store between them");
 STATISTIC(TotalIdenticalWritesRemoved,
           "Number of double writes removed in any SCoP");
+STATISTIC(TotalOverwritesRemoved, "Number of overwrites removed in any SCoP");
 STATISTIC(TotalRedundantWritesRemoved,
           "Number of writes of same value removed in any SCoP");
 STATISTIC(TotalStmtsRemoved, "Number of statements removed in any SCoP");
@@ -63,6 +65,176 @@ static Value *getWrittenScalar(MemoryAccess *WA) {
   return WA->getAccessInstruction();
 }
 
+static void
+visitInOrder(ScopStmt *Stmt, bool VisitImplicitReads, bool VisitExplicit,
+             bool VisitImplicitWrites,
+             const std::function<void(MemoryAccess *, bool)> &Func) {
+  if (VisitImplicitReads) {
+    for (auto *MA : *Stmt)
+      if (MA->isRead() && MA->isOriginalScalarKind())
+        Func(MA, true);
+  }
+
+  if (VisitExplicit) {
+    for (auto *MA : *Stmt)
+      if (MA->isOriginalArrayKind())
+        Func(MA, false);
+  }
+
+  if (VisitImplicitWrites) {
+    for (auto *MA : *Stmt)
+      if (MA->isWrite() && MA->isOriginalScalarKind())
+        Func(MA, true);
+  }
+}
+
+static void sortByExecutionOrder(ScopStmt *Stmt,
+                                 SmallVectorImpl<MemoryAccess *> &Accesses) {
+  Accesses.clear();
+
+  for (auto *MA : *Stmt)
+    if (MA->isRead() && MA->isOriginalScalarKind())
+      Accesses.push_back(MA);
+
+  for (auto *MA : *Stmt)
+    if (MA->isOriginalArrayKind())
+      Accesses.push_back(MA);
+
+  for (auto *MA : *Stmt)
+    if (MA->isWrite() && MA->isOriginalScalarKind())
+      Accesses.push_back(MA);
+}
+
+static bool isImplicitRead(MemoryAccess *MA) {
+  return MA->isRead() && MA->isOriginalScalarKind();
+}
+static bool isExplicitAccess(MemoryAccess *MA) {
+  return MA->isOriginalArrayKind();
+}
+static bool isImplicitWrite(MemoryAccess *MA) {
+  return MA->isWrite() && MA->isOriginalScalarKind();
+}
+
+static auto accessesInOrder(ScopStmt *Stmt) -> decltype(concat<MemoryAccess *>(
+    make_filter_range(make_range(Stmt->begin(), Stmt->end()), isImplicitRead),
+    make_filter_range(make_range(Stmt->begin(), Stmt->end()), isExplicitAccess),
+    make_filter_range(make_range(Stmt->begin(), Stmt->end()),
+                      isImplicitWrite))) {
+  auto AllRange = make_range(Stmt->begin(), Stmt->end());
+  return concat<MemoryAccess *>(make_filter_range(AllRange, isImplicitRead),
+                                make_filter_range(AllRange, isExplicitAccess),
+                                make_filter_range(AllRange, isImplicitWrite));
+}
+
+static void getAccessesBetween(ScopStmt *Stmt, MemoryAccess *MA1,
+                               MemoryAccess *MA2,
+                               const std::function<bool(MemoryAccess *)> &Pred,
+                               SmallVectorImpl<MemoryAccess *> &Accesses) {
+  assert(MA1 && MA2);
+  Accesses.clear();
+
+  auto IsImplictRead1 = isImplicitRead(MA1);
+  auto IsImplictRead2 = isImplicitRead(MA2);
+  auto IsImplictWrite1 = isImplicitWrite(MA1);
+  auto IsImplictWrite2 = isImplicitWrite(MA2);
+
+  if (MA1 == MA2)
+    return;
+  if (IsImplictRead1 && IsImplictRead2)
+    return;
+  if (IsImplictWrite1 && IsImplictWrite2)
+    return;
+
+  bool OpenStart = IsImplictRead1 || IsImplictRead2;
+  auto OpenEnd = IsImplictWrite1 || IsImplictWrite2;
+
+  auto AllRange = make_range(Stmt->begin(), Stmt->end());
+  auto ExplicitRange = make_filter_range(AllRange, isExplicitAccess);
+
+  if (Stmt->isRegionStmt() || (OpenStart && OpenEnd)) {
+    auto PredRange = make_filter_range(AllRange, Pred);
+    Accesses.append(PredRange.begin(), PredRange.end());
+    return;
+  }
+
+  assert(Stmt->isBlockStmt());
+
+  bool Started = OpenStart;
+  for (auto *MA : ExplicitRange) {
+    if (!Started) {
+      if (MA1 == MA || MA2 == MA)
+        Started = true;
+      continue;
+    }
+
+    if (MA1 == MA || MA2 == MA) {
+      assert(!OpenEnd);
+      return;
+    }
+
+    if (Pred(MA))
+      Accesses.push_back(MA);
+  }
+
+  assert(OpenEnd && "End not encountered");
+}
+
+static void getAccessesBetween(ScopStmt *Stmt, MemoryAccess *MA1,
+                               MemoryAccess *MA2, bool Reads, bool MustWrites,
+                               bool MayWrites, isl::union_map Targets,
+                               SmallVectorImpl<MemoryAccess *> &Accesses) {
+  getAccessesBetween(
+      Stmt, MA1, MA2,
+      [=](MemoryAccess *MA) {
+        if (MA->isRead() && !Reads)
+          return false;
+        if (MA->isMustWrite() && !MustWrites)
+          return false;
+        if (MA->isMayWrite() && !MayWrites)
+          return false;
+
+        auto AccRel = give(MA->getAccessRelation());
+        AccRel = give(isl_map_intersect_domain(
+            AccRel.take(), MA->getStatement()->getDomain()));
+        AccRel = give(isl_map_intersect_params(
+            AccRel.take(), MA->getStatement()->getParent()->getContext()));
+
+        return isl_union_map_is_disjoint(isl::union_map(AccRel).keep(),
+                                         Targets.keep()) != isl_bool_true;
+      },
+      Accesses);
+}
+
+static MemoryAccess *hasReadBetween(ScopStmt *Stmt, MemoryAccess *MA1,
+                                    MemoryAccess *MA2, isl::union_map Targets) {
+  SmallVector<MemoryAccess *, 4> Accesses;
+  getAccessesBetween(Stmt, MA1, MA2, true, false, false, Targets, Accesses);
+  if (Accesses.empty())
+    return nullptr;
+  return Accesses.front();
+}
+
+/// Return a write access that occurs between @p From and @p To.
+///
+/// In region statements the order is ignored because we cannot predict it.
+///
+/// @param Stmt    Statement of both writes.
+/// @param From    Start looking after this access.
+/// @param To      Stop looking at this access, with the access itself.
+/// @param Targets Look for an access that may wrote to one of these elements.
+///
+/// @return A write access between @p From and @p To that writes to at least
+///         one element in @p Targets.
+static MemoryAccess *hasWriteBetween(ScopStmt *Stmt, MemoryAccess *MA1,
+                                     MemoryAccess *MA2,
+                                     isl::union_map Targets) {
+  SmallVector<MemoryAccess *, 4> Accesses;
+  getAccessesBetween(Stmt, MA1, MA2, false, true, true, Targets, Accesses);
+  if (Accesses.empty())
+    return nullptr;
+  return Accesses.front();
+}
+
 class Simplify : public ScopPass {
 private:
   /// The last/current SCoP that is/has been processed.
@@ -70,6 +242,8 @@ private:
 
   /// Number of double writes removed from this SCoP.
   int IdenticalWritesRemoved = 0;
+
+  int OverwritesRemoved = 0;
 
   /// Number of redundant writes removed from this SCoP.
   int RedundantWritesRemoved = 0;
@@ -79,8 +253,8 @@ private:
 
   /// Return whether at least one simplification has been applied.
   bool isModified() const {
-    return IdenticalWritesRemoved > 0 || RedundantWritesRemoved > 0 ||
-           StmtsRemoved > 0;
+    return IdenticalWritesRemoved > 0 || OverwritesRemoved > 0 ||
+           RedundantWritesRemoved > 0 || StmtsRemoved > 0;
   }
 
   MemoryAccess *getReadAccessForValue(ScopStmt *Stmt, llvm::Value *Val) {
@@ -99,61 +273,6 @@ private:
     return nullptr;
   }
 
-  /// Return a write access that occurs between @p From and @p To.
-  ///
-  /// In region statements the order is ignored because we cannot predict it.
-  ///
-  /// @param Stmt    Statement of both writes.
-  /// @param From    Start looking after this access.
-  /// @param To      Stop looking at this access, with the access itself.
-  /// @param Targets Look for an access that may wrote to one of these elements.
-  ///
-  /// @return A write access between @p From and @p To that writes to at least
-  ///         one element in @p Targets.
-  MemoryAccess *hasWriteBetween(ScopStmt *Stmt, MemoryAccess *From,
-                                MemoryAccess *To, isl::map Targets) {
-    auto TargetsSpace = give(isl_map_get_space(Targets.keep()));
-
-    bool Started = Stmt->isRegionStmt();
-    for (auto *Acc : *Stmt) {
-      if (Acc->isLatestScalarKind())
-        continue;
-
-      if (Stmt->isBlockStmt() && From == Acc) {
-        assert(!Started);
-        Started = true;
-        continue;
-      }
-      if (Stmt->isBlockStmt() && To == Acc) {
-        assert(Started);
-        return nullptr;
-      }
-      if (!Started)
-        continue;
-
-      if (!Acc->isWrite())
-        continue;
-
-      auto AccRel = give(Acc->getAccessRelation());
-      auto AccRelSpace = give(isl_map_get_space(AccRel.keep()));
-
-      // Spaces being different means that they access different arrays.
-      if (isl_space_has_equal_tuples(TargetsSpace.keep(), AccRelSpace.keep()) ==
-          isl_bool_false)
-        continue;
-
-      AccRel = give(isl_map_intersect_domain(AccRel.take(),
-                                             Acc->getStatement()->getDomain()));
-      AccRel = give(isl_map_intersect_params(AccRel.take(), S->getContext()));
-      auto CommonElt = give(isl_map_intersect(Targets.copy(), AccRel.copy()));
-      if (isl_map_is_empty(CommonElt.keep()) != isl_bool_true)
-        return Acc;
-    }
-    assert(Stmt->isRegionStmt() &&
-           "To must be encountered in block statements");
-    return nullptr;
-  }
-
   /// If there are two writes in the same statement that write the same value to
   /// the same location, remove one of them.
   ///
@@ -169,10 +288,13 @@ private:
       SmallPtrSet<MemoryAccess *, 4> StoresToRemove;
 
       auto Domain = give(Stmt.getDomain());
+      auto AccRange = accessesInOrder(&Stmt);
 
       // TODO: This has quadratic runtime. Accesses could be grouped by
       // getAccessValue() to avoid.
-      for (auto *WA1 : Stmt) {
+      for (auto It1 = AccRange.begin(); It1 != AccRange.end(); ++It1) {
+        MemoryAccess *WA1 = *It1;
+
         if (!WA1->isMustWrite())
           continue;
         if (!WA1->isOriginalScalarKind())
@@ -184,9 +306,11 @@ private:
         if (!WrittenScalar1)
           continue;
 
-        for (auto *WA2 : Stmt) {
-          if (WA1 == WA2)
-            continue;
+        auto Next = It1;
+        ++Next;
+        for (auto It2 = Next; It2 != AccRange.end(); ++It2) {
+          MemoryAccess *WA2 = *It2;
+
           if (!WA2->isMustWrite())
             continue;
           if (!WA2->isOriginalScalarKind())
@@ -200,10 +324,24 @@ private:
 
           auto AccRel1 = give(isl_map_intersect_domain(WA1->getAccessRelation(),
                                                        Domain.copy()));
+          AccRel1 =
+              give(isl_map_intersect_params(AccRel1.take(), S->getContext()));
           auto AccRel2 = give(isl_map_intersect_domain(WA2->getAccessRelation(),
                                                        Domain.copy()));
+          AccRel2 =
+              give(isl_map_intersect_params(AccRel2.take(), S->getContext()));
           if (isl_map_is_equal(AccRel1.keep(), AccRel2.keep()) != isl_bool_true)
             continue;
+
+          if (auto *Conflicting = hasReadBetween(&Stmt, WA1, WA2, AccRel1)) {
+            DEBUG(
+                dbgs() << "Not removing identical writes " << WA2 << " and "
+                       << WA2
+                       << " because there is another load to the same element "
+                          "between\n");
+            DEBUG(Conflicting->print(dbgs()));
+            continue;
+          }
 
           DEBUG(dbgs() << "Remove identical writes:\n");
           DEBUG(dbgs() << "  First write  (kept)   : " << WA1 << '\n');
@@ -219,6 +357,58 @@ private:
 
         IdenticalWritesRemoved++;
         TotalIdenticalWritesRemoved++;
+      }
+    }
+  }
+
+  void removeOverwrites() {
+    for (auto &Stmt : *S) {
+      //  if (!Stmt.isBlockStmt())
+      //	   continue;
+      auto Domain = give(Stmt.getDomain());
+
+      auto AccRange = accessesInOrder(&Stmt);
+      SmallVector<MemoryAccess *, 32> Accesses{AccRange.begin(),
+                                               AccRange.end()};
+
+      isl::union_map WillBeOverwritten =
+          isl::union_map::empty(give(S->getParamSpace()));
+      // isl::union_map WillBeOverwrittenBy = isl::union_map::empty(  give(
+      // S->getParamSpace() ));
+
+      for (auto *MA : reverse(Accesses)) {
+        auto AccRel = give(MA->getAccessRelation());
+        AccRel = AccRel.intersect_domain(Domain);
+        AccRel = AccRel.intersect_params(give(S->getContext()));
+
+        // auto Wrapped =  give( isl_map_wrap( AccRel.copy()) );
+
+        if (MA->isRead()) {
+          WillBeOverwritten = WillBeOverwritten.subtract(AccRel);
+          // WillBeOverwrittenBy = WillBeOverwrittenBy.subtract_domain(
+          // Wrapped);
+          continue;
+        }
+
+        // auto AccId = give( MA->getId());
+        // auto AccSpace = isl::space::space()
+        // auto WrittenBy = give(isl_map_from_domain_and_range(Wrapped.copy(),
+        // ));
+
+        isl::union_map AccRelUnion = AccRel;
+        if (isl_union_map_is_subset(AccRelUnion.keep(),
+                                    WillBeOverwritten.keep()) ==
+            isl_bool_true) {
+          DEBUG(dbgs() << "Removing " << MA
+                       << " which will be overwritten anyway\n");
+
+          Stmt.removeSingleMemoryAccess(MA);
+          OverwritesRemoved++;
+          TotalOverwritesRemoved++;
+        }
+
+        if (MA->isMustWrite())
+          WillBeOverwritten = WillBeOverwritten.add_map(AccRel);
       }
     }
   }
@@ -314,6 +504,8 @@ private:
     OS.indent(Indent) << "Statistics {\n";
     OS.indent(Indent + 4) << "Identical writes removed: "
                           << IdenticalWritesRemoved << '\n';
+    OS.indent(Indent + 4) << "Overwrites removed: " << OverwritesRemoved
+                          << '\n';
     OS.indent(Indent + 4) << "Redundant writes removed: "
                           << RedundantWritesRemoved << "\n";
     OS.indent(Indent + 4) << "Stmts removed: " << StmtsRemoved << "\n";
@@ -351,6 +543,9 @@ public:
     DEBUG(dbgs() << "Removing identical writes...\n");
     removeIdenticalWrites();
 
+    DEBUG(dbgs() << "Removing overwrites...\n");
+    removeOverwrites();
+
     DEBUG(dbgs() << "Removing redundant writes...\n");
     removeRedundantWrites();
 
@@ -379,6 +574,10 @@ public:
 
   virtual void releaseMemory() override {
     S = nullptr;
+
+    IdenticalWritesRemoved = 0;
+    OverwritesRemoved = 0;
+    RedundantWritesRemoved = 0;
     StmtsRemoved = 0;
   }
 };
