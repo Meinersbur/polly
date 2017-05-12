@@ -18,7 +18,6 @@
 using namespace polly;
 using namespace llvm;
 
-namespace {
 bool isInLoop(MemoryAccess *MA) {
   auto Stmt = MA->getStatement();
   return Stmt->getNumIterators() > 0;
@@ -98,23 +97,6 @@ static bool isDefinedInStmt(Value *Val, ScopStmt *Stmt) {
     return false;
   return Stmt->contains(Inst);
 }
-
-/// If InputVal is not defined in the stmt itself, return the MemoryAccess that
-/// reads the scalar. Return nullptr otherwise (if the value is defined in the
-/// scop, or is synthesizable)
-MemoryAccess *polly::getInputAccessOf(Value *InputVal, ScopStmt *UserStmt) {
-  for (auto *MA : *UserStmt) {
-    if (!MA->isRead())
-      continue;
-    if (!MA->isOriginalValueKind())
-      continue;
-
-    if (MA->getAccessValue() == InputVal)
-      return MA;
-  }
-  return nullptr;
-}
-
 MemoryAccess *polly::getOutputAccessFor(Value *OutputVal, ScopStmt *Stmt) {
   for (auto *MA : *Stmt) {
     if (!MA->isWrite())
@@ -588,7 +570,7 @@ VirtualUse VirtualUse::create(Scop *S, ScopStmt *UserStmt, Loop *UserScope,
   // use. This is why we look for a MemoryAccess here already.
   MemoryAccess *InputMA = nullptr;
   if (UserStmt && Virtual)
-    InputMA = getInputAccessOf(Val, UserStmt);
+    InputMA = UserStmt->lookupValueReadOf(Val);
 
   // Uses are read-only if they have been defined before the SCoP, i.e., they
   // cannot be written to inside the SCoP. Arguments are defined before any

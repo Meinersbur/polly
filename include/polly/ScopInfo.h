@@ -1277,6 +1277,9 @@ private:
                                 llvm::SmallVectorImpl<MemoryAccess *> &Loads);
   //@}
 
+  /// Remove @p MA from dictionaries pointing to them.
+  void removeAccessData(MemoryAccess *MA);
+
 public:
   ~ScopStmt();
 
@@ -1444,6 +1447,8 @@ public:
     return ValueReads.lookup(Inst);
   }
 
+  /// Return the MemoryAccess that loads a PHINode value, or nullptr if not
+  /// existing, respectively not yet added.
   MemoryAccess *lookupPHIReadOf(PHINode *PHI) const;
 
   /// Return the PHI write MemoryAccess for the incoming values from any
@@ -1452,6 +1457,28 @@ public:
   MemoryAccess *lookupPHIWriteOf(PHINode *PHI) const {
     assert(isBlockStmt() || R->getExit() == PHI->getParent());
     return PHIWrites.lookup(PHI);
+  }
+
+  /// Return the input access of the value, or null if no such MemoryAccess
+  /// exists.
+  ///
+  /// The input access is the MemoryAccess that makes an inter-statement value
+  /// available in this statement by reading it at the start of this statement.
+  /// This can be a MemoryKind::Value if defined in another statement or a
+  /// MemoryKind::PHI if the value is a PHINode in this statement.
+  MemoryAccess *lookupInputAccessOf(Value *Val) const {
+    if (isa<PHINode>(Val))
+      if (auto InputMA = lookupPHIReadOf(cast<PHINode>(Val))) {
+        assert(!lookupValueReadOf(Val) && "input accesses must be unique; a "
+                                          "statement cannot read a .s2a and "
+                                          ".phiops simultaneously");
+        return InputMA;
+      }
+
+    if (auto *InputMA = lookupValueReadOf(Val))
+      return InputMA;
+
+    return nullptr;
   }
 
   /// Add @p Access to this statement's list of accesses.

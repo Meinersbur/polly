@@ -2856,17 +2856,11 @@ private:
       }
     };
 
-    auto ProcessIncoming = [&](ScopStmt *Stmt, Value *Val) {
-      if (auto *WrittenValInputMA = findInputAccessOf(Stmt, Val))
-        Worklist.push_back(WrittenValInputMA);
-      else
-        ProcessAllIncoming(Stmt);
-    };
-
-    // Add initial scalar. Either the value written by the store, or all inputs
-    // of its statement.
     auto *WrittenVal = TargetStoreMA->getAccessInstruction()->getOperand(0);
-    ProcessIncoming(TargetStmt, WrittenVal);
+    if (auto *WrittenValInputMA = TargetStmt->lookupInputAccessOf(WrittenVal))
+      Worklist.push_back(WrittenValInputMA);
+    else
+      ProcessAllIncoming(TargetStmt);
 
     auto AnyMapped = false;
     auto &DL = S->getRegion().getEntry()->getModule()->getDataLayout();
@@ -2907,23 +2901,26 @@ private:
 
       // Try to map MemoryKind::PHI scalars.
       if (SAI->isPHIKind()) {
-        if (tryMapPHI(SAI, EltTarget, WriteAccesses)) {
-          // Add inputs of all incoming statements to the worklist.
-          for (auto *PHIWrite : DefUse.getPHIIncomings(SAI)) {
-            bool FoundAny = false;
-            for (auto Incoming : PHIWrite->getIncoming()) {
-              auto *IncomingInputMA =
-                  findInputAccessOf(PHIWrite->getStatement(), Incoming.second);
-              if (!IncomingInputMA)
-                continue;
+        if (!tryMapPHI(SAI, EltTarget))
+          continue;
+        // Add inputs of all incoming statements to the worklist. Prefer the
+        // input accesses of the incoming blocks.
+        for (auto *PHIWrite : DefUse.getPHIIncomings(SAI)) {
+          auto *PHIWriteStmt = PHIWrite->getStatement();
+          bool FoundAny = false;
+          for (auto Incoming : PHIWrite->getIncoming()) {
+            auto *IncomingInputMA =
+                PHIWriteStmt->lookupInputAccessOf(Incoming.second);
+            if (!IncomingInputMA)
+              continue;
 
-              Worklist.push_back(IncomingInputMA);
-              FoundAny = true;
-            }
-
-            if (!FoundAny)
-              ProcessAllIncoming(PHIWrite->getStatement());
+            Worklist.push_back(IncomingInputMA);
+            FoundAny = true;
           }
+
+          if (!FoundAny)
+            ProcessAllIncoming(PHIWrite->getStatement());
+        }
 
           AnyMapped = true;
         } else if (tryComputePHI(SAI)) {
