@@ -284,7 +284,7 @@ public:
     AU.addRequired<IslAstInfo>();
     AU.addRequired<RegionInfoPass>();
     AU.addRequired<ScalarEvolutionWrapperPass>();
-    AU.addRequired<ScopDetection>();
+    AU.addRequired<ScopDetectionWrapperPass>();
     AU.addRequired<ScopInfoRegionPass>();
     AU.addRequired<LoopInfoWrapperPass>();
 
@@ -296,7 +296,7 @@ public:
     AU.addPreserved<DominatorTreeWrapperPass>();
     AU.addPreserved<GlobalsAAWrapperPass>();
     AU.addPreserved<IslAstInfo>();
-    AU.addPreserved<ScopDetection>();
+    AU.addPreserved<ScopDetectionWrapperPass>();
     AU.addPreserved<ScalarEvolutionWrapperPass>();
     AU.addPreserved<SCEVAAWrapperPass>();
 
@@ -319,6 +319,6 @@ INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass);
 INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass);
 INITIALIZE_PASS_DEPENDENCY(RegionInfoPass);
 INITIALIZE_PASS_DEPENDENCY(ScalarEvolutionWrapperPass);
-INITIALIZE_PASS_DEPENDENCY(ScopDetection);
+INITIALIZE_PASS_DEPENDENCY(ScopDetectionWrapperPass);
 INITIALIZE_PASS_END(CodeGeneration, "polly-codegen",
                     "Polly - Create LLVM-IR from SCoPs", false, false)
