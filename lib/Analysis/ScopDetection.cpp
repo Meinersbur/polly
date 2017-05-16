@@ -1661,9 +1661,6 @@ static void updateLoopCountStatistic(ScopDetection::LoopStats Stats,
   }
 }
 
-  if (skipFunction(F))
-    return false;
-
 ScopDetection::DetectionContext *
 ScopDetection::getDetectionContext(const Region *R) const {
   auto DCMIt = DetectionContextMap.find(getBBPairForRegion(R));
@@ -1693,6 +1690,9 @@ void polly::ScopDetection::verifyAnalysis() const {
 }
 
 bool ScopDetectionWrapperPass::runOnFunction(llvm::Function &F) {
+  if (skipFunction(F))
+    return false;
+
   auto &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
   auto &RI = getAnalysis<RegionInfoPass>().getRegionInfo();
   auto &AA = getAnalysis<AAResultsWrapperPass>().getAAResults();
