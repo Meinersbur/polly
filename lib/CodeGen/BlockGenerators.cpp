@@ -279,11 +279,6 @@ Value *BlockGenerator::generateLocationAccessed(
   isl_ast_expr *AccessExpr = isl_id_to_ast_expr_get(NewAccesses, Id);
 
   if (AccessExpr) {
-    if (isl_ast_expr_get_type(AccessExpr) == isl_ast_expr_int) {
-      isl_ast_expr_free(AccessExpr);
-      return UndefValue::get(ExpectedType->getPointerTo());
-    }
-
     AccessExpr = isl_ast_expr_address_of(AccessExpr);
     auto Address = ExprBuilder->create(AccessExpr);
 
@@ -619,7 +614,6 @@ void BlockGenerator::generateScalarLoads(
   }
 }
 
-
 Value *BlockGenerator::buildContainsCondition(ScopStmt &Stmt,
                                               const isl::set &Subdomain) {
   isl::ast_build AstBuild = give(isl_ast_build_copy(Stmt.getAstBuild()));
@@ -692,8 +686,6 @@ void BlockGenerator::generateConditionalExecution(
   GenThenFunc();
   Builder.SetInsertPoint(TailBlock, TailBlock->getFirstInsertionPt());
 }
-
-
 
 #if 1 // Debug tracing
 
@@ -859,39 +851,6 @@ void BlockGenerator::generateComputedPHIs(ScopStmt &Stmt, LoopToScevMapT &LTS,
     PwVal->setName("phi_" + PHI->getName());
     BBMap[PHI] = PwVal;
   }
-}
-
-Value *BlockGenerator::buildContainsCondition(ScopStmt &Stmt, isl::set Set) {
-  auto AstBuild = give(isl_ast_build_copy(Stmt.getAstBuild()));
-  // auto USchedule = give(isl_ast_build_get_schedule(AstBuild.keep()));
-  auto Domain = give(Stmt.getDomain());
-  auto UDomain = give(isl_union_set_from_set(Domain.copy()));
-  // auto USchedule2 = give(isl_union_map_intersect_domain(USchedule.copy(),
-  // UDomain.copy()));
-
-  auto USchedule = give(isl_ast_build_get_schedule(AstBuild.keep()));
-  USchedule =
-      give(isl_union_map_intersect_domain(USchedule.take(), UDomain.copy()));
-  assert(isl_union_map_is_empty(USchedule.keep()) == isl_bool_false);
-  auto Schedule = give(isl_map_from_union_map(USchedule.copy()));
-
-  // auto UScheduledDomain = give( isl_union_set_apply( UDomain.copy(),
-  // isl_ast_build_get_schedule(AstBuild.keep())) );
-  auto ScheduledDomain = give(isl_map_range(Schedule.copy()));
-  auto ScheduledSet = give(isl_set_apply(Set.copy(), Schedule.copy()));
-
-  // auto ScheduleValues =
-  // give(isl_union_map_apply_domain(IncomingValues.copy(), USchedule2.copy()));
-  //  auto NewVal = getNewValue(Stmt, IncomingVal, BBMap, LTS, nullptr);
-  auto RestrictedBuild =
-      give(isl_ast_build_restrict(AstBuild.copy(), ScheduledDomain.copy()));
-
-  auto IsInSet = give(
-      isl_ast_build_expr_from_set(RestrictedBuild.keep(), ScheduledSet.copy()));
-  auto *IsInSetExpr = ExprBuilder->create(IsInSet.copy());
-  IsInSetExpr = Builder.CreateICmpNE(
-      IsInSetExpr, ConstantInt::get(IsInSetExpr->getType(), 0));
-  return IsInSetExpr;
 }
 
 void BlockGenerator::generateScalarStores(

@@ -158,9 +158,10 @@ static bool CodeGen(Scop &S, IslAstInfo &AI, LoopInfo &LI, DominatorTree &DT,
                     ScalarEvolution &SE, RegionInfo &RI) {
   // Check if we created an isl_ast root node, otherwise exit.
   isl_ast_node *AstRoot = AI.getAst();
-  if (!AstRoot) {  NumGenerationSkips++;
+  if (!AstRoot) {
+    NumGenerationSkips++;
     return false;
-    }
+  }
 
   auto &DL = S.getFunction().getParent()->getDataLayout();
   Region *R = &S.getRegion();
@@ -228,7 +229,7 @@ static bool CodeGen(Scop &S, IslAstInfo &AI, LoopInfo &LI, DominatorTree &DT,
     DT.eraseNode(ExitingBlock);
 
     isl_ast_node_free(AstRoot);
-      NumGeneratedFails++;
+    NumGeneratedFails++;
   } else {
     NodeBuilder.allocateNewArrays();
     NodeBuilder.addParameters(S.getContext());
@@ -240,7 +241,7 @@ static bool CodeGen(Scop &S, IslAstInfo &AI, LoopInfo &LI, DominatorTree &DT,
     NodeBuilder.create(AstRoot);
     NodeBuilder.finalize();
     fixRegionInfo(*EnteringBB->getParent(), *R->getParent(), RI);
-      NumGeneratedScops++;
+    NumGeneratedScops++;
   }
 
   Function *F = EnteringBB->getParent();

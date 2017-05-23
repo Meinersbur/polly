@@ -477,7 +477,7 @@ __isl_give isl_ast_node *IslAstInfo::getAst() { return Ast.getAst(); }
 __isl_give isl_ast_expr *IslAstInfo::getRunCondition() {
   return Ast.getRunCondition();
 
-  auto Root = Ast->getAst();
+  auto Root = Ast.getAst();
   isl_ast_node_foreach_descendant_top_down(
       Root,
       [](isl_ast_node *node, void *user) -> isl_bool {

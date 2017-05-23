@@ -22,6 +22,7 @@
 #include "polly/Options.h"
 #include "polly/ScopBuilder.h"
 #include "polly/Support/GICHelper.h"
+#include "polly/Support/ISLOStream.h"
 #include "polly/Support/SCEVValidator.h"
 #include "polly/Support/ScopHelper.h"
 #include "llvm/ADT/DepthFirstIterator.h"

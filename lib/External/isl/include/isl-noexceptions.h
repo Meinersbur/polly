@@ -2580,8 +2580,6 @@ public:
   inline isl::union_map universe() const;
   inline isl::union_set wrap() const;
   inline isl::union_map zip() const;
-
-    void dump() const { isl_union_map_dump(keep() ); }
 };
 
 // declarations for isl::union_map_list
