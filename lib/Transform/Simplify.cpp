@@ -17,6 +17,7 @@
 #include "polly/ScopPass.h"
 #include "polly/Support/GICHelper.h"
 #include "polly/Support/VirtualInstruction.h"
+#include "polly/Support/ISLOStream.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/IR/Value.h"
@@ -512,9 +513,7 @@ private:
         // ));
 
         isl::union_map AccRelUnion = AccRel;
-        if (isl_union_map_is_subset(AccRelUnion.keep(),
-                                    WillBeOverwritten.keep()) ==
-            isl_bool_true) {
+        if (AccRelUnion.is_subset(WillBeOverwritten)) {
           DEBUG(dbgs() << "Removing " << MA
                        << " which will be overwritten anyway\n");
 
@@ -557,15 +556,13 @@ private:
           continue;
 
         auto WARel = give(WA->getLatestAccessRelation());
-        WARel = give(isl_map_intersect_domain(WARel.take(),
-                                              WA->getStatement()->getDomain()));
-        WARel = give(isl_map_intersect_params(WARel.take(), S->getContext()));
+        WARel = WARel.intersect_domain(give(WA->getStatement()->getDomain()));
+        WARel = WARel.intersect_params(give(S->getContext()));
         auto RARel = give(RA->getLatestAccessRelation());
-        RARel = give(isl_map_intersect_domain(RARel.take(),
-                                              RA->getStatement()->getDomain()));
-        RARel = give(isl_map_intersect_params(RARel.take(), S->getContext()));
+        RARel = RARel.intersect_domain(give(RA->getStatement()->getDomain()));
+        RARel = RARel.intersect_params(give(S->getContext()));
 
-        if (isl_map_is_equal(RARel.keep(), WARel.keep()) != isl_bool_true) {
+        if (!RARel.is_equal(WARel)) {
           PairUnequalAccRels++;
           DEBUG(dbgs() << "Not cleaning up " << WA
                        << " because of unequal access relations:\n");
