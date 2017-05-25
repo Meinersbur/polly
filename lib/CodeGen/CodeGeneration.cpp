@@ -54,6 +54,10 @@ static cl::opt<bool>
                    cl::desc("Add run-time performance monitoring"), cl::Hidden,
                    cl::init(false), cl::ZeroOrMore, cl::cat(PollyCategory));
 
+STATISTIC(ScopsCodegenFails, "Number of failed codegens");
+STATISTIC(ScopsCodegenned, "Number of generated SCoPs");
+STATISTIC(LoopsCodegened, "Number of loops of generated SCoPs");
+
 namespace {
 
 static void verifyGeneratedFunction(Scop &S, Function &F, IslAstInfo &AI) {
@@ -157,6 +161,12 @@ static bool CodeGen(Scop &S, IslAstInfo &AI, LoopInfo &LI, DominatorTree &DT,
   if (!AstRoot)
     return false;
 
+  int Loops = 0;
+  for (auto &L : LI) {
+    if (S.contains(L))
+      Loops += 1;
+  }
+
   auto &DL = S.getFunction().getParent()->getDataLayout();
   Region *R = &S.getRegion();
   assert(!R->isTopLevelRegion() && "Top level regions are not supported");
@@ -223,6 +233,8 @@ static bool CodeGen(Scop &S, IslAstInfo &AI, LoopInfo &LI, DominatorTree &DT,
     DT.eraseNode(ExitingBlock);
 
     isl_ast_node_free(AstRoot);
+
+    ScopsCodegenFails++;
   } else {
     NodeBuilder.allocateNewArrays();
     NodeBuilder.addParameters(S.getContext());
@@ -234,6 +246,9 @@ static bool CodeGen(Scop &S, IslAstInfo &AI, LoopInfo &LI, DominatorTree &DT,
     NodeBuilder.create(AstRoot);
     NodeBuilder.finalize();
     fixRegionInfo(*EnteringBB->getParent(), *R->getParent(), RI);
+
+    ScopsCodegenned++;
+    LoopsCodegened += Loops;
   }
 
   Function *F = EnteringBB->getParent();
