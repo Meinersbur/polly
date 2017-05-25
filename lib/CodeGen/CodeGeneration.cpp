@@ -58,6 +58,10 @@ STATISTIC(NumGenerationSkips, "Number of skipped SCoPs");
 STATISTIC(NumGeneratedScops, "Number of successfully generated SCoPs");
 STATISTIC(NumGeneratedFails, "Number of unsuccessfully generated SCoPs");
 
+STATISTIC(ScopsCodegenFails, "Number of failed codegens");
+STATISTIC(ScopsCodegenned, "Number of generated SCoPs");
+STATISTIC(LoopsCodegened, "Number of loops of generated SCoPs");
+
 namespace {
 
 static void verifyGeneratedFunction(Scop &S, Function &F, IslAstInfo &AI) {
@@ -163,6 +167,12 @@ static bool CodeGen(Scop &S, IslAstInfo &AI, LoopInfo &LI, DominatorTree &DT,
     return false;
   }
 
+  int Loops = 0;
+  for (auto &L : LI) {
+    if (S.contains(L))
+      Loops += 1;
+  }
+
   auto &DL = S.getFunction().getParent()->getDataLayout();
   Region *R = &S.getRegion();
   assert(!R->isTopLevelRegion() && "Top level regions are not supported");
@@ -230,6 +240,8 @@ static bool CodeGen(Scop &S, IslAstInfo &AI, LoopInfo &LI, DominatorTree &DT,
 
     isl_ast_node_free(AstRoot);
     NumGeneratedFails++;
+
+    ScopsCodegenFails++;
   } else {
     NodeBuilder.allocateNewArrays();
     NodeBuilder.addParameters(S.getContext());
@@ -241,7 +253,10 @@ static bool CodeGen(Scop &S, IslAstInfo &AI, LoopInfo &LI, DominatorTree &DT,
     NodeBuilder.create(AstRoot);
     NodeBuilder.finalize();
     fixRegionInfo(*EnteringBB->getParent(), *R->getParent(), RI);
+
     NumGeneratedScops++;
+    ScopsCodegenned++;
+    LoopsCodegened += Loops;
   }
 
   Function *F = EnteringBB->getParent();

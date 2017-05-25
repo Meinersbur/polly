@@ -26,6 +26,10 @@ STATISTIC(ScopsProcessed,
 STATISTIC(ScopsPruned, "Number of pruned SCoPs because it they cannot be "
                        "optimized in a significant way");
 
+STATISTIC(LoopsProcessed, "Number of total loops in SCoPs");
+STATISTIC(LoopsProfitable, "Number of loops in SCoPs that survived scalar "
+                           "dependences profitability check");
+
 class PruneUnprofitable : public ScopPass {
 private:
   PruneUnprofitable(const PruneUnprofitable &) = delete;
@@ -37,6 +41,7 @@ public:
 
   virtual void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequired<ScopInfoRegionPass>();
+    AU.addRequired<LoopInfoWrapperPass>();
     AU.setPreservesAll();
   }
 
@@ -49,10 +54,19 @@ public:
 
     ScopsProcessed++;
 
+    auto &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
+    int Loops = 0;
+    for (auto &L : LI) {
+      if (S.getRegion().contains(L))
+        Loops += 1;
+    }
+    LoopsProcessed += Loops;
+
     if (!S.isProfitable(true)) {
       DEBUG(dbgs() << "SCoP pruned because it probably cannot be optimized in "
                       "a significant way\n");
       ScopsPruned++;
+      LoopsProfitable += Loops;
       S.invalidate(PROFITABLE, DebugLoc());
     }
 
