@@ -57,8 +57,6 @@ llvm::Pass *createIslScheduleOptimizerPass();
 llvm::Pass *createFlattenSchedulePass();
 llvm::Pass *createKnownPass();
 llvm::Pass *createDeLICMPass();
-llvm::Pass *createSimplifyPass();
-llvm::Pass *createPruneUnprofitablePass();
 
 extern char &CodePreparationID;
 } // namespace polly
@@ -95,10 +93,10 @@ struct PollyForcePassLinking {
     polly::createFlattenSchedulePass();
     polly::createKnownPass();
     polly::createDeLICMPass();
-    polly::createSimplifyPass();
-    polly::createPruneUnprofitablePass();
     polly::createDumpModulePass("", true);
     polly::createDumpDebugPass();
+    polly::createSimplifyPass();
+    polly::createPruneUnprofitablePass();
   }
 } PollyForcePassLinking; // Force link by creating a global definition.
 } // namespace
@@ -119,8 +117,6 @@ void initializePollyCanonicalizePass(llvm::PassRegistry &);
 void initializeFlattenSchedulePass(llvm::PassRegistry &);
 void initializeKnownPass(llvm::PassRegistry &);
 void initializeDeLICMPass(llvm::PassRegistry &);
-void initializeSimplifyPass(llvm::PassRegistry &);
-void initializePruneUnprofitable(llvm::PassRegistry &);
 } // namespace llvm
 
 #endif

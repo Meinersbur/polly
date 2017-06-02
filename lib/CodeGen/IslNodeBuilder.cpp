@@ -791,7 +791,7 @@ IslNodeBuilder::createNewAccesses(ScopStmt *Stmt,
 
     auto Schedule = isl_ast_build_get_schedule(Build);
 
-#if 0
+#ifndef NDEBUG
     if (MA->isRead()) {
       auto Dom = Stmt->getDomain();
       auto SchedDom = isl_set_from_union_set(

@@ -168,8 +168,8 @@
 using namespace polly;
 using namespace llvm;
 
-void foreachPoint(const isl::union_set &USet,
-                  const std::function<void(isl::point P)> &F) {
+static void foreachPoint(const isl::union_set &USet,
+                         const std::function<void(isl::point P)> &F) {
   isl_union_set_foreach_point(
       USet.keep(),
       [](__isl_take isl_point *p, void *User) -> isl_stat {
@@ -180,8 +180,8 @@ void foreachPoint(const isl::union_set &USet,
       const_cast<void *>(static_cast<const void *>(&F)));
 }
 
-void foreachPoint(const isl::set &Set,
-                  const std::function<void(isl::point P)> &F) {
+static void foreachPoint(const isl::set &Set,
+                         const std::function<void(isl::point P)> &F) {
   isl_set_foreach_point(
       Set.keep(),
       [](__isl_take isl_point *p, void *User) -> isl_stat {
@@ -197,7 +197,7 @@ void foreachPoint(isl::basic_set BSet,
   foreachPoint(give(isl_set_from_basic_set(BSet.take())), F);
 }
 
-isl::union_set expand(const isl::union_set &Arg) {
+static isl::union_set expand(const isl::union_set &Arg) {
   auto USet = Arg;
   simplify(USet);
   isl::union_set Expanded =
@@ -261,10 +261,6 @@ cl::opt<bool>
     DelicmComputeKnown("polly-delicm-compute-known",
                        cl::desc("Compute known content of array elements"),
                        cl::init(true), cl::Hidden, cl::cat(PollyCategory));
-cl::opt<bool> DelicmPartialWrites("polly-delicm-partial-writes",
-                                  cl::desc("Allow partial writes for PHIs"),
-                                  cl::init(false), cl::Hidden,
-                                  cl::cat(PollyCategory));
 
 cl::opt<bool> DelicmMapPHI("polly-delicm-map-phi",
                            cl::desc("Map PHI to array elements"),
@@ -302,6 +298,7 @@ STATISTIC(KnownScopsModified, "Number of SCoPs optimized");
 #undef DEBUG_TYPE
 #define DEBUG_TYPE "polly-delicm"
 
+#if 0
 /// Class for keeping track of scalar def-use chains in the polyhedral
 /// representation.
 ///
@@ -394,6 +391,7 @@ public:
     return It->second;
   }
 };
+#endif
 
 isl::union_map computeReachingDefinition(isl::union_map Schedule,
                                          isl::union_map Writes, bool InclDef,

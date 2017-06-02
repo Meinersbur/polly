@@ -2056,10 +2056,7 @@ void ScopStmt::removeMemoryAccess(MemoryAccess *MA) {
   // hence synthesizable, and therefore there are no MemoryKind::Value READ
   // accesses to be removed.
   auto Predicate = [&](MemoryAccess *Acc) {
-    bool Deletable = Acc->getAccessInstruction() == MA->getAccessInstruction();
-    if (Deletable)
-      removeAccessData(Acc); // Not nice: sideeffect
-    return Deletable;
+    return Acc->getAccessInstruction() == MA->getAccessInstruction();
   };
   for (auto *MA : MemAccs) {
     if (Predicate(MA))
@@ -2074,8 +2071,6 @@ void ScopStmt::removeSingleMemoryAccess(MemoryAccess *MA) {
   auto MAIt = std::find(MemAccs.begin(), MemAccs.end(), MA);
   assert(MAIt != MemAccs.end());
   MemAccs.erase(MAIt);
-
-  removeAccessData(MA);
 
   removeAccessData(MA);
 

@@ -20,7 +20,7 @@
 namespace polly {
 
 class ScalarDefUseChains {
-private:
+public:
   int ScalarValueDeps = 0;
   int ScalarValueLoopDeps = 0;
   int ScalarPHIDeps = 0;

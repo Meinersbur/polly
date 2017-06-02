@@ -1269,7 +1269,7 @@ private:
 
   /// Vector for Instructions in a BB.
   std::vector<Instruction *> Instructions;
-  
+
 public:
   MapVector<PHINode *, isl::union_map> ComputedPHIs;
 
