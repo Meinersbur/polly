@@ -1157,7 +1157,8 @@ public:
   const ScopStmt &operator=(const ScopStmt &) = delete;
 
   /// Create the ScopStmt from a BasicBlock.
-  ScopStmt(Scop &parent, BasicBlock &bb, Loop *SurroundingLoop);
+  ScopStmt(Scop &parent, BasicBlock &bb, Loop *SurroundingLoop,
+           std::vector<Instruction *> Instructions);
 
   /// Create an overapproximating ScopStmt for the region @p R.
   ScopStmt(Scop &parent, Region &R, Loop *SurroundingLoop);
@@ -1266,6 +1267,9 @@ private:
   /// The closest loop that contains this statement.
   Loop *SurroundingLoop;
 
+  /// Vector for Instructions in a BB.
+  std::vector<Instruction *> Instructions;
+  
 public:
   MapVector<PHINode *, isl::union_map> ComputedPHIs;
 
@@ -1521,6 +1525,10 @@ public:
   Scop *getParent() { return &Parent; }
   const Scop *getParent() const { return &Parent; }
 
+  const std::vector<Instruction *> &getInstructions() const {
+    return Instructions;
+  }
+
   const char *getBaseName() const;
 
   /// Set the isl AST build.
@@ -1555,6 +1563,10 @@ public:
   ///
   /// @param OS The output stream the ScopStmt is printed to.
   void print(raw_ostream &OS) const;
+
+  /// Print the instructions in ScopStmt.
+  ///
+  void printInstructions(raw_ostream &OS) const;
 
   /// Print the ScopStmt to stderr.
   void dump() const;
@@ -2042,7 +2054,9 @@ private:
   ///
   /// @param BB              The basic block we build the statement for.
   /// @param SurroundingLoop The loop the created statement is contained in.
-  void addScopStmt(BasicBlock *BB, Loop *SurroundingLoop);
+  /// @param Instructions    The instructions in the basic block.
+  void addScopStmt(BasicBlock *BB, Loop *SurroundingLoop,
+                   std::vector<Instruction *> Instructions);
 
   /// Create a new SCoP statement for @p R.
   ///
@@ -2337,6 +2351,14 @@ public:
 
   /// Check if the SCoP has been optimized by the scheduler.
   bool isOptimized() const { return IsOptimized; }
+
+  /// Get the name of the entry and exit blocks of this Scop.
+  ///
+  /// These along with the function name can uniquely identify a Scop.
+  ///
+  /// @return std::pair whose first element is the entry name & second element
+  ///         is the exit name.
+  std::pair<std::string, std::string> getEntryExitStr() const;
 
   /// Get the name of this Scop.
   std::string getNameStr() const;

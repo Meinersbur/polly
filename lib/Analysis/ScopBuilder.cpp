@@ -413,6 +413,13 @@ bool ScopBuilder::buildAccessMultiDimParam(MemAccInst Inst, ScopStmt *Stmt) {
 
   Sizes.insert(Sizes.end(), AccItr->second.Shape->DelinearizedSizes.begin(),
                AccItr->second.Shape->DelinearizedSizes.end());
+
+  // In case only the element size is contained in the 'Sizes' array, the
+  // access does not access a real multi-dimensional array. Hence, we allow
+  // the normal single-dimensional access construction to handle this.
+  if (Sizes.size() == 1)
+    return false;
+
   // Remove the element size. This information is already provided by the
   // ElementSize parameter. In case the element size of this access and the
   // element size used for delinearization differs the delinearization is
@@ -638,8 +645,16 @@ void ScopBuilder::buildStmts(Region &SR) {
     if (I->isSubRegion())
       buildStmts(*I->getNodeAs<Region>());
     else {
+      std::vector<Instruction *> Instructions;
+      for (Instruction &Inst : *I->getNodeAs<BasicBlock>()) {
+        Loop *L = LI.getLoopFor(Inst.getParent());
+        if (!isa<TerminatorInst>(&Inst) && !isIgnoredIntrinsic(&Inst) &&
+            !canSynthesize(&Inst, *scop, &SE, L))
+          Instructions.push_back(&Inst);
+      }
       Loop *SurroundingLoop = LI.getLoopFor(I->getNodeAs<BasicBlock>());
-      scop->addScopStmt(I->getNodeAs<BasicBlock>(), SurroundingLoop);
+      scop->addScopStmt(I->getNodeAs<BasicBlock>(), SurroundingLoop,
+                        Instructions);
     }
 }
 
