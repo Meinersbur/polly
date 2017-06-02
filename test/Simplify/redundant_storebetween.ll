@@ -21,7 +21,6 @@ for:
       %A_idx = getelementptr inbounds double, double* %A, i32 %j
       %val = load double, double* %A_idx
       store double 0.0, double* %A
-      %dummy = load double, double* %A_idx
       store double %val, double* %A_idx
       br label %inc
 
