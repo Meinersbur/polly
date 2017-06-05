@@ -531,7 +531,7 @@ void polly::markReachableLocal(ScopStmt *Stmt,
   markReachable(S, Worklist, std::move(WorklistMA), InstList, UsedMA, Stmt, LI);
 }
 
-VirtualUse VirtualUse ::create(Scop *S, const Use &U, LoopInfo *LI,
+VirtualUse VirtualUse::create(Scop *S, const Use &U, LoopInfo *LI,
                                bool Virtual) {
   auto *UserBB = getUseBlock(U);
   auto *UserStmt = S->getStmtFor(UserBB);

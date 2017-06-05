@@ -20,10 +20,16 @@
 #include "isl/union_map.h"
 #include "isl/union_set.h"
 #include "isl/val.h"
+#include "llvm/Support/CommandLine.h"
+#include "polly/Options.h"
 
 #include <climits>
 
 using namespace llvm;
+
+static cl::opt<bool> UseDisambiguatedNames("polly-use-ll-names",
+	cl::desc("Use names as when printed to .ll file"),
+	cl::init(false), cl::cat(PollyCategory));
 
 __isl_give isl_val *polly::isl_valFromAPInt(isl_ctx *Ctx, const APInt Int,
                                             bool IsSigned) {
@@ -199,11 +205,9 @@ std::string polly::getIslCompatibleName(const std::string &Prefix,
                                         bool UseInstructionNames) {
   std::string S = Prefix;
 
-  // DEFINE_ISLPTR(point)
-  // DEFINE_ISLPTR(ast_expr)
-  // DEFINE_ISLPTR(ast_build)
-
-  if (UseInstructionNames)
+  if (UseDisambiguatedNames) {
+	  S +=  Name;
+  } else if (UseInstructionNames)
     S += std::string("_") + Name;
   else
     S += std::to_string(Number);
@@ -220,7 +224,13 @@ std::string polly::getIslCompatibleName(const std::string &Prefix,
                                         bool UseInstructionNames) {
   std::string ValStr;
 
-  if (UseInstructionNames && Val->hasName())
+  if (UseDisambiguatedNames) {
+	  llvm::raw_string_ostream OS(ValStr);
+	  Val->printAsOperand(OS, false);
+	  OS.flush();
+	  if (ValStr[0] == '%' || ValStr[1] == '@')
+		  ValStr = ValStr.substr(1);
+  }  else if (UseInstructionNames && Val->hasName())
     ValStr = std::string("_") + std::string(Val->getName());
   else
     ValStr = std::to_string(Number);

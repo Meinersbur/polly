@@ -1766,8 +1766,7 @@ public:
         give(isl_union_map_range_product(EltZoneElt.copy(), Reads.copy()));
 
     // { [Element[] -> Scatter[]] -> ValInst[] }
-    auto ScatterKnown =
-        give(isl_union_map_apply_range(ReadsElt.copy(), AllReadValInst.copy()));
+    auto ScatterKnown = give(isl_union_map_apply_range(ReadsElt.copy(), AllReadValInst.copy()));
 
     // { [Element[] -> ReachDefId[]] -> ValInst[] }
     auto DefidKnown = give(isl_union_map_reverse(isl_union_map_apply_domain(
@@ -1784,33 +1783,48 @@ public:
   ///
   /// @return { [Element[] -> Zone[]] -> ValInst[] }
   isl::union_map computeKnownFromInit() const {
-    // { Element[] }
-    auto NotWrittenElts =
-        give(isl_union_set_subtract(isl_union_map_range(AllReads.copy()),
-                                    isl_union_map_range(AllWrites.copy())));
+	  // { Element[] }
+	  auto NotWrittenElts = give(isl_union_set_subtract(isl_union_map_range(AllReads.copy()),  isl_union_map_range(AllWrites.copy())));
 
-    // { Element[] -> Zone[] }
-    auto NeverWritten = give(isl_union_map_from_domain_and_range(
-        NotWrittenElts.take(),
-        isl_union_set_from_set(isl_set_universe(ScatterSpace.copy()))));
+	  // { Element[] -> Zone[] }
+	  auto NeverWritten = give(isl_union_map_from_domain_and_range(NotWrittenElts.take(),isl_union_set_from_set(isl_set_universe(ScatterSpace.copy()))));
 
-    // { Element[] -> Scatter[] }
-    auto WriteSched = give(isl_union_map_apply_range(
-        isl_union_map_reverse(AllWrites.copy()), Schedule.copy()));
-    auto FirstWrites = give(isl_union_map_lexmin(WriteSched.take()));
 
-    // { Element[] -> Zone[] }
-    // Reinterpretation of Scatter[] as Zone[]: The unit-zone before the write
-    // timepoint is before the write.
-    auto BeforeFirstWrite = beforeScatter(FirstWrites, false);
+	  // { Element[] -> Scatter[] }
+	  auto WriteSched = give(isl_union_map_apply_range(isl_union_map_reverse(AllWrites.copy()), Schedule.copy()));
+	  auto FirstWrites = give(isl_union_map_lexmin(WriteSched.take()));
 
-    // { Element[] -> Zone[] }
-    auto BeforeAnyWrite =
-        give(isl_union_map_union(BeforeFirstWrite.take(), NeverWritten.take()));
+	  // { Element[] -> Zone[] }
+	  // Reinterpretation of Scatter[] as Zone[]: The unit-zone before the write timepoint is before the write.
+	  auto BeforeFirstWrite = beforeScatter(FirstWrites, false);
 
+	  // { Element[] -> Zone[] }
+	  auto BeforeAnyWrite = give(isl_union_map_union(BeforeFirstWrite.take(), NeverWritten.take()));
+
+	  // { [Element[] -> Zone[]] -> ValInst[] }
+	  // The ValInst[] of an initial value is the value itself.
+	 // auto Result = give( isl_union_map_domain_map(BeforeAnyWrite.take()));
+
+	 // { [Element[] -> Zone[]] -> Zone[] }
+	  //auto ZoneScatter = give(isl_union_map_range_map(BeforeAnyWrite.take()));
+
+	  // { [Element[] -> Zone[]] -> Scatter[] }
+	  //auto LoadInitVals = convertZoneToTimepoints(ZoneScatter, isl::dim::out, true, true);
+
+	  // { [Element[] -> Zone[]] -> [Element[] -> Scatter[]] }
+	  auto LoadInitVals2 = convertZoneToTimepoints(makeIdentityMap(BeforeAnyWrite.wrap(), true), isl::dim::out, true, true);
+
+	  // { [Element[] -> Scatter[]] -> ValInst[] }
+	  auto AllReadScatterValInst = applyDomainRange(AllReadValInst, Schedule);
+
+	  // { [Element[] -> Zone[]] -> ValInst[] }
+	  auto Result = LoadInitVals2.apply_range(AllReadScatterValInst);
+
+	  return Result;
+
+#if 0
     // { [Element[] -> Zone[]] -> Zone[] }
-    auto BeforeFirstWriteZone =
-        give(isl_union_map_range_map(BeforeAnyWrite.copy()));
+    auto BeforeFirstWriteZone = give(isl_union_map_range_map(BeforeAnyWrite.copy()));
     // give(isl_union_map_uncurry(isl_union_map_range_product(
     // BeforeAnyWrite.copy(), BeforeAnyWrite.copy())));
 
@@ -1819,28 +1833,32 @@ public:
     // before-write zones.
     // TODO: Might avoid the double reconversion by keeping the DomainWrite[] in
     // FirstWrites.
-    auto BeforeFirstWriteDom = give(isl_union_map_apply_range(
-        BeforeFirstWriteZone.copy(), isl_union_map_reverse(Schedule.copy())));
+    auto BeforeFirstWriteDom = give(isl_union_map_apply_range(BeforeFirstWriteZone.copy(), isl_union_map_reverse(Schedule.copy())));
 
     // { [Element[] -> Zone[]] -> [Element[] -> Domain[]] }
-    auto BeforeFirstWriteEltDom = give(isl_union_map_range_product(
-        isl_union_map_domain_map(BeforeAnyWrite.take()),
-        BeforeFirstWriteDom.take()));
+    auto BeforeFirstWriteEltDom = give(isl_union_map_range_product(isl_union_map_domain_map(BeforeAnyWrite.take()), BeforeFirstWriteDom.take()));
 
     // { [Element[] -> Zone[]] -> ValInst[] }
-    return give(isl_union_map_apply_range(BeforeFirstWriteEltDom.take(),
-                                          AllReadValInst.copy()));
+    return give(isl_union_map_apply_range(BeforeFirstWriteEltDom.take(), AllReadValInst.copy()));
+#endif
   }
 
   /// Compute which value an array element stores at every instant.
   ///
   /// @return { [Element[] -> Zone[]] -> ValInst[] }
-  isl::union_map computeKnown() const {
-    auto KnownFromMustWrites = computeKnownFromMustWrites();
-    auto KnownFromReads = computeKnownFromLoad();
-    auto KnownFromInit = computeKnownFromInit();
+  isl::union_map computeKnownMap(bool FromWrite, bool FromRead, bool FromInit) const {
+	  auto Result = makeEmptyUnionMap();
 
-    return KnownFromMustWrites.unite(KnownFromReads).unite(KnownFromInit);
+	  if (FromWrite) 
+		  Result = Result.unite(computeKnownFromMustWrites());
+	  
+	  if (FromRead)
+		  Result = Result.unite(computeKnownFromLoad());
+
+	  if (FromInit)
+		  Result = Result.unite(computeKnownFromInit());
+
+	  return Result;
   }
 };
 
@@ -2986,7 +3004,7 @@ public:
       computeCommon();
 
       EltUnused = computeLifetime();
-      EltKnown = computeKnown();
+      EltKnown = computeKnownMap(true, false, false);
       EltWritten = computeWritten();
     }
     DeLICMAnalyzed++;
@@ -3635,37 +3653,31 @@ public:
       return false;
     }
 
+	isl_ctx_reset_error(IslCtx.get());
     {
       IslMaxOperationsGuard MaxOpGuard(IslCtx.get(), KnownMaxOps);
 
       computeCommon();
-
-      // { [Element[] -> Zone[]] -> ValInst[] }
-      MustKnown = computeKnownFromMustWrites();
-
-      // { [Element[] -> Zone[]] -> ValInst[] }
-      KnownFromLoad = computeKnownFromLoad();
-
-      // { [Element[] -> Zone[]] -> ValInst[] }
-      Known = give(isl_union_map_union(KnownFromLoad.copy(), MustKnown.copy()));
+	  Known = computeKnownMap(true, true, true);
       simplify(Known);
     }
 
-    if (isl_ctx_last_error(IslCtx.get()) == isl_error_quota) {
+    if (!Known) {
+		assert(isl_ctx_last_error(IslCtx.get()) == isl_error_quota);
       KnownOutOfQuota++;
       DEBUG(dbgs() << "DeLICM analysis exceeded max_operations\n");
       return false;
     }
 
     KnownAnalyzed++;
-    DEBUG(dbgs() << "Known from must writes: " << MustKnown << "\n");
-    DEBUG(dbgs() << "Known from load: " << KnownFromLoad << "\n");
+    //DEBUG(dbgs() << "Known from must writes: " << MustKnown << "\n");
+    //DEBUG(dbgs() << "Known from load: " << KnownFromLoad << "\n");
     // DEBUG(dbgs() << "Known from init: " << KnownFromInit << "\n");
     DEBUG(dbgs() << "All known: " << Known << "\n");
 
-    // If maxops is enabled and Known is nullptr, we exceeded the operations
-    // limit somewhere during the computation.
-    return KnownMaxOps == 0 || !!Known;
+ 
+   
+    return true;
   }
 
   /// Try to redirect all scalar reads in the scop that to array elements that
