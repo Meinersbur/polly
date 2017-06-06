@@ -735,7 +735,7 @@ MemoryAccess *ScopBuilder::addMemoryAccess(
     AccType = MemoryAccess::MAY_WRITE;
 
   auto *Access = new MemoryAccess(Stmt, Inst, AccType, BaseAddress, ElementType,
-                                  Affine, Subscripts, Sizes, AccessValue, Kind);
+                                  Affine, Subscripts, Sizes, AccessValue, Kind, Kind!=MemoryKind::Array);
 
   scop->addAccessFunction(Access);
   Stmt->addAccess(Access);

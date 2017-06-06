@@ -729,6 +729,7 @@ std::string MemoryAccess::getNewAccessRelationStr() const {
   return stringFromIslObj(NewAccessRelation);
 }
 
+#if 0
 bool polly::MemoryAccess::isImplicit() const {
   if (isOriginalScalarKind())
     return true;
@@ -750,6 +751,7 @@ bool polly::MemoryAccess::isImplicit() const {
 #endif
   return false;
 }
+#endif
 
 __isl_give isl_basic_map *
 MemoryAccess::createBasicAccessMap(ScopStmt *Statement) {
@@ -1047,13 +1049,13 @@ MemoryAccess::MemoryAccess(ScopStmt *Stmt, Instruction *AccessInst,
                            Type *ElementType, bool Affine,
                            ArrayRef<const SCEV *> Subscripts,
                            ArrayRef<const SCEV *> Sizes, Value *AccessValue,
-                           MemoryKind Kind)
+                           MemoryKind Kind, bool IsImplicit)
     : Kind(Kind), AccType(AccType), RedType(RT_NONE), Statement(Stmt),
       InvalidDomain(nullptr), BaseAddr(BaseAddress), ElementType(ElementType),
       Sizes(Sizes.begin(), Sizes.end()), AccessInstruction(AccessInst),
       AccessValue(AccessValue), IsAffine(Affine),
       Subscripts(Subscripts.begin(), Subscripts.end()), AccessRelation(nullptr),
-      NewAccessRelation(nullptr), FAD(nullptr) {
+      NewAccessRelation(nullptr), FAD(nullptr), IsImplicit(IsImplicit) {
   static const std::string TypeStrings[] = {"", "_Read", "_Write", "_MayWrite"};
   const std::string Access = TypeStrings[AccType] + utostr(Stmt->size());
 
@@ -1066,7 +1068,7 @@ MemoryAccess::MemoryAccess(ScopStmt *Stmt, AccessType AccType,
     : Kind(MemoryKind::Array), AccType(AccType), RedType(RT_NONE),
       Statement(Stmt), InvalidDomain(nullptr), AccessInstruction(nullptr),
       IsAffine(true), AccessRelation(nullptr), NewAccessRelation(AccRel),
-      FAD(nullptr) {
+      FAD(nullptr), IsImplicit(false) {
   auto *ArrayInfoId = isl_map_get_tuple_id(NewAccessRelation, isl_dim_out);
   auto *SAI = ScopArrayInfo::getFromId(ArrayInfoId);
   Sizes.push_back(nullptr);

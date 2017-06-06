@@ -595,7 +595,7 @@ void BlockGenerator::generateScalarLoads(
     ScopStmt &Stmt, LoopToScevMapT &LTS, ValueMapT &BBMap,
     __isl_keep isl_id_to_ast_expr *NewAccesses) {
   for (MemoryAccess *MA : Stmt) {
-    if (MA->isOriginalArrayKind() || MA->isWrite())
+    if (!MA->isImplicit()|| MA->isWrite())
       continue;
 
 #ifndef NDEBUG
@@ -863,7 +863,7 @@ void BlockGenerator::generateScalarStores(
          "the RegionGenerator");
 
   for (MemoryAccess *MA : Stmt) {
-    if (MA->isOriginalArrayKind() || MA->isRead())
+    if (MA->isImplicit() || MA->isRead())
       continue;
 
     isl::set AccDom = give(isl_map_domain(MA->getAccessRelation()));
@@ -896,7 +896,6 @@ void BlockGenerator::generateScalarStores(
                            Builder.GetInsertBlock())) &&
              "Domination violation");
       Builder.CreateStore(Val, Address);
-
     });
   }
 }

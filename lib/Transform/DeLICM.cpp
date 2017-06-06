@@ -2601,7 +2601,7 @@ private:
           auto *WA = new MemoryAccess(
               IncomingStmt, cast<Instruction>(IncomingVal),
               MemoryAccess::MUST_WRITE, IncomingVal, IncomingVal->getType(),
-              true, {}, {}, IncomingVal, MemoryKind::Value);
+              true, {}, {}, IncomingVal, MemoryKind::Value, true);
           WA->buildAccessRelation(ValSAI);
           IncomingStmt->addAccess(WA);
           S->addAccessFunction(WA);
@@ -2612,7 +2612,7 @@ private:
 
         auto *RA = new MemoryAccess(ReadStmt, PHI, MemoryAccess::READ,
                                     IncomingVal, IncomingVal->getType(), true,
-                                    {}, {}, IncomingVal, MemoryKind::Value);
+                                    {}, {}, IncomingVal, MemoryKind::Value,true);
         RA->buildAccessRelation(ValSAI);
         ReadStmt->addAccess(RA);
         S->addAccessFunction(RA);
@@ -3325,7 +3325,7 @@ private:
                                                 MemoryKind::Value);
         auto *Access = new MemoryAccess(TargetStmt, nullptr, MemoryAccess::READ,
                                         UseVal, UseVal->getType(), true, {}, {},
-                                        UseVal, MemoryKind::Value);
+                                        UseVal, MemoryKind::Value, true);
         Access->buildAccessRelation(SAI);
         S->addAccessFunction(Access);
         TargetStmt->addAccess(Access);
@@ -3376,9 +3376,7 @@ private:
       }
 
       if (auto LI = dyn_cast<LoadInst>(Inst)) {
-        if (!canForwardTree(LI->getPointerOperand(), DefStmt, UseLoop,
-                            DefScatter, TargetStmt, DefToTargetMapping,
-                            Depth + 1, DoIt, ReuseMe))
+        if (!canForwardTree(LI->getPointerOperand(), DefStmt, UseLoop, DefScatter, TargetStmt, DefToTargetMapping, Depth + 1, DoIt, ReuseMe))
           return false;
 
         auto *RA = &DefStmt->getArrayAccessFor(LI);
@@ -3418,9 +3416,7 @@ private:
                 // Dummy access, to be replaced anyway.
                 Subscripts.push_back(nullptr);
               }
-              Access = new MemoryAccess(
-                  TargetStmt, LI, MemoryAccess::READ, SAI->getBasePtr(),
-                  Inst->getType(), true, {}, Sizes, Inst, MemoryKind::Array);
+              Access = new MemoryAccess(TargetStmt, LI, MemoryAccess::READ, SAI->getBasePtr(), Inst->getType(), true, {}, Sizes, Inst, MemoryKind::Array, true);
               S->addAccessFunction(Access);
               TargetStmt->addAccess(Access);
             }
@@ -3435,7 +3431,7 @@ private:
         return true;
       }
 
-      if (Inst->mayHaveSideEffects())
+      if (Inst->mayHaveSideEffects()) //TODO: isSpeculativelyExecutable
         return false;
 
       for (auto OpVal : Inst->operand_values()) {

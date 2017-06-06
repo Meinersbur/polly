@@ -444,8 +444,8 @@ class MemoryAccess {
   friend class ScopStmt;
 
 public:
-  bool isImplicit() const;
-  bool isExplicit() const { return !isImplicit(); }
+	bool isImplicit() const { return IsImplicit; }
+  bool isExplicit() const { return !IsImplicit; }
 
   /// The access type of a memory access
   ///
@@ -502,6 +502,8 @@ private:
   /// Whether it a reading or writing access, and if writing, whether it
   /// is conditional (MAY_WRITE).
   enum AccessType AccType;
+
+
 
   /// Reduction type for reduction like accesses, RT_NONE otherwise
   ///
@@ -598,6 +600,8 @@ private:
   /// Are all the subscripts affine expression?
   bool IsAffine;
 
+
+
   /// Subscript expression for each dimension.
   SmallVector<const SCEV *, 4> Subscripts;
 
@@ -639,6 +643,8 @@ private:
   /// into a Fortran array. FAD for "Fortran Array Descriptor"
   AssertingVH<Value> FAD;
   // @}
+
+  bool IsImplicit;
 
   __isl_give isl_basic_map *createBasicAccessMap(ScopStmt *Statement);
 
@@ -726,12 +732,12 @@ public:
   /// @param AccType    Whether read or write access.
   /// @param IsAffine   Whether the subscripts are affine expressions.
   /// @param Kind       The kind of memory accessed.
-  /// @param Subscripts Subscipt expressions
+  /// @param Subscripts Subscript expressions
   /// @param Sizes      Dimension lengths of the accessed array.
   MemoryAccess(ScopStmt *Stmt, Instruction *AccessInst, AccessType AccType,
                Value *BaseAddress, Type *ElemType, bool Affine,
                ArrayRef<const SCEV *> Subscripts, ArrayRef<const SCEV *> Sizes,
-               Value *AccessValue, MemoryKind Kind);
+               Value *AccessValue, MemoryKind Kind, bool IsImplicit);
 
   /// Create a new MemoryAccess that corresponds to @p AccRel.
   ///
@@ -843,7 +849,7 @@ public:
   /// Get the original base address of this access (e.g. A for A[i+j]) when
   /// detected.
   ///
-  /// This adress may differ from the base address referenced by the Original
+  /// This address may differ from the base address referenced by the Original
   /// ScopArrayInfo to which this array belongs, as this memory access may
   /// have been unified to a ScopArray which has a different but identically
   /// valued base pointer in case invariant load hoisting is enabled.

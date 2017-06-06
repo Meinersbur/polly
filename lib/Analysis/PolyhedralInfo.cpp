@@ -127,10 +127,7 @@ __isl_give isl_union_map *PolyhedralInfo::getScheduleForLoop(const Scop *S,
   assert(CurrDim >= 0 && "Loop in region should have at least depth one");
 
   for (auto *BB : L->blocks()) {
-
-
     auto *SS = S->getStmtFor(BB);
-	L->contains();
     if (!SS)
       continue;
 
