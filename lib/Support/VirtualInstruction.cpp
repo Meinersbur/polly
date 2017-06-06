@@ -443,10 +443,20 @@ static void markReachable(Scop *S, ArrayRef<VirtualInstruction> Roots,
     if (!InsertResult.second)
       continue;
 
+	if (Inst->getName().startswith("mul16.i")) {
+		int a = 0;
+	}
+
+	if (Inst->getName() == "tmp62") {
+		int b = 0;
+	}
+
     // This will also cause VInst to be appended to InstList later.
     WorklistTree.emplace_back();
     auto &NewLeaf = WorklistTree.back();
     NewLeaf.push_back(VInst);
+
+	//TODO: Use VirtualUse
 
     // if (isa<PHINode>(Inst)  && Stmt->getEntryBlock() == Inst->getParent()) {
     //	  auto SAI = S->getScopArrayInfo(Inst, ScopArrayInfo::MK_PHI);
@@ -455,21 +465,29 @@ static void markReachable(Scop *S, ArrayRef<VirtualInstruction> Roots,
     //	  WorklistMA.push_back(MA);
     // } else {
     bool hasMA = false;
+	MemoryAccess *FoundMA = nullptr;
     for (auto *MA : *Stmt) {
-      if (MA->isOriginalScalarKind() &&
-          !(isa<PHINode>(Inst) && MA->isRead() && MA->isPHIKind()))
+      if (MA->isOriginalScalarKind() && !(isa<PHINode>(Inst) && MA->isRead() && MA->isPHIKind()))
         continue;
       if (MA->getAccessInstruction() != Inst)
         continue;
       WorklistMA.push_back(MA);
       hasMA = true;
+
+
+		  FoundMA = MA;
     }
 
     if (isa<PHINode>(Inst) && hasMA)
       continue;
 
+
     for (auto &Use : VInst.operands()) {
-      auto VUse = VInst.getVirtualUse(Use, LI);
+		auto UseInst = dyn_cast<Instruction>(Use.get());
+		if (!UseInst)
+			continue;
+
+      auto VUse = VInst.getIntraVirtualUse(UseInst);
       AddToWorklist(VUse);
     }
   }

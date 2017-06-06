@@ -863,7 +863,7 @@ void BlockGenerator::generateScalarStores(
          "the RegionGenerator");
 
   for (MemoryAccess *MA : Stmt) {
-    if (MA->isImplicit() || MA->isRead())
+    if (!MA->isImplicit() || MA->isRead())
       continue;
 
     isl::set AccDom = give(isl_map_domain(MA->getAccessRelation()));

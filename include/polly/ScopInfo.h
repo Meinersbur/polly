@@ -1499,7 +1499,13 @@ public:
 
     if (auto *InputMA = lookupValueReadOf(Val))
       return InputMA;
-
+#if 0
+	if (auto LI = dyn_cast<LoadInst>(Val)) {
+		auto RA = getArrayAccessOrNULLFor(LI);
+		if (RA && RA->isImplicit())
+			return RA;
+	}
+#endif
     return nullptr;
   }
 

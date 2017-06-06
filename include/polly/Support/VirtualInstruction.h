@@ -73,6 +73,7 @@ public:
 /// fine with them), but to promote consistent handling of values used in
 /// statements.
 class VirtualUse {
+	friend class VirtualInstruction;
 public:
   /// The different types of uses. Handling usually differentiates a lot between
   /// these; one can use a switch to handle each case (and get warned by the
@@ -242,6 +243,11 @@ public:
     return VirtualUse::create(Stmt->getParent(), U, LI, Virtual);
     //  return VirtualUse::create(Stmt, U.get(),
     //  LI->getLoopFor(Inst->getParent()), Stmt->getParent()->getSE());
+  }
+
+  VirtualUse getIntraVirtualUse(Instruction *Val) const {
+	  return VirtualUse::create(Stmt->getParent(), Stmt,Stmt->getSurroundingLoop(),  Val, true);
+	 // return VirtualUse(Stmt, Val, VirtualUse::Intra, nullptr, nullptr);
   }
 
   VirtualUse getVirtualUse(int i, LoopInfo *LI) const {

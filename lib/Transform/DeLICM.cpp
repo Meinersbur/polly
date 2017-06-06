@@ -2598,10 +2598,7 @@ private:
 
         // Ensure write of value if it does not exist yet.
         if (!DefUse.getValueDef(ValSAI) && DefStmt) {
-          auto *WA = new MemoryAccess(
-              IncomingStmt, cast<Instruction>(IncomingVal),
-              MemoryAccess::MUST_WRITE, IncomingVal, IncomingVal->getType(),
-              true, {}, {}, IncomingVal, MemoryKind::Value, true);
+          auto *WA = new MemoryAccess(IncomingStmt, cast<Instruction>(IncomingVal), MemoryAccess::MUST_WRITE, IncomingVal, IncomingVal->getType(), true, {}, {}, IncomingVal, MemoryKind::Value, true);
           WA->buildAccessRelation(ValSAI);
           IncomingStmt->addAccess(WA);
           S->addAccessFunction(WA);
@@ -2610,9 +2607,7 @@ private:
           assert(DefUse.getValueDef(ValSAI)->getStatement() == DefStmt);
         }
 
-        auto *RA = new MemoryAccess(ReadStmt, PHI, MemoryAccess::READ,
-                                    IncomingVal, IncomingVal->getType(), true,
-                                    {}, {}, IncomingVal, MemoryKind::Value,true);
+        auto *RA = new MemoryAccess(ReadStmt, PHI, MemoryAccess::READ,IncomingVal, IncomingVal->getType(), true, {}, {}, IncomingVal, MemoryKind::Value,true);
         RA->buildAccessRelation(ValSAI);
         ReadStmt->addAccess(RA);
         S->addAccessFunction(RA);
@@ -3309,6 +3304,12 @@ private:
 
     auto VUse = VirtualUse::create(UseStmt, UseLoop, UseVal);
 
+	// { DomainDef[] -> Scatter[] }
+	isl::map DefScatter;
+
+	// { DomainDef[] -> DomainTarget[] }
+	isl::map DefToTargetMapping;
+
     switch (VUse.getKind()) {
     case VirtualUse::Constant:
     case VirtualUse::Synthesizable:
@@ -3334,8 +3335,12 @@ private:
       return true;
 
     case VirtualUse::Intra:
-    case VirtualUse::Inter:
+		DefScatter = UseScatter;
+		DefToTargetMapping = UseToTargetMapping;
+		assert(DefScatter && DefToTargetMapping);
 
+		LLVM_FALLTHROUGH;
+    case VirtualUse::Inter:
       auto Inst = cast<Instruction>(UseVal);
       if (Inst->mayHaveSideEffects() &&
           !isa<LoadInst>(Inst)) // isSafeToSpeculativelyExecute()???
@@ -3344,18 +3349,7 @@ private:
       auto DefStmt = S->getStmtFor(Inst);
       assert(DefStmt);
       // auto DefLoop = LI->getLoopFor(Inst->getParent());
-
-      // { DomainDef[] -> Scatter[] }
-      isl::map DefScatter;
-
-      // { DomainDef[] -> DomainTarget[] }
-      isl::map DefToTargetMapping;
-
-      if (UseStmt == DefStmt) {
-        DefScatter = UseScatter;
-        DefToTargetMapping = UseToTargetMapping;
-      } else {
-
+	  if (DefScatter.is_null() || DefToTargetMapping.is_null()) {
         // { DomainDef[] -> Scatter[] }
         DefScatter = getScatterFor(DefStmt);
 
@@ -3416,7 +3410,7 @@ private:
                 // Dummy access, to be replaced anyway.
                 Subscripts.push_back(nullptr);
               }
-              Access = new MemoryAccess(TargetStmt, LI, MemoryAccess::READ, SAI->getBasePtr(), Inst->getType(), true, {}, Sizes, Inst, MemoryKind::Array, true);
+              Access = new MemoryAccess(TargetStmt, LI, MemoryAccess::READ, SAI->getBasePtr(), Inst->getType(), true, {}, Sizes, Inst, MemoryKind::Array, false);
               S->addAccessFunction(Access);
               TargetStmt->addAccess(Access);
             }
@@ -3455,9 +3449,9 @@ private:
     auto Identity = give(isl_map_identity(
         isl_space_map_from_domain_and_range(DomSpace.copy(), DomSpace.copy())));
     auto Scatter = getScatterFor(Stmt);
-
+	MemoryAccess *DontReuse= nullptr;
     if (!canForwardTree(RA->getAccessValue(), Stmt, InLoop, Scatter, Stmt,
-                        Identity, 0, false, RA))
+                        Identity, 0, false, DontReuse))
       return false;
 
     bool Success = canForwardTree(RA->getAccessValue(), Stmt, InLoop, Scatter,
