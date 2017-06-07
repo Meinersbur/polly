@@ -1,4 +1,4 @@
-; RUN: opt %loadPolly -polly-flatten-schedule -polly-delicm -polly-scops -analyze < %s | FileCheck %s
+; RUN: opt %loadPolly -polly-flatten-schedule -polly-delicm -polly-scops -analyze < %s
 ;
 target datalayout = "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32"
 

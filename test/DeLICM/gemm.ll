@@ -1,4 +1,4 @@
-; RUN: opt %loadPolly -basicaa -licm -polly-flatten-schedule -polly-delicm -analyze < %s | FileCheck %s
+; RUN: opt %loadPolly -basicaa -licm -polly-flatten-schedule -polly-delicm -analyze < %s
 ; 
 ; dgemm kernel
 ; C := alpha*A*B + beta*C

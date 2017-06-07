@@ -595,7 +595,7 @@ void BlockGenerator::generateScalarLoads(
     ScopStmt &Stmt, LoopToScevMapT &LTS, ValueMapT &BBMap,
     __isl_keep isl_id_to_ast_expr *NewAccesses) {
   for (MemoryAccess *MA : Stmt) {
-    if (!MA->isImplicit()|| MA->isWrite())
+    if (!MA->isImplicit() || MA->isWrite())
       continue;
 
 #ifndef NDEBUG

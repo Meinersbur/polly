@@ -11,7 +11,9 @@
 //
 //===----------------------------------------------------------------------===//
 #include "polly/Support/GICHelper.h"
+#include "polly/Options.h"
 #include "llvm/IR/Value.h"
+#include "llvm/Support/CommandLine.h"
 #include "isl/aff.h"
 #include "isl/map.h"
 #include "isl/schedule.h"
@@ -20,16 +22,15 @@
 #include "isl/union_map.h"
 #include "isl/union_set.h"
 #include "isl/val.h"
-#include "llvm/Support/CommandLine.h"
-#include "polly/Options.h"
 
 #include <climits>
 
 using namespace llvm;
 
-static cl::opt<bool> UseDisambiguatedNames("polly-use-ll-names",
-	cl::desc("Use names as when printed to .ll file"),
-	cl::init(false), cl::cat(PollyCategory));
+static cl::opt<bool>
+    UseDisambiguatedNames("polly-use-ll-names",
+                          cl::desc("Use names as when printed to .ll file"),
+                          cl::init(false), cl::cat(PollyCategory));
 
 __isl_give isl_val *polly::isl_valFromAPInt(isl_ctx *Ctx, const APInt Int,
                                             bool IsSigned) {
@@ -206,7 +207,7 @@ std::string polly::getIslCompatibleName(const std::string &Prefix,
   std::string S = Prefix;
 
   if (UseDisambiguatedNames) {
-	  S +=  Name;
+    S += Name;
   } else if (UseInstructionNames)
     S += std::string("_") + Name;
   else
@@ -225,12 +226,12 @@ std::string polly::getIslCompatibleName(const std::string &Prefix,
   std::string ValStr;
 
   if (UseDisambiguatedNames) {
-	  llvm::raw_string_ostream OS(ValStr);
-	  Val->printAsOperand(OS, false);
-	  OS.flush();
-	  if (ValStr[0] == '%' || ValStr[1] == '@')
-		  ValStr = ValStr.substr(1);
-  }  else if (UseInstructionNames && Val->hasName())
+    llvm::raw_string_ostream OS(ValStr);
+    Val->printAsOperand(OS, false);
+    OS.flush();
+    if (ValStr[0] == '%' || ValStr[1] == '@')
+      ValStr = ValStr.substr(1);
+  } else if (UseInstructionNames && Val->hasName())
     ValStr = std::string("_") + std::string(Val->getName());
   else
     ValStr = std::to_string(Number);

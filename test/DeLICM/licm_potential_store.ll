@@ -1,14 +1,10 @@
 ; RUN: opt %loadPolly -basicaa -sroa -instcombine -simplifycfg -tailcallopt \
 ; RUN:    -simplifycfg -reassociate -loop-rotate -instcombine -indvars \
-; RUN:    -polly-prepare -polly-delicm -analyze < %s \
-; RUN:    \
-; RUN:     | FileCheck %s --check-prefix=NOLICM
+; RUN:    -polly-prepare -polly-delicm -analyze < %s
 ;
 ; RUN: opt %loadPolly -basicaa -sroa -instcombine -simplifycfg -tailcallopt \
 ; RUN:    -simplifycfg -reassociate -loop-rotate -instcombine -indvars -licm \
-; RUN:    -polly-prepare -polly-delicm -analyze < %s \
-; RUN:    \
-; RUN:     | FileCheck %s --check-prefix=LICM
+; RUN:    -polly-prepare -polly-delicm -analyze < %s
 ;
 ;    void foo(int n, float A[static const restrict n], float x) {
 ;      //      (0)

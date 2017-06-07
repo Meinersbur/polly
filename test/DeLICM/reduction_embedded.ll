@@ -1,4 +1,4 @@
-; RUN: opt %loadPolly -polly-flatten-schedule -polly-delicm -analyze < %s | FileCheck %s
+; RUN: opt %loadPolly -polly-flatten-schedule -polly-delicm -analyze < %s
 ;
 ;    void func(double *A {
 ;      for (int j = 0; j < 1; j += 1) { /* outer */

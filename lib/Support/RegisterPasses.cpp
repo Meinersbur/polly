@@ -230,10 +230,10 @@ static cl::opt<bool> EnablePruneUnprofitable(
     cl::desc("Bail out on unprofitable SCoPs before rescheduling"), cl::Hidden,
     cl::init(true), cl::cat(PollyCategory));
 
-static cl::opt<bool> EnableInstNamer(
-	"polly-enable-instnamer",
-	cl::desc("Run InstNamer before Polly"), cl::Hidden,
-	cl::init(false), cl::cat(PollyCategory));
+static cl::opt<bool> EnableInstNamer("polly-enable-instnamer",
+                                     cl::desc("Run InstNamer before Polly"),
+                                     cl::Hidden, cl::init(false),
+                                     cl::cat(PollyCategory));
 
 namespace polly {
 void initializePollyPasses(PassRegistry &Registry) {
@@ -293,8 +293,8 @@ void initializePollyPasses(PassRegistry &Registry) {
 ///
 /// Polly supports the isl internal code generator.
 void registerPollyPasses(llvm::legacy::PassManagerBase &PM) {
-	if (EnableInstNamer)
-		PM.add(llvm::createInstructionNamerPass());
+  if (EnableInstNamer)
+    PM.add(llvm::createInstructionNamerPass());
 
   if (DumpBefore)
     PM.add(polly::createDumpModulePass("-before", true));

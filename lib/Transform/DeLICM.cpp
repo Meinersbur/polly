@@ -1766,7 +1766,8 @@ public:
         give(isl_union_map_range_product(EltZoneElt.copy(), Reads.copy()));
 
     // { [Element[] -> Scatter[]] -> ValInst[] }
-    auto ScatterKnown = give(isl_union_map_apply_range(ReadsElt.copy(), AllReadValInst.copy()));
+    auto ScatterKnown =
+        give(isl_union_map_apply_range(ReadsElt.copy(), AllReadValInst.copy()));
 
     // { [Element[] -> ReachDefId[]] -> ValInst[] }
     auto DefidKnown = give(isl_union_map_reverse(isl_union_map_apply_domain(
@@ -1783,44 +1784,53 @@ public:
   ///
   /// @return { [Element[] -> Zone[]] -> ValInst[] }
   isl::union_map computeKnownFromInit() const {
-	  // { Element[] }
-	  auto NotWrittenElts = give(isl_union_set_subtract(isl_union_map_range(AllReads.copy()),  isl_union_map_range(AllWrites.copy())));
+    // { Element[] }
+    auto NotWrittenElts =
+        give(isl_union_set_subtract(isl_union_map_range(AllReads.copy()),
+                                    isl_union_map_range(AllWrites.copy())));
 
-	  // { Element[] -> Zone[] }
-	  auto NeverWritten = give(isl_union_map_from_domain_and_range(NotWrittenElts.take(),isl_union_set_from_set(isl_set_universe(ScatterSpace.copy()))));
+    // { Element[] -> Zone[] }
+    auto NeverWritten = give(isl_union_map_from_domain_and_range(
+        NotWrittenElts.take(),
+        isl_union_set_from_set(isl_set_universe(ScatterSpace.copy()))));
 
+    // { Element[] -> Scatter[] }
+    auto WriteSched = give(isl_union_map_apply_range(
+        isl_union_map_reverse(AllWrites.copy()), Schedule.copy()));
+    auto FirstWrites = give(isl_union_map_lexmin(WriteSched.take()));
 
-	  // { Element[] -> Scatter[] }
-	  auto WriteSched = give(isl_union_map_apply_range(isl_union_map_reverse(AllWrites.copy()), Schedule.copy()));
-	  auto FirstWrites = give(isl_union_map_lexmin(WriteSched.take()));
+    // { Element[] -> Zone[] }
+    // Reinterpretation of Scatter[] as Zone[]: The unit-zone before the write
+    // timepoint is before the write.
+    auto BeforeFirstWrite = beforeScatter(FirstWrites, false);
 
-	  // { Element[] -> Zone[] }
-	  // Reinterpretation of Scatter[] as Zone[]: The unit-zone before the write timepoint is before the write.
-	  auto BeforeFirstWrite = beforeScatter(FirstWrites, false);
+    // { Element[] -> Zone[] }
+    auto BeforeAnyWrite =
+        give(isl_union_map_union(BeforeFirstWrite.take(), NeverWritten.take()));
 
-	  // { Element[] -> Zone[] }
-	  auto BeforeAnyWrite = give(isl_union_map_union(BeforeFirstWrite.take(), NeverWritten.take()));
+    // { [Element[] -> Zone[]] -> ValInst[] }
+    // The ValInst[] of an initial value is the value itself.
+    // auto Result = give( isl_union_map_domain_map(BeforeAnyWrite.take()));
 
-	  // { [Element[] -> Zone[]] -> ValInst[] }
-	  // The ValInst[] of an initial value is the value itself.
-	 // auto Result = give( isl_union_map_domain_map(BeforeAnyWrite.take()));
+    // { [Element[] -> Zone[]] -> Zone[] }
+    // auto ZoneScatter = give(isl_union_map_range_map(BeforeAnyWrite.take()));
 
-	 // { [Element[] -> Zone[]] -> Zone[] }
-	  //auto ZoneScatter = give(isl_union_map_range_map(BeforeAnyWrite.take()));
+    // { [Element[] -> Zone[]] -> Scatter[] }
+    // auto LoadInitVals = convertZoneToTimepoints(ZoneScatter, isl::dim::out,
+    // true, true);
 
-	  // { [Element[] -> Zone[]] -> Scatter[] }
-	  //auto LoadInitVals = convertZoneToTimepoints(ZoneScatter, isl::dim::out, true, true);
+    // { [Element[] -> Zone[]] -> [Element[] -> Scatter[]] }
+    auto LoadInitVals2 =
+        convertZoneToTimepoints(makeIdentityMap(BeforeAnyWrite.wrap(), true),
+                                isl::dim::out, true, true);
 
-	  // { [Element[] -> Zone[]] -> [Element[] -> Scatter[]] }
-	  auto LoadInitVals2 = convertZoneToTimepoints(makeIdentityMap(BeforeAnyWrite.wrap(), true), isl::dim::out, true, true);
+    // { [Element[] -> Scatter[]] -> ValInst[] }
+    auto AllReadScatterValInst = applyDomainRange(AllReadValInst, Schedule);
 
-	  // { [Element[] -> Scatter[]] -> ValInst[] }
-	  auto AllReadScatterValInst = applyDomainRange(AllReadValInst, Schedule);
+    // { [Element[] -> Zone[]] -> ValInst[] }
+    auto Result = LoadInitVals2.apply_range(AllReadScatterValInst);
 
-	  // { [Element[] -> Zone[]] -> ValInst[] }
-	  auto Result = LoadInitVals2.apply_range(AllReadScatterValInst);
-
-	  return Result;
+    return Result;
 
 #if 0
     // { [Element[] -> Zone[]] -> Zone[] }
@@ -1846,19 +1856,20 @@ public:
   /// Compute which value an array element stores at every instant.
   ///
   /// @return { [Element[] -> Zone[]] -> ValInst[] }
-  isl::union_map computeKnownMap(bool FromWrite, bool FromRead, bool FromInit) const {
-	  auto Result = makeEmptyUnionMap();
+  isl::union_map computeKnownMap(bool FromWrite, bool FromRead,
+                                 bool FromInit) const {
+    auto Result = makeEmptyUnionMap();
 
-	  if (FromWrite) 
-		  Result = Result.unite(computeKnownFromMustWrites());
-	  
-	  if (FromRead)
-		  Result = Result.unite(computeKnownFromLoad());
+    if (FromWrite)
+      Result = Result.unite(computeKnownFromMustWrites());
 
-	  if (FromInit)
-		  Result = Result.unite(computeKnownFromInit());
+    if (FromRead)
+      Result = Result.unite(computeKnownFromLoad());
 
-	  return Result;
+    if (FromInit)
+      Result = Result.unite(computeKnownFromInit());
+
+    return Result;
   }
 };
 
@@ -2598,7 +2609,10 @@ private:
 
         // Ensure write of value if it does not exist yet.
         if (!DefUse.getValueDef(ValSAI) && DefStmt) {
-          auto *WA = new MemoryAccess(IncomingStmt, cast<Instruction>(IncomingVal), MemoryAccess::MUST_WRITE, IncomingVal, IncomingVal->getType(), true, {}, {}, IncomingVal, MemoryKind::Value, true);
+          auto *WA = new MemoryAccess(
+              IncomingStmt, cast<Instruction>(IncomingVal),
+              MemoryAccess::MUST_WRITE, IncomingVal, IncomingVal->getType(),
+              true, {}, {}, IncomingVal, MemoryKind::Value, true);
           WA->buildAccessRelation(ValSAI);
           IncomingStmt->addAccess(WA);
           S->addAccessFunction(WA);
@@ -2607,7 +2621,10 @@ private:
           assert(DefUse.getValueDef(ValSAI)->getStatement() == DefStmt);
         }
 
-        auto *RA = new MemoryAccess(ReadStmt, PHI, MemoryAccess::READ,IncomingVal, IncomingVal->getType(), true, {}, {}, IncomingVal, MemoryKind::Value,true);
+        auto *RA =
+            new MemoryAccess(ReadStmt, PHI, MemoryAccess::READ, IncomingVal,
+                             IncomingVal->getType(), true, {}, {}, IncomingVal,
+                             MemoryKind::Value, true);
         RA->buildAccessRelation(ValSAI);
         ReadStmt->addAccess(RA);
         S->addAccessFunction(RA);
@@ -2880,12 +2897,11 @@ private:
             if (!FoundAny)
               ProcessAllIncoming(PHIWrite->getStatement());
           }
+          AnyMapped = true;
         } else if (tryComputePHI(SAI)) {
           auto *PHIAcc = DefUse.getPHIRead(SAI);
           ProcessAllIncoming(PHIAcc->getStatement());
         }
-
-        AnyMapped = true;
       }
     }
 
@@ -3304,11 +3320,11 @@ private:
 
     auto VUse = VirtualUse::create(UseStmt, UseLoop, UseVal);
 
-	// { DomainDef[] -> Scatter[] }
-	isl::map DefScatter;
+    // { DomainDef[] -> Scatter[] }
+    isl::map DefScatter;
 
-	// { DomainDef[] -> DomainTarget[] }
-	isl::map DefToTargetMapping;
+    // { DomainDef[] -> DomainTarget[] }
+    isl::map DefToTargetMapping;
 
     switch (VUse.getKind()) {
     case VirtualUse::Constant:
@@ -3335,11 +3351,11 @@ private:
       return true;
 
     case VirtualUse::Intra:
-		DefScatter = UseScatter;
-		DefToTargetMapping = UseToTargetMapping;
-		assert(DefScatter && DefToTargetMapping);
+      DefScatter = UseScatter;
+      DefToTargetMapping = UseToTargetMapping;
+      assert(DefScatter && DefToTargetMapping);
 
-		LLVM_FALLTHROUGH;
+      LLVM_FALLTHROUGH;
     case VirtualUse::Inter:
       auto Inst = cast<Instruction>(UseVal);
       if (Inst->mayHaveSideEffects() &&
@@ -3349,7 +3365,7 @@ private:
       auto DefStmt = S->getStmtFor(Inst);
       assert(DefStmt);
       // auto DefLoop = LI->getLoopFor(Inst->getParent());
-	  if (DefScatter.is_null() || DefToTargetMapping.is_null()) {
+      if (DefScatter.is_null() || DefToTargetMapping.is_null()) {
         // { DomainDef[] -> Scatter[] }
         DefScatter = getScatterFor(DefStmt);
 
@@ -3370,7 +3386,9 @@ private:
       }
 
       if (auto LI = dyn_cast<LoadInst>(Inst)) {
-        if (!canForwardTree(LI->getPointerOperand(), DefStmt, UseLoop, DefScatter, TargetStmt, DefToTargetMapping, Depth + 1, DoIt, ReuseMe))
+        if (!canForwardTree(LI->getPointerOperand(), DefStmt, UseLoop,
+                            DefScatter, TargetStmt, DefToTargetMapping,
+                            Depth + 1, DoIt, ReuseMe))
           return false;
 
         auto *RA = &DefStmt->getArrayAccessFor(LI);
@@ -3410,7 +3428,10 @@ private:
                 // Dummy access, to be replaced anyway.
                 Subscripts.push_back(nullptr);
               }
-              Access = new MemoryAccess(TargetStmt, LI, MemoryAccess::READ, SAI->getBasePtr(), Inst->getType(), true, {}, Sizes, Inst, MemoryKind::Array, false);
+              Access =
+                  new MemoryAccess(TargetStmt, LI, MemoryAccess::READ,
+                                   SAI->getBasePtr(), Inst->getType(), true, {},
+                                   Sizes, Inst, MemoryKind::Array, false);
               S->addAccessFunction(Access);
               TargetStmt->addAccess(Access);
             }
@@ -3425,7 +3446,7 @@ private:
         return true;
       }
 
-      if (Inst->mayHaveSideEffects()) //TODO: isSpeculativelyExecutable
+      if (Inst->mayHaveSideEffects()) // TODO: isSpeculativelyExecutable
         return false;
 
       for (auto OpVal : Inst->operand_values()) {
@@ -3449,7 +3470,7 @@ private:
     auto Identity = give(isl_map_identity(
         isl_space_map_from_domain_and_range(DomSpace.copy(), DomSpace.copy())));
     auto Scatter = getScatterFor(Stmt);
-	MemoryAccess *DontReuse= nullptr;
+    MemoryAccess *DontReuse = nullptr;
     if (!canForwardTree(RA->getAccessValue(), Stmt, InLoop, Scatter, Stmt,
                         Identity, 0, false, DontReuse))
       return false;
@@ -3643,30 +3664,28 @@ public:
       return false;
     }
 
-	isl_ctx_reset_error(IslCtx.get());
+    isl_ctx_reset_error(IslCtx.get());
     {
       IslMaxOperationsGuard MaxOpGuard(IslCtx.get(), KnownMaxOps);
 
       computeCommon();
-	  Known = computeKnownMap(true, true, true);
+      Known = computeKnownMap(true, true, true);
       simplify(Known);
     }
 
     if (!Known) {
-		assert(isl_ctx_last_error(IslCtx.get()) == isl_error_quota);
+      assert(isl_ctx_last_error(IslCtx.get()) == isl_error_quota);
       KnownOutOfQuota++;
       DEBUG(dbgs() << "DeLICM analysis exceeded max_operations\n");
       return false;
     }
 
     KnownAnalyzed++;
-    //DEBUG(dbgs() << "Known from must writes: " << MustKnown << "\n");
-    //DEBUG(dbgs() << "Known from load: " << KnownFromLoad << "\n");
+    // DEBUG(dbgs() << "Known from must writes: " << MustKnown << "\n");
+    // DEBUG(dbgs() << "Known from load: " << KnownFromLoad << "\n");
     // DEBUG(dbgs() << "Known from init: " << KnownFromInit << "\n");
     DEBUG(dbgs() << "All known: " << Known << "\n");
 
- 
-   
     return true;
   }
 

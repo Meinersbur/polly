@@ -446,7 +446,7 @@ class MemoryAccess {
   friend class ScopStmt;
 
 public:
-	bool isImplicit() const { return IsImplicit; }
+  bool isImplicit() const { return IsImplicit; }
   bool isExplicit() const { return !IsImplicit; }
 
   /// The access type of a memory access
@@ -504,8 +504,6 @@ private:
   /// Whether it a reading or writing access, and if writing, whether it
   /// is conditional (MAY_WRITE).
   enum AccessType AccType;
-
-
 
   /// Reduction type for reduction like accesses, RT_NONE otherwise
   ///
@@ -601,8 +599,6 @@ private:
 
   /// Are all the subscripts affine expression?
   bool IsAffine;
-
-
 
   /// Subscript expression for each dimension.
   SmallVector<const SCEV *, 4> Subscripts;
