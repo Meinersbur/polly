@@ -1508,7 +1508,7 @@ public:
   }
 
   /// Add @p Access to this statement's list of accesses.
-  void addAccess(MemoryAccess *Access);
+  void addAccess(MemoryAccess *Access, bool Preprend = false);
 
   /// Remove a MemoryAccess from this statement.
   ///
@@ -1537,6 +1537,10 @@ public:
 
   const std::vector<Instruction *> &getInstructions() const {
     return Instructions;
+  }
+
+  void prependInstrunction(Instruction *Inst) {
+    Instructions.insert(Instructions.begin(), Inst);
   }
 
   const char *getBaseName() const;
@@ -1572,7 +1576,7 @@ public:
   /// Print the ScopStmt.
   ///
   /// @param OS The output stream the ScopStmt is printed to.
-  void print(raw_ostream &OS) const;
+  void print(raw_ostream &OS, bool Reproducible = true) const;
 
   /// Print the instructions in ScopStmt.
   ///

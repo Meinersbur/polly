@@ -3385,6 +3385,10 @@ private:
         assert(getStmtOfMap(DefToTargetMapping, isl_dim_out) == TargetStmt);
       }
 
+      if (DoIt) {
+        UseStmt->prependInstrunction(Inst);
+      }
+
       if (auto LI = dyn_cast<LoadInst>(Inst)) {
         if (!canForwardTree(LI->getPointerOperand(), DefStmt, UseLoop,
                             DefScatter, TargetStmt, DefToTargetMapping,
@@ -3433,8 +3437,11 @@ private:
                                    SAI->getBasePtr(), Inst->getType(), true, {},
                                    Sizes, Inst, MemoryKind::Array, false);
               S->addAccessFunction(Access);
-              TargetStmt->addAccess(Access);
+              TargetStmt->addAccess(Access, true);
             }
+            SameVal = SameVal.gist_domain(
+                give(TargetStmt->getDomain())
+                    .intersect_params(give(S->getContext())));
             Access->setNewAccessRelation(SameVal.copy());
           }
 

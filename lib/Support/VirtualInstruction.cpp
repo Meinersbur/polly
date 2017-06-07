@@ -511,7 +511,8 @@ static void markReachable(Scop *S, ArrayRef<VirtualInstruction> Roots,
           ResultList.push_back(VInst);
       }
     };
-    if (Stmt.isBlockStmt()) {
+    if (Stmt.isCopyStmt()) {
+    } else if (Stmt.isBlockStmt()) {
       AddUsedVInstsFromBlock(Stmt.getBasicBlock());
     } else {
       for (auto BB : Stmt.getRegion()->blocks())

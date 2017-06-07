@@ -206,9 +206,7 @@ std::string polly::getIslCompatibleName(const std::string &Prefix,
                                         bool UseInstructionNames) {
   std::string S = Prefix;
 
-  if (UseDisambiguatedNames) {
-    S += Name;
-  } else if (UseInstructionNames)
+  if (UseInstructionNames || UseDisambiguatedNames)
     S += std::string("_") + Name;
   else
     S += std::to_string(Number);
@@ -238,3 +236,33 @@ std::string polly::getIslCompatibleName(const std::string &Prefix,
 
   return getIslCompatibleName(Prefix, ValStr, Suffix);
 }
+
+#ifndef NDEBUG
+/// Ensure that the 'inline' dump functions can be called from a debugger.
+static class EnsureLinkingDump {
+public:
+  EnsureLinkingDump() {
+    if (std::getenv("bar") != (char *)-1)
+      return;
+
+    isl::ctx ctx = isl_ctx_alloc();
+
+    isl::space space(ctx, 0, 0);
+    space.dump();
+
+    isl::set set = isl::set::empty(space);
+    set.dump();
+
+    isl::map map = isl::map::empty(space);
+    map.dump();
+
+    isl::union_set uset = isl::union_set::empty(space);
+    uset.dump();
+
+    isl::union_map umap = isl::union_map::empty(space);
+    umap.dump();
+
+    ctx.release();
+  }
+} StaticInitializer;
+#endif

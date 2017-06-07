@@ -1445,7 +1445,7 @@ MemoryAccess *ScopStmt::lookupPHIReadOf(PHINode *PHI) const {
   return nullptr;
 }
 
-void ScopStmt::addAccess(MemoryAccess *Access) {
+void ScopStmt::addAccess(MemoryAccess *Access, bool Prepend) {
   Instruction *AccessInst = Access->getAccessInstruction();
 
   if (Access->isArrayKind()) {
@@ -1469,6 +1469,10 @@ void ScopStmt::addAccess(MemoryAccess *Access) {
     PHIWrites[PHI] = Access;
   }
 
+  if (Prepend) {
+    MemAccs.insert(MemAccs.begin(), Access);
+    return;
+  }
   MemAccs.push_back(Access);
 }
 
@@ -2007,7 +2011,7 @@ void ScopStmt::printInstructions(raw_ostream &OS) const {
   OS.indent(16) << "}\n";
 }
 
-void ScopStmt::print(raw_ostream &OS) const {
+void ScopStmt::print(raw_ostream &OS, bool Reproducible) const {
   OS << "\t" << getBaseName() << "\n";
   OS.indent(12) << "Domain :=\n";
 
@@ -2026,7 +2030,7 @@ void ScopStmt::print(raw_ostream &OS) const {
   for (MemoryAccess *Access : MemAccs)
     Access->print(OS);
 
-  if (PollyPrintInstructions)
+  if (PollyPrintInstructions || !Reproducible)
     printInstructions(OS.indent(12));
 }
 
