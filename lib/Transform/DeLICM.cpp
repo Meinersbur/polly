@@ -3386,7 +3386,7 @@ private:
       }
 
       if (DoIt) {
-        UseStmt->prependInstrunction(Inst);
+        TargetStmt->prependInstrunction(Inst);
       }
 
       if (auto LI = dyn_cast<LoadInst>(Inst)) {
@@ -3705,6 +3705,10 @@ public:
     SmallVector<MemoryAccess *, 16> Accs;
 
     for (auto &Stmt : *S) {
+      // FIXME: Support region statements
+      if (!Stmt.isBlockStmt())
+        continue;
+
       for (auto *RA : Stmt) {
         if (!RA->isLatestScalarKind())
           continue;
@@ -3756,11 +3760,13 @@ private:
   std::unique_ptr<KnownImpl> Impl;
 
   void collapseToKnown(Scop &S) {
+#if 0
     if (!UseVirtualStmts) {
       DEBUG(dbgs() << "-polly-known requires virtual statements "
                       "(-polly-codegen-virtual-statements)\n");
       return;
     }
+#endif
 
     Impl = make_unique<KnownImpl>(
         &S, &getAnalysis<LoopInfoWrapperPass>().getLoopInfo());

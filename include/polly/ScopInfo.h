@@ -1540,6 +1540,7 @@ public:
   }
 
   void prependInstrunction(Instruction *Inst) {
+    assert(!contains(Inst->getParent()));
     Instructions.insert(Instructions.begin(), Inst);
   }
 

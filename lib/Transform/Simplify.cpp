@@ -427,11 +427,13 @@ private:
   }
 
   void markAndSweep(LoopInfo *LI) {
+#if 0
     if (!UseVirtualStmts) {
       DEBUG(dbgs()
             << "Mark-and-sweep simplifier needs -polly-codegen-virtual-stmts");
       return;
     }
+#endif
 
     //  DenseSet<VirtualInstruction > Used;
     DenseSet<MemoryAccess *> UsedMA;
@@ -544,7 +546,7 @@ public:
     coalescePartialWrites();
 
     DEBUG(dbgs() << "Cleanup unused accesses...\n");
-    markAndSweep(&getAnalysis<LoopInfoWrapperPass>().getLoopInfo());
+    // markAndSweep(&getAnalysis<LoopInfoWrapperPass>().getLoopInfo());
 
     DEBUG(dbgs() << "Removing statements without side effects...\n");
     removeUnnecessayStmts();

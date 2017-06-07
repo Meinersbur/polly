@@ -2034,7 +2034,7 @@ void ScopStmt::print(raw_ostream &OS, bool Reproducible) const {
     printInstructions(OS.indent(12));
 }
 
-void ScopStmt::dump() const { print(dbgs()); }
+void ScopStmt::dump() const { print(dbgs(), false); }
 
 void ScopStmt::removeAccessData(MemoryAccess *MA) {
   if (MA->isRead() && MA->isOriginalValueKind()) {

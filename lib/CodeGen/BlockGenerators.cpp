@@ -64,12 +64,14 @@ static cl::opt<bool>
                  cl::cat(PollyCategory));
 #endif
 
+#if 0
 bool polly::UseVirtualStmts;
 static cl::opt<bool, true>
     UseVirtualStmtsOpt("polly-codegen-virtual-statements",
                        cl::desc("Use virtual statements"), cl::Hidden,
                        cl::location(UseVirtualStmts), cl::init(false),
                        cl::ZeroOrMore, cl::cat(PollyCategory));
+#endif
 
 BlockGenerator::BlockGenerator(
     PollyIRBuilder &B, LoopInfo &LI, ScalarEvolution &SE, DominatorTree &DT,
@@ -458,6 +460,7 @@ BasicBlock *BlockGenerator::copyBB(ScopStmt &Stmt, BasicBlock *BB,
   generateBeginStmtTrace(Stmt, LTS, BBMap);
 #endif // Debug tracing
 
+#if 0
   if (UseVirtualStmts) {
     std::vector<VirtualInstruction> InstList;
     markReachableLocal(&Stmt, InstList, &LI);
@@ -479,9 +482,8 @@ BasicBlock *BlockGenerator::copyBB(ScopStmt &Stmt, BasicBlock *BB,
         copyInstruction(Stmt, &Inst, BBMap, LTS, NewAccesses);
     }
   } else {
-    for (Instruction &Inst : *BB)
-      copyInstruction(Stmt, &Inst, BBMap, LTS, NewAccesses);
-  }
+#endif
+  copyBB(Stmt, BB, CopyBB, BBMap, LTS, NewAccesses);
 
   // After a basic block was copied store all scalars that escape this block in
   // their alloca.
@@ -489,7 +491,6 @@ BasicBlock *BlockGenerator::copyBB(ScopStmt &Stmt, BasicBlock *BB,
   return CopyBB;
 }
 
-#if 0 // Don't use with virtual stmts
 void BlockGenerator::copyBB(ScopStmt &Stmt, BasicBlock *BB, BasicBlock *CopyBB,
                             ValueMapT &BBMap, LoopToScevMapT &LTS,
                             isl_id_to_ast_expr *NewAccesses) {
@@ -502,7 +503,6 @@ void BlockGenerator::copyBB(ScopStmt &Stmt, BasicBlock *BB, BasicBlock *CopyBB,
     for (Instruction &Inst : *BB)
       copyInstruction(Stmt, &Inst, BBMap, LTS, NewAccesses);
 }
-#endif
 
 Value *BlockGenerator::getOrCreateAlloca(const MemoryAccess &Access) {
   assert(!Access.isLatestArrayKind() && "Trying to get alloca for array kind");
@@ -1589,6 +1589,7 @@ void RegionGenerator::copyStmt(ScopStmt &Stmt, LoopToScevMapT &LTS,
   Blocks.push_back(EntryBB);
   SeenBlocks.insert(EntryBB);
 
+#if 0
   DenseSet<Instruction *> InstSet;
   if (UseVirtualStmts) {
     std::vector<VirtualInstruction> InstList;
@@ -1605,6 +1606,7 @@ void RegionGenerator::copyStmt(ScopStmt &Stmt, LoopToScevMapT &LTS,
       copyInstruction(Stmt, Inst, EntryBBMap, LTS, IdToAstExp);
     }
   }
+#endif
 
   while (!Blocks.empty()) {
     BasicBlock *BB = Blocks.front();
@@ -1631,8 +1633,7 @@ void RegionGenerator::copyStmt(ScopStmt &Stmt, LoopToScevMapT &LTS,
     Builder.SetInsertPoint(&BBCopy->front());
 
     for (auto &Inst : *BB) {
-      if (!UseVirtualStmts || InstSet.count(&Inst))
-        copyInstruction(Stmt, &Inst, RegionMap, LTS, IdToAstExp);
+      copyInstruction(Stmt, &Inst, RegionMap, LTS, IdToAstExp);
     }
 
     // In order to remap PHI nodes we store also basic block mappings.
