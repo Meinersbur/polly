@@ -216,6 +216,17 @@ static cl::list<std::string> DumpAfterFile(
     cl::ZeroOrMore, cl::cat(PollyCategory));
 
 static cl::opt<bool>
+    DumpCleanup("polly-dump-cleanup",
+                cl::desc("Dump module after Polly transformations into a file "
+                         "suffixed with \"-cleanup\""),
+                cl::init(false), cl::cat(PollyCategory));
+
+static cl::list<std::string>
+    DumpCleanupFile("polly-dump-cleanup-file",
+                    cl::desc("Dump module after cleanup to the given file"),
+                    cl::ZeroOrMore, cl::cat(PollyCategory));
+
+static cl::opt<bool>
     EnableDeLICM("polly-enable-delicm",
                  cl::desc("Eliminate scalar loop carried dependences"),
                  cl::Hidden, cl::init(false), cl::cat(PollyCategory));
@@ -440,7 +451,13 @@ registerPollyScalarOptimizerLatePasses(const llvm::PassManagerBuilder &Builder,
 
   PM.add(polly::createCodePreparationPass());
   polly::registerPollyPasses(PM);
-  PM.add(createCodegenCleanupPass());
+  // PM.add(createCodegenCleanupPass());
+  addCleanupPasses(PM);
+
+  if (DumpCleanup)
+    PM.add(polly::createDumpModulePass("-cleanup", true));
+  for (auto &Filename : DumpCleanupFile)
+    PM.add(polly::createDumpModulePass(Filename, false));
 }
 
 /// Register Polly to be available as an optimizer

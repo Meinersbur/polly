@@ -3439,9 +3439,12 @@ private:
               S->addAccessFunction(Access);
               TargetStmt->addAccess(Access, true);
             }
+
+			// Necessary so matmul pattern detection recognizes this access. It expects the map to have exactly 2 constrains (i0=o0 and i1=o1, for the two surrounding loops)
             SameVal = SameVal.gist_domain(
                 give(TargetStmt->getDomain())
                     .intersect_params(give(S->getContext())));
+
             Access->setNewAccessRelation(SameVal.copy());
           }
 
