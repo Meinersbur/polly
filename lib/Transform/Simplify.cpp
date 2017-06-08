@@ -546,7 +546,7 @@ public:
     coalescePartialWrites();
 
     DEBUG(dbgs() << "Cleanup unused accesses...\n");
-    // markAndSweep(&getAnalysis<LoopInfoWrapperPass>().getLoopInfo());
+    markAndSweep(&getAnalysis<LoopInfoWrapperPass>().getLoopInfo());
 
     DEBUG(dbgs() << "Removing statements without side effects...\n");
     removeUnnecessayStmts();

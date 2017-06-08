@@ -451,8 +451,8 @@ registerPollyScalarOptimizerLatePasses(const llvm::PassManagerBuilder &Builder,
 
   PM.add(polly::createCodePreparationPass());
   polly::registerPollyPasses(PM);
-  // PM.add(createCodegenCleanupPass());
-  addCleanupPasses(PM);
+   PM.add(createCodegenCleanupPass());
+  //addCleanupPasses(PM);
 
   if (DumpCleanup)
     PM.add(polly::createDumpModulePass("-cleanup", true));

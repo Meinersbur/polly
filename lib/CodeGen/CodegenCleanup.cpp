@@ -20,6 +20,9 @@
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Analysis/LoopPass.h"
 //#include "llvm/Transforms/IPO/PassManagerBuilder.h"
+#include "llvm/Transforms/Instrumentation.h"
+#include "llvm/Transforms/IPO.h"
+#include "llvm/Transforms/Scalar/GVN.h"
 #define DEBUG_TYPE "polly-cleanup"
 
 using namespace llvm;
@@ -167,9 +170,12 @@ public:
                    << ": Skipping cleanup because Polly did not optimize it.");
       return false;
     }
-
-    InnerPass->setResolver(getResolver());
-    return InnerPass->runOnFunction(F);
+	if(!InnerPass->getResolver())
+    InnerPass->setResolver(new AnalysisResolver(*getResolver()));
+    auto Result = InnerPass->runOnFunction(F);
+	// Avoid free'ing the resolver twice
+	//InnerPass->setResolver(nullptr);
+	return Result;
   }
 
   virtual void releaseMemory() override { InnerPass->releaseMemory(); }
@@ -179,11 +185,12 @@ public:
   }
 
 
-
+#if 0
   virtual Pass *createPrinterPass(raw_ostream &O,
                                   const std::string &Banner) const override {
     return InnerPass->createPrinterPass(O, Banner);
   }
+#endif
 
 #if 0
   virtual void assignPassManager(PMStack &Stack,
@@ -211,6 +218,7 @@ public:
   }
 #endif
 
+#if 0
   /// getAdjustedAnalysisPointer - This method is used when a pass implements
   /// an analysis interface through multiple inheritance.  If needed, it should
   /// override this to adjust the this pointer as needed for the specified pass
@@ -225,6 +233,7 @@ public:
   virtual void dumpPassStructure(unsigned Offset) {
     return InnerPass->dumpPassStructure(Offset);
   }
+#endif
 };
 
 
@@ -241,6 +250,7 @@ public:
 		: LoopPass(ID), InnerPass(Inner.release()),
 		PassName((Twine(InnerPass->getPassName()) + " (wrapped)").str()) {}
 
+
 	virtual StringRef getPassName() const override { return PassName; }
 
 	virtual void print(raw_ostream &O, const Module *M) const override {
@@ -254,9 +264,15 @@ public:
 	virtual bool doInitialization(Module &M) override {
 		return InnerPass->doInitialization(M);
 	}
+	virtual bool doInitialization(Loop *L, LPPassManager &LPM) override {
+		return InnerPass->doInitialization(L,LPM);
+	}
 
 	virtual bool doFinalization(Module &M) override {
 		return InnerPass->doFinalization(M);
+	}
+	virtual bool doFinalization() override {
+		return InnerPass->doFinalization();
 	}
 
 	virtual bool runOnLoop(Loop *L, LPPassManager &LPM) override {
@@ -266,9 +282,12 @@ public:
 				<< ": Skipping cleanup because Polly did not optimize it.");
 			return false;
 		}
-
-		InnerPass->setResolver(getResolver());
-		return InnerPass->runOnLoop(L, LPM);
+		if (!InnerPass->getResolver())
+			InnerPass->setResolver(new AnalysisResolver(*getResolver()));
+		auto Result = InnerPass->runOnLoop(L, LPM);
+		// Avoid free'ing the resolver twice
+		//InnerPass->setResolver(nullptr);
+		return Result;
 	}
 
 	virtual void releaseMemory() override { InnerPass->releaseMemory(); }
@@ -278,11 +297,12 @@ public:
 	}
 
 
-
+#if 0
 	virtual Pass *createPrinterPass(raw_ostream &O,
 		const std::string &Banner) const override {
 		return InnerPass->createPrinterPass(O, Banner);
 	}
+#endif
 
 #if 0
 	virtual void assignPassManager(PMStack &Stack,
@@ -310,6 +330,7 @@ public:
 	}
 #endif
 
+#if 0
 	/// getAdjustedAnalysisPointer - This method is used when a pass implements
 	/// an analysis interface through multiple inheritance.  If needed, it should
 	/// override this to adjust the this pointer as needed for the specified pass
@@ -324,6 +345,7 @@ public:
 	virtual void dumpPassStructure(unsigned Offset) {
 		return InnerPass->dumpPassStructure(Offset);
 	}
+#endif
 };
 
 
@@ -358,26 +380,98 @@ void polly::addCleanupPasses(llvm::legacy::PassManagerBase &PM) {
 
 	// From PassManagerBuilder::populateModulePassManager (polly-position=early)
 	// -tti -targetlibinfo -tbaa -scoped-noalias -assumption-cache-tracker -profile-summary-info -forceattrs -inferattrs -domtree -mem2reg -basicaa -aa -instcombine -simplifycfg -tailcallelim -simplifycfg -reassociate -domtree -loops -loop-simplify -lcssa-verification -lcssa -basicaa -aa -scalar-evolution -loop-rotate -instcombine -loop-simplify -lcssa-verification -lcssa -scalar-evolution -indvars -polly-prepare -polly-dump-module -domtree -loops -scalar-evolution -basicaa -aa -postdomtree -domfrontier -regions -polly-detect -polly-scops -polly-prune-unprofitable -polly-dependences -polly-opt-isl -polly-ast -polly-codegen -barrier -ipsccp -globalopt -domtree -mem2reg -deadargelim -domtree -basicaa -aa -instcombine -simplifycfg -basiccg -globals-aa -prune-eh -inline -functionattrs -argpromotion -domtree -sroa -early-cse -domtree -basicaa -aa -lazy-value-info -jump-threading -correlated-propagation -simplifycfg -domtree -basicaa -aa -instcombine -libcalls-shrinkwrap -loops -branch-prob -block-freq -pgo-memop-opt -tailcallelim -simplifycfg -reassociate -domtree -loops -loop-simplify -lcssa-verification -lcssa -basicaa -aa -scalar-evolution -loop-rotate -licm -loop-unswitch -simplifycfg -domtree -basicaa -aa -instcombine -loops -loop-simplify -lcssa-verification -lcssa -scalar-evolution -indvars -loop-idiom -loop-deletion -loop-unroll -mldst-motion -aa -memdep -lazy-branch-prob -lazy-block-freq -opt-remark-emitter -gvn -basicaa -aa -memdep -memcpyopt -sccp -domtree -demanded-bits -bdce -basicaa -aa -instcombine -lazy-value-info -jump-threading -correlated-propagation -domtree -basicaa -aa -memdep -dse -loops -loop-simplify -lcssa-verification -lcssa -aa -scalar-evolution -licm -postdomtree -adce -simplifycfg -domtree -basicaa -aa -instcombine -barrier -elim-avail-extern -basiccg -rpo-functionattrs -globals-aa -float2int -domtree -loops -loop-simplify -lcssa-verification -lcssa -basicaa -aa -scalar-evolution -loop-rotate -loop-accesses -lazy-branch-prob -lazy-block-freq -opt-remark-emitter -loop-distribute -branch-prob -block-freq -scalar-evolution -basicaa -aa -loop-accesses -demanded-bits -lazy-branch-prob -lazy-block-freq -opt-remark-emitter -loop-vectorize -loop-simplify -scalar-evolution -aa -loop-accesses -loop-load-elim -basicaa -aa -instcombine -scalar-evolution -demanded-bits -lazy-branch-prob -lazy-block-freq -opt-remark-emitter -slp-vectorizer -latesimplifycfg -domtree -basicaa -aa -instcombine -loops -loop-simplify -lcssa-verification -lcssa -scalar-evolution -loop-unroll -instcombine -loop-simplify -lcssa-verification -lcssa -scalar-evolution -licm -alignment-from-assumptions -strip-dead-prototypes -globaldce -constmerge -domtree -loops -branch-prob -block-freq -loop-simplify -lcssa-verification -lcssa -basicaa -aa -scalar-evolution -branch-prob -block-freq -loop-sink -lazy-branch-prob -lazy-block-freq -opt-remark-emitter -instsimplify -simplifycfg
-	
+
 	// From PassManagerBuilder::populateModulePassManager (polly-position=before-vectorizer)
 	// -tti -targetlibinfo -tbaa -scoped-noalias -assumption-cache-tracker -profile-summary-info -forceattrs -inferattrs -ipsccp -globalopt -domtree -mem2reg -deadargelim -domtree -basicaa -aa -instcombine -simplifycfg -basiccg -globals-aa -prune-eh -inline -functionattrs -argpromotion -domtree -sroa -early-cse -domtree -basicaa -aa -lazy-value-info -jump-threading -correlated-propagation -simplifycfg -domtree -basicaa -aa -instcombine -libcalls-shrinkwrap -loops -branch-prob -block-freq -pgo-memop-opt -tailcallelim -simplifycfg -reassociate -domtree -loops -loop-simplify -lcssa-verification -lcssa -basicaa -aa -scalar-evolution -loop-rotate -licm -loop-unswitch -simplifycfg -domtree -basicaa -aa -instcombine -loops -loop-simplify -lcssa-verification -lcssa -scalar-evolution -indvars -loop-idiom -loop-deletion -loop-unroll -mldst-motion -aa -memdep -lazy-branch-prob -lazy-block-freq -opt-remark-emitter -gvn -basicaa -aa -memdep -memcpyopt -sccp -domtree -demanded-bits -bdce -basicaa -aa -instcombine -lazy-value-info -jump-threading -correlated-propagation -domtree -basicaa -aa -memdep -dse -loops -loop-simplify -lcssa-verification -lcssa -aa -scalar-evolution -licm -postdomtree -adce -simplifycfg -domtree -basicaa -aa -instcombine -barrier -elim-avail-extern -basiccg -rpo-functionattrs -globals-aa -float2int -domtree -loops -scalar-evolution -polly-prepare -scalar-evolution -basicaa -aa -postdomtree -domfrontier -regions -polly-detect -polly-scops -polly-prune-unprofitable -polly-dependences -polly-opt-isl -polly-ast -polly-codegen -barrier -polly-cleanup -domtree -loops -loop-simplify -lcssa-verification -lcssa -basicaa -aa -scalar-evolution -loop-rotate -loop-accesses -lazy-branch-prob -lazy-block-freq -opt-remark-emitter -loop-distribute -branch-prob -block-freq -scalar-evolution -basicaa -aa -loop-accesses -demanded-bits -lazy-branch-prob -lazy-block-freq -opt-remark-emitter -loop-vectorize -loop-simplify -scalar-evolution -aa -loop-accesses -loop-load-elim -basicaa -aa -instcombine -scalar-evolution -demanded-bits -lazy-branch-prob -lazy-block-freq -opt-remark-emitter -slp-vectorizer -latesimplifycfg -domtree -basicaa -aa -instcombine -loops -loop-simplify -lcssa-verification -lcssa -scalar-evolution -loop-unroll -instcombine -loop-simplify -lcssa-verification -lcssa -scalar-evolution -licm -alignment-from-assumptions -strip-dead-prototypes -globaldce -constmerge -domtree -loops -branch-prob -block-freq -loop-simplify -lcssa-verification -lcssa -basicaa -aa -scalar-evolution -branch-prob -block-freq -loop-sink -lazy-branch-prob -lazy-block-freq -opt-remark-emitter -instsimplify -simplifycfg
- 
+
 	// From PassManagerBuilder::populateModulePassManager (without Polly)
 	// -tti -targetlibinfo -tbaa -scoped-noalias -assumption-cache-tracker -profile-summary-info -forceattrs -inferattrs -ipsccp -globalopt -domtree -mem2reg -deadargelim -domtree -basicaa -aa -instcombine -simplifycfg -basiccg -globals-aa -prune-eh -inline -functionattrs -argpromotion -domtree -sroa -early-cse -domtree -basicaa -aa -lazy-value-info -jump-threading -correlated-propagation -simplifycfg -domtree -basicaa -aa -instcombine -libcalls-shrinkwrap -loops -branch-prob -block-freq -pgo-memop-opt -tailcallelim -simplifycfg -reassociate -domtree -loops -loop-simplify -lcssa-verification -lcssa -basicaa -aa -scalar-evolution -loop-rotate -licm -loop-unswitch -simplifycfg -domtree -basicaa -aa -instcombine -loops -loop-simplify -lcssa-verification -lcssa -scalar-evolution -indvars -loop-idiom -loop-deletion -loop-unroll -mldst-motion -aa -memdep -lazy-branch-prob -lazy-block-freq -opt-remark-emitter -gvn -basicaa -aa -memdep -memcpyopt -sccp -domtree -demanded-bits -bdce -basicaa -aa -instcombine -lazy-value-info -jump-threading -correlated-propagation -domtree -basicaa -aa -memdep -dse -loops -loop-simplify -lcssa-verification -lcssa -aa -scalar-evolution -licm -postdomtree -adce -simplifycfg -domtree -basicaa -aa -instcombine -barrier -elim-avail-extern -basiccg -rpo-functionattrs -globals-aa -float2int -domtree -loops -loop-simplify -lcssa-verification -lcssa -basicaa -aa -scalar-evolution -loop-rotate -loop-accesses -lazy-branch-prob -lazy-block-freq -opt-remark-emitter -loop-distribute -branch-prob -block-freq -scalar-evolution -basicaa -aa -loop-accesses -demanded-bits -lazy-branch-prob -lazy-block-freq -opt-remark-emitter -loop-vectorize -loop-simplify -scalar-evolution -aa -loop-accesses -loop-load-elim -basicaa -aa -instcombine -scalar-evolution -demanded-bits -lazy-branch-prob -lazy-block-freq -opt-remark-emitter -slp-vectorizer -latesimplifycfg -domtree -basicaa -aa -instcombine -loops -loop-simplify -lcssa-verification -lcssa -scalar-evolution -loop-unroll -instcombine -loop-simplify -lcssa-verification -lcssa -scalar-evolution -licm -alignment-from-assumptions -strip-dead-prototypes -globaldce -constmerge -domtree -loops -branch-prob -block-freq -loop-simplify -lcssa-verification -lcssa -basicaa -aa -scalar-evolution -branch-prob -block-freq -loop-sink -lazy-branch-prob -lazy-block-freq -opt-remark-emitter -instsimplify -simplifycfg
 
+
+
+	// Before Polly-early
+	// -tti -targetlibinfo -tbaa -scoped-noalias -assumption-cache-tracker -profile-summary-info -forceattrs -inferattrs
+
+
 // Polly normalization passes (without inliner)
-	PM.add(wrapCleanupPass(llvm::createPromoteMemoryToRegisterPass()));
-	PM.add(wrapCleanupPass(llvm::createInstructionCombiningPass()));
-	PM.add(wrapCleanupPass(llvm::createCFGSimplificationPass()));
-	PM.add(wrapCleanupPass(llvm::createTailCallEliminationPass()));
-	PM.add(wrapCleanupPass(llvm::createCFGSimplificationPass()));
-	PM.add(wrapCleanupPass(llvm::createReassociatePass()));
-	PM.add(wrapCleanupPass(static_cast<LoopPass*>( llvm::createLoopRotatePass())));
-	PM.add(wrapCleanupPass(llvm::createInstructionCombiningPass()));
-	PM.add(wrapCleanupPass(static_cast<LoopPass*>(llvm::createIndVarSimplifyPass())));
+#if 0
+	PM.add(wrapCleanupPass(createPromoteMemoryToRegisterPass()));
+	PM.add(wrapCleanupPass(createInstructionCombiningPass()));
+	PM.add(wrapCleanupPass(createCFGSimplificationPass()));
+	PM.add(wrapCleanupPass(createTailCallEliminationPass()));
+	PM.add(wrapCleanupPass(createCFGSimplificationPass()));
+	PM.add(wrapCleanupPass(createReassociatePass()));
+	PM.add(wrapCleanupPass(static_cast<LoopPass*>(createLoopRotatePass())));
+	PM.add(wrapCleanupPass(createInstructionCombiningPass()));
+	PM.add(wrapCleanupPass(static_cast<LoopPass*>(createIndVarSimplifyPass())));
+#endif
+
 
 	// Between Polly-early and Polly-before-vectorizer
-	// -ipsccp -globalopt -domtree -mem2reg -deadargelim -domtree -basicaa -aa -instcombine -simplifycfg -basiccg -globals-aa -prune-eh -inline -functionattrs -argpromotion -domtree -sroa -early-cse -domtree -basicaa -aa -lazy-value-info -jump-threading -correlated-propagation -simplifycfg -domtree -basicaa -aa -instcombine -libcalls-shrinkwrap -loops -branch-prob -block-freq -pgo-memop-opt -tailcallelim -simplifycfg -reassociate -domtree -loops -loop-simplify -lcssa-verification -lcssa -basicaa -aa -scalar-evolution -loop-rotate -licm -loop-unswitch -simplifycfg -domtree -basicaa -aa -instcombine -loops -loop-simplify -lcssa-verification -lcssa -scalar-evolution -indvars -loop-idiom -loop-deletion -loop-unroll -mldst-motion -aa -memdep -lazy-branch-prob -lazy-block-freq -opt-remark-emitter -gvn -basicaa -aa -memdep -memcpyopt -sccp -domtree -demanded-bits -bdce -basicaa -aa -instcombine -lazy-value-info -jump-threading -correlated-propagation -domtree -basicaa -aa -memdep -dse -loops -loop-simplify -lcssa-verification -lcssa -aa -scalar-evolution -licm -postdomtree -adce -simplifycfg -domtree -basicaa -aa -instcombine -barrier -elim-avail-extern -basiccg -rpo-functionattrs -globals-aa -float2int -domtree -loops -loop-simplify -lcssa-verification -lcssa -basicaa -aa -scalar-evolution 
+	// -ipsccp -globalopt -domtree -mem2reg -deadargelim -domtree -basicaa -aa -instcombine -simplifycfg -basiccg -globals-aa -prune-eh -inline -functionattrs -argpromotion -domtree -sroa
+	// -early-cse -domtree -basicaa -aa -lazy-value-info -jump-threading -correlated-propagation -simplifycfg -domtree -basicaa -aa -instcombine -libcalls-shrinkwrap 
+	// -loops -branch-prob -block-freq -pgo-memop-opt -tailcallelim -simplifycfg -reassociate -domtree -loops -loop-simplify -lcssa-verification -lcssa -basicaa -aa -scalar-evolution
+	// -loop-rotate -licm -loop-unswitch -simplifycfg -domtree -basicaa -aa -instcombine -loops -loop-simplify -lcssa-verification -lcssa -scalar-evolution -indvars
+	// -loop-idiom -loop-deletion -loop-unroll -mldst-motion -aa -memdep -lazy-branch-prob -lazy-block-freq -opt-remark-emitter -gvn -basicaa -aa -memdep -memcpyopt
+	// -sccp -domtree -demanded-bits -bdce -basicaa -aa -instcombine -lazy-value-info -jump-threading -correlated-propagation -domtree -basicaa -aa -memdep -dse
+	// -loops -loop-simplify -lcssa-verification -lcssa -aa -scalar-evolution -licm -postdomtree -adce -simplifycfg -domtree -basicaa -aa -instcombine
+	// -barrier -elim-avail-extern -basiccg -rpo-functionattrs -globals-aa -float2int -domtree -loops -loop-simplify -lcssa-verification -lcssa -basicaa -aa -scalar-evolution 
+	PM.add(wrapCleanupPass(createPromoteMemoryToRegisterPass()));
+	PM.add(wrapCleanupPass(createInstructionCombiningPass())); // -instcombine
+	PM.add(wrapCleanupPass(createCFGSimplificationPass()));
+	PM.add(wrapCleanupPass(createSROAPass()));
+	PM.add(wrapCleanupPass(createEarlyCSEPass()));
+	PM.add(wrapCleanupPass(createSpeculativeExecutionIfHasBranchDivergencePass()));
+	PM.add(wrapCleanupPass(createJumpThreadingPass())); // -jump-threading
+	PM.add(wrapCleanupPass(static_cast<FunctionPass*>(createCorrelatedValuePropagationPass())));
+	PM.add(wrapCleanupPass(createCFGSimplificationPass()));
+	PM.add(wrapCleanupPass(createInstructionCombiningPass()));
+	PM.add(wrapCleanupPass(createLibCallsShrinkWrapPass())); //  -libcalls-shrinkwrap 
+	PM.add(wrapCleanupPass(createPGOMemOPSizeOptLegacyPass())); // -pgo-memop-opt 
+	PM.add(wrapCleanupPass(createTailCallEliminationPass())); // -tailcallelim 
+	PM.add(wrapCleanupPass(createCFGSimplificationPass())); // -simplifycfg 
+	PM.add(wrapCleanupPass(createReassociatePass())); // -reassociate
+	// -domtree -loops -loop-simplify -lcssa-verification -lcssa -basicaa -aa -scalar-evolution
+	PM.add(wrapCleanupPass(static_cast<LoopPass*>(createLoopRotatePass()))); // -loop-rotate
+	PM.add(wrapCleanupPass(static_cast<LoopPass*>(createLICMPass()))); // -licm
+	PM.add(wrapCleanupPass(static_cast<LoopPass*>(createLoopUnswitchPass(false, /*DivergentTarget*/false)))); // -loop-unswitch
+	PM.add(wrapCleanupPass(createCFGSimplificationPass())); // -simplifycfg 
+	PM.add(wrapCleanupPass(createInstructionCombiningPass())); // -instcombine
+	// -loops -loop-simplify -lcssa-verification -lcssa -scalar-evolution
+	PM.add(wrapCleanupPass(static_cast<LoopPass*>(createIndVarSimplifyPass()))); // -indvars
+	PM.add(wrapCleanupPass(static_cast<LoopPass*>(createLoopIdiomPass()))); // -loop-idiom
+	PM.add(wrapCleanupPass(static_cast<LoopPass*>(createLoopDeletionPass()))); // -loop-deletion
+	PM.add(wrapCleanupPass(static_cast<LoopPass*>(createSimpleLoopUnrollPass(3)))); // -loop-unroll
+	PM.add(wrapCleanupPass(createMergedLoadStoreMotionPass())); // -mldst-motion
+	// -aa -memdep -lazy-branch-prob -lazy-block-freq -opt-remark-emitter
+	PM.add(wrapCleanupPass(createGVNPass())); // -gvn
+	// -basicaa -aa -memdep
+	PM.add(wrapCleanupPass(createMemCpyOptPass())); // -memcpyopt
+	PM.add(wrapCleanupPass(createSCCPPass())); 	// -sccp
+	// -domtree -demanded-bits							
+	PM.add(wrapCleanupPass(createBitTrackingDCEPass())); // -bdce									 
+	// -basicaa -aa
+	PM.add(wrapCleanupPass(createInstructionCombiningPass())); // -instcombine
+	// -lazy-value-info 
+	PM.add(wrapCleanupPass(createJumpThreadingPass())); // -jump-threading
+	PM.add(wrapCleanupPass(static_cast<FunctionPass*>(createCorrelatedValuePropagationPass()))); // -correlated-propagation
+	// -domtree -basicaa -aa -memdep
+	PM.add(wrapCleanupPass(createDeadStoreEliminationPass())); // -dse
+	// -loops -loop-simplify -lcssa-verification -lcssa -aa -scalar-evolution 
+	PM.add(wrapCleanupPass(static_cast<LoopPass*>(createLICMPass()))); // -licm
+	// -postdomtree 
+	PM.add(wrapCleanupPass(createAggressiveDCEPass()));// -adce
+	PM.add(wrapCleanupPass(createCFGSimplificationPass())); // -simplifycfg 
+	//  -domtree -basicaa -aa
+	PM.add(wrapCleanupPass(createInstructionCombiningPass())); // -instcombine
+	// PM.add(createBarrierNoopPass()); // -barrier
+	// -elim-avail-extern -basiccg -rpo-functionattrs -globals-aa 
+
+	PM.add(wrapCleanupPass(createFloat2IntPass()));// -float2int
+
+
+
+
 
 	// After Polly-before-vectorizer
 	// -domtree -loops -loop-simplify -lcssa-verification -lcssa -basicaa -aa -scalar-evolution -loop-rotate -loop-accesses -lazy-branch-prob -lazy-block-freq -opt-remark-emitter -loop-distribute -branch-prob -block-freq -scalar-evolution -basicaa -aa -loop-accesses -demanded-bits -lazy-branch-prob -lazy-block-freq -opt-remark-emitter -loop-vectorize -loop-simplify -scalar-evolution -aa -loop-accesses -loop-load-elim -basicaa -aa -instcombine -scalar-evolution -demanded-bits -lazy-branch-prob -lazy-block-freq -opt-remark-emitter -slp-vectorizer -latesimplifycfg -domtree -basicaa -aa -instcombine -loops -loop-simplify -lcssa-verification -lcssa -scalar-evolution -loop-unroll -instcombine -loop-simplify -lcssa-verification -lcssa -scalar-evolution -licm -alignment-from-assumptions -strip-dead-prototypes -globaldce -constmerge -domtree -loops -branch-prob -block-freq -loop-simplify -lcssa-verification -lcssa -basicaa -aa -scalar-evolution -branch-prob -block-freq -loop-sink -lazy-branch-prob -lazy-block-freq -opt-remark-emitter -instsimplify -simplifycfg

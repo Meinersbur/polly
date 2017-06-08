@@ -74,6 +74,7 @@ using namespace polly;
 #define DEBUG_TYPE "polly-opt-isl"
 
 STATISTIC(TiledLoops, "Number of tiled loops");
+STATISTIC(MatMuls, "Number of detected matrix multiplications");
 
 static cl::opt<std::string>
     OptimizeDeps("polly-opt-optimize-only",
@@ -1366,17 +1367,17 @@ ScheduleTreeOptimizer::optimizeBand(__isl_take isl_schedule_node *Node,
   if (!isTileableBandNode(Node))
     return Node;
 
-  TiledLoops++;
-
   const OptimizerAdditionalInfoTy *OAI =
       static_cast<const OptimizerAdditionalInfoTy *>(User);
 
   MatMulInfoTy MMI;
   if (PMBasedOpts && User && isMatrMultPattern(Node, OAI->D, MMI)) {
     DEBUG(dbgs() << "The matrix multiplication pattern was detected\n");
+	MatMuls++;
     return optimizeMatMulPattern(Node, OAI->TTI, MMI);
   }
 
+  TiledLoops++;
   return standardBandOpts(Node, User);
 }
 
