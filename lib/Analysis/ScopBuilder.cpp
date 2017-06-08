@@ -711,7 +711,7 @@ MemoryAccess *ScopBuilder::addMemoryAccess(
 
   bool isKnownMustAccess = false;
 
-  // Accesses in single-basic block statements are always excuted.
+  // Accesses in single-basic block statements are always executed.
   if (Stmt->isBlockStmt())
     isKnownMustAccess = true;
 
