@@ -1273,6 +1273,7 @@ private:
 
   /// Vector for Instructions in a BB.
   std::vector<Instruction *> Instructions;
+  DenseSet<Instruction *> InstructionSet;
 
 public:
   MapVector<PHINode *, isl::union_map> ComputedPHIs;
@@ -1417,6 +1418,13 @@ public:
   /// Return true if this statement does not contain any accesses.
   bool isEmpty() const { return MemAccs.empty(); }
 
+ const MemoryAccessList *lookupArrayAccessesFor(const Instruction *Inst) const {
+	auto It =  InstructionToAccess.find(Inst);
+	if (It == InstructionToAccess.end())
+		return nullptr;
+	return &It->second;
+  }
+
   /// Return the only array access for @p Inst, if existing.
   ///
   /// @param Inst The instruction for which to look up the access.
@@ -1539,9 +1547,25 @@ public:
     return Instructions;
   }
 
+  void setInstructions(ArrayRef<Instruction*> Range) {
+	  Instructions.assign(Range.begin(), Range.end());
+  }
+
+ auto inst_begin() const ->  decltype(this->Instructions.begin())  { return Instructions.begin(); }
+ auto inst_end() const ->  decltype(this->Instructions.end()) { return Instructions.end(); }
+ auto instructions() const -> llvm::iterator_range<decltype(this->inst_begin())> { return llvm::make_range(inst_begin(), inst_end()); }
+
   void prependInstrunction(Instruction *Inst) {
-    assert(!contains(Inst->getParent()));
-    Instructions.insert(Instructions.begin(), Inst);
+#if 0
+    //assert(!contains(Inst->getParent()));
+	auto InsertIt =  InstructionSet.insert(Inst);
+	if (InsertIt.second) {
+		auto VecIt = std::find(Instructions.begin(), Instructions.end(), Inst);
+		Instructions.erase(VecIt);
+	}
+#endif
+	Instructions.insert(Instructions.begin(), Inst);
+
   }
 
   const char *getBaseName() const;
@@ -1831,11 +1855,12 @@ private:
   Scop(Region &R, ScalarEvolution &SE, LoopInfo &LI,
        ScopDetection::DetectionContext &DC);
 
+  LoopInfo *getLI() const { return Affinator.getLI(); }
+
   //@}
 
   /// Initialize this ScopBuilder.
-  void init(AliasAnalysis &AA, AssumptionCache &AC, DominatorTree &DT,
-            LoopInfo &LI);
+  //void init(AliasAnalysis &AA, AssumptionCache &AC, DominatorTree &DT,LoopInfo &LI);
 
   /// Propagate domains that are known due to graph properties.
   ///

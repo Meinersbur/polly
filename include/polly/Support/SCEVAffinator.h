@@ -73,6 +73,8 @@ public:
   /// Check an <nsw> AddRec for the loop @p L is cached.
   bool hasNSWAddRecForLoop(llvm::Loop *L) const;
 
+  llvm::LoopInfo *getLI() const { return &LI; }
+
 private:
   /// Key to identify cached expressions.
   using CacheKey = std::pair<const llvm::SCEV *, llvm::BasicBlock *>;

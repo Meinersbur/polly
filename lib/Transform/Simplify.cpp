@@ -43,10 +43,12 @@ STATISTIC(TotalRedundantWritesRemoved,
 
 STATISTIC(TotalWritesCoalesced, "Number of writes coalesced with another");
 
-STATISTIC(TotalDeadAccessesRemoved, "Number of partial accesses removed");
+STATISTIC(TotalEmptyPartialAccessesRemoved, "Number of empty partial accesses removed");
+STATISTIC(TotalDeadAccessesRemoved, "Number of dead accesses removed");
 STATISTIC(TotalDeadComputedPHIs, "Number of dead computed PHIs removed");
 STATISTIC(TotalStmtsRemoved, "Number of statements removed in any SCoP");
 STATISTIC(UnusedAccs, "Number of unused accesses");
+STATISTIC(UnusedInsts, "Number of unused instructions");
 
 static bool isImplicitRead(MemoryAccess *MA) {
   return MA->isRead() && MA->isOriginalScalarKind();
@@ -121,6 +123,8 @@ private:
 
   int DeadAccessesRemoved = 0;
 
+  int DeadInstructionsRemoved = 0;
+
   int DeadComputedPHIs = 0;
 
   /// Number of unnecessary statements removed from the SCoP.
@@ -131,7 +135,7 @@ private:
     return OverwritesRemoved > 0 || RedundantWritesRemoved > 0 ||
            WritesCoalesced > 0 || StmtsRemoved > 0 ||
            EmptyPartialAccessesRemoved > 0 || DeadComputedPHIs > 0 ||
-           DeadAccessesRemoved > 0;
+           DeadAccessesRemoved > 0 || DeadInstructionsRemoved > 0;
   }
 
   MemoryAccess *getReadAccessForValue(ScopStmt *Stmt, llvm::Value *Val) {
@@ -419,13 +423,14 @@ private:
           DEBUG(dbgs() << "Removing " << MA
                        << " because it's a partial access that never occurs\n");
           Stmt.removeSingleMemoryAccess(MA);
-          DeadAccessesRemoved++;
-          TotalDeadAccessesRemoved++;
+		  EmptyPartialAccessesRemoved++;
+		  TotalEmptyPartialAccessesRemoved++;
         }
       }
     }
   }
 
+  
   void markAndSweep(LoopInfo *LI) {
 #if 0
     if (!UseVirtualStmts) {
@@ -437,9 +442,11 @@ private:
 
     //  DenseSet<VirtualInstruction > Used;
     DenseSet<MemoryAccess *> UsedMA;
-    std::vector<VirtualInstruction> InstList;
+    //std::vector<VirtualInstruction> InstList;
+	DenseSet<VirtualInstruction> UsedInsts;
 
-    markReachableGlobal(S, InstList, UsedMA, LI);
+    //markReachableGlobal(S, InstList, UsedMA, LI);
+	markReachable(S, LI, UsedInsts, UsedMA, nullptr);
 
     SmallVector<MemoryAccess *, 64> AllMAs;
     for (auto &Stmt : *S)
@@ -448,7 +455,7 @@ private:
     for (auto *MA : AllMAs) {
       if (UsedMA.count(MA))
         continue;
-      DEBUG(dbgs() << "Removing " << MA << " because it's value is not used\n");
+      DEBUG(dbgs() << "Removing " << MA << " because its value is not used\n");
       auto Stmt = MA->getStatement();
       Stmt->removeSingleMemoryAccess(MA);
 
@@ -456,6 +463,31 @@ private:
       DeadAccessesRemoved++;
     }
 
+	for (auto &Stmt : *S) {
+		SmallVector<Instruction*, 32> AllInsts(Stmt.inst_begin(), Stmt.inst_end());
+		SmallVector<Instruction*, 32> RemainInsts;
+		auto Size = AllInsts.size();
+		for (auto *Inst : AllInsts) {
+			auto It = UsedInsts.find({ &Stmt, Inst });
+			if (It == UsedInsts.end()) {
+				DEBUG(dbgs() << "Removing "; Inst->print(dbgs());  dbgs() << " because its not used\n");
+				UnusedInsts++;
+				DeadInstructionsRemoved++; continue;
+			}
+
+
+				
+				RemainInsts.push_back(Inst);
+	
+
+				// If instructions appear multiple times, keep only the first.
+				UsedInsts.erase(It);
+			
+		}
+		Stmt.setInstructions(RemainInsts);
+	}
+
+#if 0
     for (auto &Stmt : *S) {
       decltype(Stmt.ComputedPHIs) UsedComputedPHIs;
 
@@ -483,6 +515,7 @@ private:
       }
       Stmt.ComputedPHIs = std::move(UsedComputedPHIs);
     }
+#endif
   }
 
   /// Print simplification statistics to @p OS.
@@ -579,6 +612,7 @@ public:
     WritesCoalesced = 0;
     EmptyPartialAccessesRemoved = 0;
     DeadAccessesRemoved = 0;
+	DeadInstructionsRemoved = 0;
     DeadComputedPHIs = 0;
     StmtsRemoved = 0;
     assert(!isModified());

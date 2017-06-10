@@ -1792,6 +1792,9 @@ ScopStmt::ScopStmt(Scop &parent, BasicBlock &bb, Loop *SurroundingLoop,
 
   BaseName = getIslCompatibleName("Stmt", &bb, parent.getNextStmtIdx(), "",
                                   UseInstructionNames);
+
+  InstructionSet.reserve(Instructions.size());
+  InstructionSet.insert(Instructions.begin(), Instructions.end());
 }
 
 ScopStmt::ScopStmt(Scop &parent, __isl_take isl_map *SourceRel,

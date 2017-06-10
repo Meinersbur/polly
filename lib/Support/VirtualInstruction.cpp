@@ -14,6 +14,7 @@
 
 #include "polly/Support/VirtualInstruction.h"
 #include "polly/Support/SCEVValidator.h"
+#include "polly/ScopBuilder.h"
 
 using namespace polly;
 using namespace llvm;
@@ -190,7 +191,123 @@ static void addRoots(ScopStmt *Stmt,
   }
 }
 
-static void markReachable(Scop *S, ArrayRef<VirtualInstruction> Roots,
+
+static void walkReachable(Scop *S ,LoopInfo *LI,
+	ArrayRef<VirtualInstruction> RootInsts, ArrayRef<MemoryAccess*> RootAccs, 
+	DenseSet<VirtualInstruction> &UsedInsts, 	DenseSet<MemoryAccess *> &UsedAccs,
+	ScopStmt  *OnlyLocal) {
+
+	UsedInsts.clear();
+	UsedAccs.clear();
+
+	ScalarDefUseChains DefUse;
+	DefUse.compute(S);
+
+	SmallVector<VirtualInstruction, 32> WorklistInsts;
+	SmallVector<MemoryAccess*, 32> WorklistAccs;
+	
+	WorklistInsts.append(RootInsts.begin(), RootInsts.end());
+	WorklistAccs.append(RootAccs.begin(), RootAccs.end());
+
+	auto AddToWorklist = [&](VirtualUse VUse) {
+		switch (VUse.getKind()) {
+		case VirtualUse::Block:
+		case VirtualUse::Constant:
+		case VirtualUse::Synthesizable:
+		case VirtualUse::Hoisted:
+			break;
+		case VirtualUse::ReadOnly:
+			if (!ModelReadOnlyScalars)
+				break;
+			LLVM_FALLTHROUGH;
+		case VirtualUse::Inter:
+			WorklistAccs.push_back(VUse.getMemoryAccess());
+			break;
+		case VirtualUse::Intra:
+			WorklistInsts.emplace_back(VUse.getUser(), cast<Instruction>( VUse.getValue()));
+			break;
+		}
+	};
+
+	while (true) {
+
+		while (!WorklistAccs.empty()) {
+			auto *Acc = WorklistAccs.pop_back_val();
+
+			auto *Stmt = Acc->getStatement();
+			if (OnlyLocal && Stmt != OnlyLocal)
+				continue;
+
+			auto Inserted = UsedAccs.insert(Acc);
+			if (!Inserted.second)
+				continue;
+
+			if (Acc->isRead()) {
+				auto *SAI = Acc->getScopArrayInfo();
+
+				if (Acc->isOriginalValueKind())
+					WorklistAccs.push_back(DefUse.getValueDef(SAI));
+
+				if (Acc->isOriginalAnyPHIKind()) {
+					auto &IncomingMAs = DefUse.getPHIIncomings(SAI);
+					WorklistAccs.append(IncomingMAs.begin(), IncomingMAs.end());
+				}
+			}
+
+			if (Acc->isWrite()) {
+				if (Acc->isOriginalValueKind() || Acc->isOriginalArrayKind()) {
+					auto *Scope = Stmt->getSurroundingLoop();
+					// If it was synthesizable it would not have a write access.
+					auto VUse = VirtualUse::create(S, Stmt, Scope, Acc->getAccessValue(), true);
+					AddToWorklist(VUse);
+				}
+
+				if (Acc->isOriginalAnyPHIKind()) {
+					for (auto Incoming : Acc->getIncoming()) {
+						auto VUse = VirtualUse::create(S, Stmt, LI->getLoopFor(Incoming.first), Incoming.second, true);
+						AddToWorklist(VUse);
+					}
+				}
+
+				if (Acc->isExplicit()) 
+					WorklistInsts.emplace_back(Stmt, Acc->getAccessInstruction());
+			}
+		}
+
+
+		
+		if (WorklistInsts.empty())
+			break; 
+
+		auto VInst = WorklistInsts.pop_back_val();
+		auto *Stmt = VInst.getStmt();
+		auto *Inst = VInst.getInstruction();
+
+		if (OnlyLocal && Stmt != OnlyLocal)
+			continue;
+
+		auto InsertResult = UsedInsts.insert(VInst);
+		if (!InsertResult.second)
+			continue;
+
+
+
+		for (auto VUse : VInst.operands()) {
+			//auto VUse = VirtualUse::create(S, Use, LI, true);
+			AddToWorklist(VUse);
+		}
+
+		auto Accs = Stmt->lookupArrayAccessesFor(Inst);
+		if (!Accs)
+			continue;
+
+		for (auto Acc : *Accs)
+			WorklistAccs.push_back(Acc);
+	}
+}
+
+
+static void markReachable2(Scop *S, ArrayRef<VirtualInstruction> Roots,
                           SmallVectorImpl<MemoryAccess *> &&WorklistMA,
                           std::vector<VirtualInstruction> &InstList,
                           DenseSet<MemoryAccess *> &UsedMA, ScopStmt *OnlyLocal,
@@ -481,7 +598,7 @@ static void markReachable(Scop *S, ArrayRef<VirtualInstruction> Roots,
     if (isa<PHINode>(Inst) && hasMA)
       continue;
 
-    for (auto &Use : VInst.operands()) {
+    for (auto &Use : Inst->operands()) {
       auto UseInst = dyn_cast<Instruction>(Use.get());
       if (!UseInst)
         continue;
@@ -523,6 +640,25 @@ static void markReachable(Scop *S, ArrayRef<VirtualInstruction> Roots,
   std::swap(InstList, ResultList);
 }
 
+
+void polly::markReachable(Scop *S, LoopInfo *LI,
+	DenseSet<VirtualInstruction> &UsedInsts, DenseSet<MemoryAccess *> &UsedAccs,
+	ScopStmt  *OnlyLocal) {
+
+	SmallVector<VirtualInstruction, 32> RootInsts;
+	SmallVector<MemoryAccess *, 32> RootAccs;
+
+	if (OnlyLocal) {
+		addRoots(OnlyLocal, RootInsts, RootAccs, true);
+	} 	else {
+		for (auto &Stmt : *S)
+			addRoots(&Stmt, RootInsts, RootAccs, false);
+	}
+
+	walkReachable(S,  LI, RootInsts, RootAccs, UsedInsts, UsedAccs, OnlyLocal);
+}
+
+
 void polly::markReachableGlobal(Scop *S,
                                 std::vector<VirtualInstruction> &InstList,
                                 DenseSet<MemoryAccess *> &UsedMA,
@@ -533,7 +669,7 @@ void polly::markReachableGlobal(Scop *S,
   for (auto &Stmt : *S)
     addRoots(&Stmt, Worklist, WorklistMA, false);
 
-  markReachable(S, Worklist, std::move(WorklistMA), InstList, UsedMA, nullptr,
+  markReachable2(S, Worklist, std::move(WorklistMA), InstList, UsedMA, nullptr,
                 LI);
 }
 
@@ -546,7 +682,7 @@ void polly::markReachableLocal(ScopStmt *Stmt,
   auto *S = Stmt->getParent();
 
   addRoots(Stmt, Worklist, WorklistMA, true);
-  markReachable(S, Worklist, std::move(WorklistMA), InstList, UsedMA, Stmt, LI);
+  markReachable2(S, Worklist, std::move(WorklistMA), InstList, UsedMA, Stmt, LI);
 }
 
 VirtualUse VirtualUse::create(Scop *S, const Use &U, LoopInfo *LI,
@@ -608,6 +744,23 @@ VirtualUse VirtualUse::create(Scop *S, ScopStmt *UserStmt, Loop *UserScope,
     return VirtualUse(UserStmt, Val, Inter, nullptr, InputMA);
 
   return VirtualUse(UserStmt, Val, Intra, nullptr, nullptr);
+}
+
+VirtualInstruction VirtualUse:: getDefinition() const {
+	switch (getKind()) {
+	case Intra:
+		return VirtualInstruction(User, cast<Instruction>(Val));
+	case Inter: {
+		auto *S = User->getParent();
+		auto *Inst = cast<Instruction>(Val);
+		ScalarDefUseChains DefUse; DefUse.compute(S);
+		auto SAI = InputMA->getOriginalScopArrayInfo();
+		auto *DefStmt = DefUse.getValueDef(SAI)->getStatement();
+		return VirtualInstruction(DefStmt, Inst);
+	}
+	default:
+		llvm_unreachable("Only non-synthesizable instructions are represented by as VirtualInstructions");
+	}
 }
 
 void VirtualUse::print(raw_ostream &OS, bool Reproducible) const {
