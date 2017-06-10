@@ -2588,8 +2588,7 @@ private:
 
       // TODO: Refactor with ScopBuilder
       bool NeedAccess;
-      if (canSynthesize(IncomingVal, *S, S->getSE(),
-                        ReadStmt->getSurroundingLoop()))
+      if (canSynthesize(IncomingVal, *S, S->getSE(), ReadStmt->getSurroundingLoop()))
         NeedAccess = false;
       else if (DefStmt) {
         NeedAccess = true;
@@ -2599,8 +2598,7 @@ private:
 
       // Ensure read of value in the BB we add a use to.
       if (NeedAccess && !ReadStmt->lookupValueReadOf(IncomingVal)) {
-        auto *ValSAI = S->getOrCreateScopArrayInfo(
-            IncomingVal, IncomingVal->getType(), {}, MemoryKind::Value);
+        auto *ValSAI = S->getOrCreateScopArrayInfo(IncomingVal, IncomingVal->getType(), {}, MemoryKind::Value);
 
         // ScopStmt *DefStmt2 =  S->getStmtFor( IncomingVal );
         // assert(DefStmt == S->getStmtFor(IncomingVal));
@@ -2609,10 +2607,7 @@ private:
 
         // Ensure write of value if it does not exist yet.
         if (!DefUse.getValueDef(ValSAI) && DefStmt) {
-          auto *WA = new MemoryAccess(
-              IncomingStmt, cast<Instruction>(IncomingVal),
-              MemoryAccess::MUST_WRITE, IncomingVal, IncomingVal->getType(),
-              true, {}, {}, IncomingVal, MemoryKind::Value, true);
+          auto *WA = new MemoryAccess( IncomingStmt, cast<Instruction>(IncomingVal),  MemoryAccess::MUST_WRITE, IncomingVal, IncomingVal->getType(),   true, {}, {}, IncomingVal, MemoryKind::Value, true);
           WA->buildAccessRelation(ValSAI);
           IncomingStmt->addAccess(WA);
           S->addAccessFunction(WA);
@@ -2621,10 +2616,7 @@ private:
           assert(DefUse.getValueDef(ValSAI)->getStatement() == DefStmt);
         }
 
-        auto *RA =
-            new MemoryAccess(ReadStmt, PHI, MemoryAccess::READ, IncomingVal,
-                             IncomingVal->getType(), true, {}, {}, IncomingVal,
-                             MemoryKind::Value, true);
+        auto *RA = new MemoryAccess(ReadStmt, PHI, MemoryAccess::READ, IncomingVal,  IncomingVal->getType(), true, {}, {}, IncomingVal,    MemoryKind::Value, true);
         RA->buildAccessRelation(ValSAI);
         ReadStmt->addAccess(RA);
         S->addAccessFunction(RA);
@@ -2686,6 +2678,7 @@ private:
 
     ReadStmt->removeSingleMemoryAccess(PHIRead);
     ReadStmt->ComputedPHIs[PHI] = IncomingValues;
+	ReadStmt->prependInstrunction(PHI);
     ComputedPHIScalars++;
     applyComputedPHI(ComputedPHITranslator);
     return true;
@@ -3311,6 +3304,8 @@ private:
                       // { DomainUse[] -> DomainTarget[] }
                       isl::map UseToTargetMapping, int Depth, bool DoIt,
                       MemoryAccess *&ReuseMe) {
+	  // TODO: Do not forward past loop headers, it synthesizes to the wrong value!
+
     assert(getStmtOfMap(UseToTargetMapping, isl_dim_in) == UseStmt);
     assert(getStmtOfMap(UseToTargetMapping, isl_dim_out) == TargetStmt);
 
