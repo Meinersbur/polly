@@ -18,6 +18,8 @@
 #include "polly/ScopInfo.h"
 
 namespace polly {
+	class VirtualUse;
+	class VirtualInstruction;
 
 class ScalarDefUseChains {
 public:

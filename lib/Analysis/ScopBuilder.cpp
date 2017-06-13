@@ -648,7 +648,7 @@ void ScopBuilder::buildStmts(Region &SR) {
       std::vector<Instruction *> Instructions;
       for (Instruction &Inst : *I->getNodeAs<BasicBlock>()) {
         Loop *L = LI.getLoopFor(Inst.getParent());
-        if (!isa<TerminatorInst>(&Inst) && !isIgnoredIntrinsic(&Inst) &&
+        if (!isa<PHINode>(Inst) && !isa<TerminatorInst>(&Inst) && !isIgnoredIntrinsic(&Inst) &&
             !canSynthesize(&Inst, *scop, &SE, L))
           Instructions.push_back(&Inst);
       }

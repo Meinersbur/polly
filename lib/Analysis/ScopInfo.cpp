@@ -1436,7 +1436,7 @@ MemoryAccess *ScopStmt::lookupPHIReadOf(PHINode *PHI) const {
   for (auto *MA : *this) {
     if (!MA->isRead())
       continue;
-    if (!MA->isLatestAnyPHIKind())
+    if (!MA->isOriginalAnyPHIKind())
       continue;
 
     if (MA->getAccessInstruction() == PHI)
@@ -2015,7 +2015,7 @@ void ScopStmt::printInstructions(raw_ostream &OS) const {
 }
 
 void ScopStmt::print(raw_ostream &OS, bool Reproducible) const {
-  OS << "\t" << getBaseName() << "\n";
+  OS.indent(8) << getBaseName() << "\n";
   OS.indent(12) << "Domain :=\n";
 
   if (Domain) {
@@ -4580,11 +4580,12 @@ void Scop::printAliasAssumptions(raw_ostream &OS) const {
   }
 }
 
-void Scop::printStatements(raw_ostream &OS) const {
+void Scop::printStatements(raw_ostream &OS, bool Reproducible) const {
   OS << "Statements {\n";
 
-  for (const ScopStmt &Stmt : *this)
-    OS.indent(4) << Stmt;
+  for (const ScopStmt &Stmt : *this) {
+		  OS.indent(4);	Stmt.print(OS, Reproducible);
+  }
 
   OS.indent(4) << "}\n";
 }
@@ -4605,7 +4606,7 @@ void Scop::printArrayInfo(raw_ostream &OS) const {
   OS.indent(4) << "}\n";
 }
 
-void Scop::print(raw_ostream &OS) const {
+void Scop::print(raw_ostream &OS,bool Reproducible) const {
   OS.indent(4) << "Function: " << getFunction().getName() << "\n";
   OS.indent(4) << "Region: " << getNameStr() << "\n";
   OS.indent(4) << "Max Loop Depth:  " << getMaxLoopDepth() << "\n";
@@ -4627,7 +4628,7 @@ void Scop::print(raw_ostream &OS) const {
   printStatements(OS.indent(4));
 }
 
-void Scop::dump() const { print(dbgs()); }
+void Scop::dump() const { print(dbgs(),false); }
 
 isl_ctx *Scop::getIslCtx() const { return IslCtx.get(); }
 

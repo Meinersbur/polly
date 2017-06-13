@@ -339,8 +339,8 @@ protected:
                               ValueMapT &BBMap);
 #endif
 
-  void generateComputedPHIs(ScopStmt &Stmt, LoopToScevMapT &LTS,
-                            ValueMapT &BBMap);
+  void generateComputedPHIs(ScopStmt &Stmt, LoopToScevMapT &LTS, ValueMapT &BBMap, PHINode *PHI);
+  void generateComputedPHIs(ScopStmt &Stmt, LoopToScevMapT &LTS,    ValueMapT &BBMap);
 
   /// Generate instructions that compute whether one instance of @p Set is
   /// executed.

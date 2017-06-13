@@ -470,7 +470,7 @@ private:
 		for (auto *Inst : AllInsts) {
 			auto It = UsedInsts.find({ &Stmt, Inst });
 			if (It == UsedInsts.end()) {
-				DEBUG(dbgs() << "Removing "; Inst->print(dbgs());  dbgs() << " because its not used\n");
+				DEBUG(dbgs() << "Removing "; Inst->print(dbgs());  dbgs() << " because it's not used\n");
 				UnusedInsts++;
 				DeadInstructionsRemoved++; continue;
 			}

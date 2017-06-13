@@ -2243,7 +2243,7 @@ private:
   //@{
   void printContext(raw_ostream &OS) const;
   void printArrayInfo(raw_ostream &OS) const;
-  void printStatements(raw_ostream &OS) const;
+  void printStatements(raw_ostream &OS,bool Reproducible=true) const;
   void printAliasAssumptions(raw_ostream &OS) const;
   //@}
 
@@ -2712,7 +2712,7 @@ public:
   /// Print the static control part.
   ///
   /// @param OS The output stream the static control part is printed to.
-  void print(raw_ostream &OS) const;
+  void print(raw_ostream &OS, bool Reproducible = true) const;
 
   /// Print the ScopStmt to stderr.
   void dump() const;

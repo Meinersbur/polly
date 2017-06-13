@@ -382,6 +382,7 @@ void BlockGenerator::copyInstruction(ScopStmt &Stmt, Instruction *Inst,
   if (canSyntheziseInStmt(Stmt, Inst))
     return;
 
+  if (Stmt.isBlockStmt())
   if (auto PHI = dyn_cast<PHINode>(Inst)) {
 	  generateComputedPHIs(Stmt, LTS, BBMap, PHI);
 	  return;

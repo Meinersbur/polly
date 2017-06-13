@@ -221,6 +221,7 @@ static void walkReachable(Scop *S ,LoopInfo *LI,
 				break;
 			LLVM_FALLTHROUGH;
 		case VirtualUse::Inter:
+			assert(VUse.getMemoryAccess());
 			WorklistAccs.push_back(VUse.getMemoryAccess());
 			break;
 		case VirtualUse::Intra:
@@ -245,8 +246,13 @@ static void walkReachable(Scop *S ,LoopInfo *LI,
 			if (Acc->isRead()) {
 				auto *SAI = Acc->getScopArrayInfo();
 
-				if (Acc->isOriginalValueKind())
-					WorklistAccs.push_back(DefUse.getValueDef(SAI));
+				if (Acc->isOriginalValueKind()) {
+					auto *DefAcc = DefUse.getValueDef(SAI);
+					
+					// Accesses to read-only value do not have a definition.
+					if (DefAcc)
+						WorklistAccs.push_back(DefUse.getValueDef(SAI));
+				}
 
 				if (Acc->isOriginalAnyPHIKind()) {
 					auto &IncomingMAs = DefUse.getPHIIncomings(SAI);
@@ -290,10 +296,11 @@ static void walkReachable(Scop *S ,LoopInfo *LI,
 		if (!InsertResult.second)
 			continue;
 
-
-
-		for (auto VUse : VInst.operands()) {
-			//auto VUse = VirtualUse::create(S, Use, LI, true);
+		if (auto *PHI = dyn_cast<PHINode>(Inst)) {
+			if (auto *PHIRead = Stmt->lookupPHIReadOf(PHI))
+				WorklistAccs.push_back(PHIRead);
+		} else {
+		for (auto VUse : VInst.operands()) 
 			AddToWorklist(VUse);
 		}
 
