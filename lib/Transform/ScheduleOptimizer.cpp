@@ -1603,7 +1603,7 @@ bool IslScheduleOptimizer::runOnScop(Scop &S) {
   S.markAsOptimized();
 
   if (OptimizedScops)
-    S.dump();
+	  S.print(llvm::outs());
 
   return false;
 }

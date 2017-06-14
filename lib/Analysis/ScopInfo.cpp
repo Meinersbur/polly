@@ -4583,9 +4583,8 @@ void Scop::printAliasAssumptions(raw_ostream &OS) const {
 void Scop::printStatements(raw_ostream &OS, bool Reproducible) const {
   OS << "Statements {\n";
 
-  for (const ScopStmt &Stmt : *this) {
-		  OS.indent(4);	Stmt.print(OS, Reproducible);
-  }
+  for (const ScopStmt &Stmt : *this)
+		  Stmt.print(OS, Reproducible);
 
   OS.indent(4) << "}\n";
 }
@@ -4625,7 +4624,7 @@ void Scop::print(raw_ostream &OS,bool Reproducible) const {
   printContext(OS.indent(4));
   printArrayInfo(OS.indent(4));
   printAliasAssumptions(OS);
-  printStatements(OS.indent(4));
+  printStatements(OS.indent(4),Reproducible);
 }
 
 void Scop::dump() const { print(dbgs(),false); }

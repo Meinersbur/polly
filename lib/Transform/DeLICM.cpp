@@ -3304,10 +3304,10 @@ private:
                       // { DomainUse[] -> DomainTarget[] }
                       isl::map UseToTargetMapping, int Depth, bool DoIt,
                       MemoryAccess *&ReuseMe, MemoryAccess *&DontRemove) {
-	  // TODO: Do not forward past loop headers, it synthesizes to the wrong value!
+	  // TODO: Do not forward past loop headers, it synthesizes to the wrong value! Or define a mapping SynthesizableVal -> SCEV to override the expanded value.
 
-    assert(getStmtOfMap(UseToTargetMapping, isl_dim_in) == UseStmt);
-    assert(getStmtOfMap(UseToTargetMapping, isl_dim_out) == TargetStmt);
+	  assert(getStmtOfMap(UseToTargetMapping, isl_dim_out) == TargetStmt);
+	  assert(getStmtOfMap(UseToTargetMapping, isl_dim_in) == UseStmt);
 
     // Don't handle PHIs (yet)
     if (isa<PHINode>(UseVal))
@@ -3320,6 +3320,8 @@ private:
 
     // { DomainDef[] -> DomainTarget[] }
     isl::map DefToTargetMapping;
+
+	ScopStmt *DefStmt = nullptr;
 
     switch (VUse.getKind()) {
     case VirtualUse::Constant:
@@ -3351,6 +3353,7 @@ private:
     case VirtualUse::Intra:
       DefScatter = UseScatter;
       DefToTargetMapping = UseToTargetMapping;
+	  DefStmt = UseStmt;
       assert(DefScatter && DefToTargetMapping);
 
       LLVM_FALLTHROUGH;
@@ -3360,7 +3363,8 @@ private:
           !isa<LoadInst>(Inst)) // isSafeToSpeculativelyExecute()???
         return false;
 
-      auto DefStmt = S->getStmtFor(Inst);
+	  if (!DefStmt)
+		DefStmt = S->getStmtFor(Inst);
       assert(DefStmt);
       // auto DefLoop = LI->getLoopFor(Inst->getParent());
       if (DefScatter.is_null() || DefToTargetMapping.is_null()) {
