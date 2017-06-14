@@ -261,9 +261,8 @@ static void walkReachable(Scop *S ,LoopInfo *LI,
 			}
 
 			if (Acc->isWrite()) {
-				if (Acc->isOriginalValueKind() || Acc->isOriginalArrayKind()) {
+				if (Acc->isOriginalValueKind() || (Acc->isOriginalArrayKind() && Acc->getAccessValue())) {
 					auto *Scope = Stmt->getSurroundingLoop();
-					// If it was synthesizable it would not have a write access.
 					auto VUse = VirtualUse::create(S, Stmt, Scope, Acc->getAccessValue(), true);
 					AddToWorklist(VUse);
 				}

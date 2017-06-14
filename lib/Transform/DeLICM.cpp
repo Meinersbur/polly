@@ -3303,7 +3303,7 @@ private:
                       isl::map UseScatter, ScopStmt *TargetStmt,
                       // { DomainUse[] -> DomainTarget[] }
                       isl::map UseToTargetMapping, int Depth, bool DoIt,
-                      MemoryAccess *&ReuseMe) {
+                      MemoryAccess *&ReuseMe, MemoryAccess *&DontRemove) {
 	  // TODO: Do not forward past loop headers, it synthesizes to the wrong value!
 
     assert(getStmtOfMap(UseToTargetMapping, isl_dim_in) == UseStmt);
@@ -3331,17 +3331,20 @@ private:
       return false;
 
     case VirtualUse::ReadOnly:
-      if (DoIt && ModelReadOnlyScalars &&
-          !TargetStmt->lookupInputAccessOf(UseVal)) {
-        auto *SAI = S->getOrCreateScopArrayInfo(UseVal, UseVal->getType(), {},
-                                                MemoryKind::Value);
-        auto *Access = new MemoryAccess(TargetStmt, nullptr, MemoryAccess::READ,
-                                        UseVal, UseVal->getType(), true, {}, {},
-                                        UseVal, MemoryKind::Value, true);
-        Access->buildAccessRelation(SAI);
-        S->addAccessFunction(Access);
-        TargetStmt->addAccess(Access);
-        MappedReadOnly++;
+		if (DoIt && ModelReadOnlyScalars ) {
+		auto Access=	TargetStmt->lookupInputAccessOf(UseVal);
+		if (!Access) {
+			auto *SAI = S->getOrCreateScopArrayInfo(UseVal, UseVal->getType(), {},
+				MemoryKind::Value);
+			auto *Access = new MemoryAccess(TargetStmt, nullptr, MemoryAccess::READ,
+				UseVal, UseVal->getType(), true, {}, {},
+				UseVal, MemoryKind::Value, true);
+			Access->buildAccessRelation(SAI);
+			S->addAccessFunction(Access);
+			TargetStmt->addAccess(Access);
+			MappedReadOnly++;
+		}
+		DontRemove = Access;
       }
       return true;
 
@@ -3385,9 +3388,10 @@ private:
       }
 
       if (auto LI = dyn_cast<LoadInst>(Inst)) {
+		  MemoryAccess *Dummy;
         if (!canForwardTree(LI->getPointerOperand(), DefStmt, UseLoop,
                             DefScatter, TargetStmt, DefToTargetMapping,
-                            Depth + 1, DoIt, ReuseMe))
+                            Depth + 1, DoIt, ReuseMe,Dummy))
           return false;
 
         auto *RA = &DefStmt->getArrayAccessFor(LI);
@@ -3455,8 +3459,9 @@ private:
         return false;
 
       for (auto OpVal : Inst->operand_values()) {
+		  MemoryAccess *Dummy;
         if (!canForwardTree(OpVal, DefStmt, UseLoop, DefScatter, TargetStmt,
-                            DefToTargetMapping, Depth + 1, DoIt, ReuseMe))
+                            DefToTargetMapping, Depth + 1, DoIt, ReuseMe,Dummy))
           return false;
       }
 
@@ -3476,16 +3481,18 @@ private:
         isl_space_map_from_domain_and_range(DomSpace.copy(), DomSpace.copy())));
     auto Scatter = getScatterFor(Stmt);
     MemoryAccess *DontReuse = nullptr;
+	MemoryAccess *Dummy;
     if (!canForwardTree(RA->getAccessValue(), Stmt, InLoop, Scatter, Stmt,
-                        Identity, 0, false, DontReuse))
+                        Identity, 0, false, DontReuse,Dummy))
       return false;
 
+	MemoryAccess *KeepMe = nullptr;
     bool Success = canForwardTree(RA->getAccessValue(), Stmt, InLoop, Scatter,
-                                  Stmt, Identity, 0, true, RA);
+                                  Stmt, Identity, 0, true, RA, KeepMe);
     assert(Success && "If it says it can do it, it must be able to do it");
 
     // Remove if not been reused.
-    if (RA)
+    if (RA && RA!=KeepMe)
       Stmt->removeSingleMemoryAccess(RA);
 
     return true;
