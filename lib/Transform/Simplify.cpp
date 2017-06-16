@@ -43,7 +43,8 @@ STATISTIC(TotalRedundantWritesRemoved,
 
 STATISTIC(TotalWritesCoalesced, "Number of writes coalesced with another");
 
-STATISTIC(TotalEmptyPartialAccessesRemoved, "Number of empty partial accesses removed");
+STATISTIC(TotalEmptyPartialAccessesRemoved,
+          "Number of empty partial accesses removed");
 STATISTIC(TotalDeadAccessesRemoved, "Number of dead accesses removed");
 STATISTIC(TotalDeadComputedPHIs, "Number of dead computed PHIs removed");
 STATISTIC(TotalStmtsRemoved, "Number of statements removed in any SCoP");
@@ -423,14 +424,13 @@ private:
           DEBUG(dbgs() << "Removing " << MA
                        << " because it's a partial access that never occurs\n");
           Stmt.removeSingleMemoryAccess(MA);
-		  EmptyPartialAccessesRemoved++;
-		  TotalEmptyPartialAccessesRemoved++;
+          EmptyPartialAccessesRemoved++;
+          TotalEmptyPartialAccessesRemoved++;
         }
       }
     }
   }
 
-  
   void markAndSweep(LoopInfo *LI) {
 #if 0
     if (!UseVirtualStmts) {
@@ -442,11 +442,11 @@ private:
 
     //  DenseSet<VirtualInstruction > Used;
     DenseSet<MemoryAccess *> UsedMA;
-    //std::vector<VirtualInstruction> InstList;
-	DenseSet<VirtualInstruction> UsedInsts;
+    // std::vector<VirtualInstruction> InstList;
+    DenseSet<VirtualInstruction> UsedInsts;
 
-    //markReachableGlobal(S, InstList, UsedMA, LI);
-	markReachable(S, LI, UsedInsts, UsedMA, nullptr);
+    // markReachableGlobal(S, InstList, UsedMA, LI);
+    markReachable(S, LI, UsedInsts, UsedMA, nullptr);
 
     SmallVector<MemoryAccess *, 64> AllMAs;
     for (auto &Stmt : *S)
@@ -463,29 +463,28 @@ private:
       DeadAccessesRemoved++;
     }
 
-	for (auto &Stmt : *S) {
-		SmallVector<Instruction*, 32> AllInsts(Stmt.inst_begin(), Stmt.inst_end());
-		SmallVector<Instruction*, 32> RemainInsts;
-		auto Size = AllInsts.size();
-		for (auto *Inst : AllInsts) {
-			auto It = UsedInsts.find({ &Stmt, Inst });
-			if (It == UsedInsts.end()) {
-				DEBUG(dbgs() << "Removing "; Inst->print(dbgs());  dbgs() << " because it's not used\n");
-				UnusedInsts++;
-				DeadInstructionsRemoved++; continue;
-			}
+    for (auto &Stmt : *S) {
+      SmallVector<Instruction *, 32> AllInsts(Stmt.inst_begin(),
+                                              Stmt.inst_end());
+      SmallVector<Instruction *, 32> RemainInsts;
+      auto Size = AllInsts.size();
+      for (auto *Inst : AllInsts) {
+        auto It = UsedInsts.find({&Stmt, Inst});
+        if (It == UsedInsts.end()) {
+          DEBUG(dbgs() << "Removing "; Inst->print(dbgs());
+                dbgs() << " because it's not used\n");
+          UnusedInsts++;
+          DeadInstructionsRemoved++;
+          continue;
+        }
 
+        RemainInsts.push_back(Inst);
 
-				
-				RemainInsts.push_back(Inst);
-	
-
-				// If instructions appear multiple times, keep only the first.
-				UsedInsts.erase(It);
-			
-		}
-		Stmt.setInstructions(RemainInsts);
-	}
+        // If instructions appear multiple times, keep only the first.
+        UsedInsts.erase(It);
+      }
+      Stmt.setInstructions(RemainInsts);
+    }
 
 #if 0
     for (auto &Stmt : *S) {
@@ -612,7 +611,7 @@ public:
     WritesCoalesced = 0;
     EmptyPartialAccessesRemoved = 0;
     DeadAccessesRemoved = 0;
-	DeadInstructionsRemoved = 0;
+    DeadInstructionsRemoved = 0;
     DeadComputedPHIs = 0;
     StmtsRemoved = 0;
     assert(!isModified());

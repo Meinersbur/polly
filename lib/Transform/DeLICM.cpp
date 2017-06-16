@@ -2588,7 +2588,8 @@ private:
 
       // TODO: Refactor with ScopBuilder
       bool NeedAccess;
-      if (canSynthesize(IncomingVal, *S, S->getSE(), ReadStmt->getSurroundingLoop()))
+      if (canSynthesize(IncomingVal, *S, S->getSE(),
+                        ReadStmt->getSurroundingLoop()))
         NeedAccess = false;
       else if (DefStmt) {
         NeedAccess = true;
@@ -2598,7 +2599,8 @@ private:
 
       // Ensure read of value in the BB we add a use to.
       if (NeedAccess && !ReadStmt->lookupValueReadOf(IncomingVal)) {
-        auto *ValSAI = S->getOrCreateScopArrayInfo(IncomingVal, IncomingVal->getType(), {}, MemoryKind::Value);
+        auto *ValSAI = S->getOrCreateScopArrayInfo(
+            IncomingVal, IncomingVal->getType(), {}, MemoryKind::Value);
 
         // ScopStmt *DefStmt2 =  S->getStmtFor( IncomingVal );
         // assert(DefStmt == S->getStmtFor(IncomingVal));
@@ -2607,7 +2609,10 @@ private:
 
         // Ensure write of value if it does not exist yet.
         if (!DefUse.getValueDef(ValSAI) && DefStmt) {
-          auto *WA = new MemoryAccess( IncomingStmt, cast<Instruction>(IncomingVal),  MemoryAccess::MUST_WRITE, IncomingVal, IncomingVal->getType(),   true, {}, {}, IncomingVal, MemoryKind::Value, true);
+          auto *WA = new MemoryAccess(
+              IncomingStmt, cast<Instruction>(IncomingVal),
+              MemoryAccess::MUST_WRITE, IncomingVal, IncomingVal->getType(),
+              true, {}, {}, IncomingVal, MemoryKind::Value, true);
           WA->buildAccessRelation(ValSAI);
           IncomingStmt->addAccess(WA);
           S->addAccessFunction(WA);
@@ -2616,7 +2621,10 @@ private:
           assert(DefUse.getValueDef(ValSAI)->getStatement() == DefStmt);
         }
 
-        auto *RA = new MemoryAccess(ReadStmt, PHI, MemoryAccess::READ, IncomingVal,  IncomingVal->getType(), true, {}, {}, IncomingVal,    MemoryKind::Value, true);
+        auto *RA =
+            new MemoryAccess(ReadStmt, PHI, MemoryAccess::READ, IncomingVal,
+                             IncomingVal->getType(), true, {}, {}, IncomingVal,
+                             MemoryKind::Value, true);
         RA->buildAccessRelation(ValSAI);
         ReadStmt->addAccess(RA);
         S->addAccessFunction(RA);
@@ -2678,7 +2686,7 @@ private:
 
     ReadStmt->removeSingleMemoryAccess(PHIRead);
     ReadStmt->ComputedPHIs[PHI] = IncomingValues;
-	ReadStmt->prependInstrunction(PHI);
+    ReadStmt->prependInstrunction(PHI);
     ComputedPHIScalars++;
     applyComputedPHI(ComputedPHITranslator);
     return true;
@@ -3304,10 +3312,12 @@ private:
                       // { DomainUse[] -> DomainTarget[] }
                       isl::map UseToTargetMapping, int Depth, bool DoIt,
                       MemoryAccess *&ReuseMe, MemoryAccess *&DontRemove) {
-	  // TODO: Do not forward past loop headers, it synthesizes to the wrong value! Or define a mapping SynthesizableVal -> SCEV to override the expanded value.
+    // TODO: Do not forward past loop headers, it synthesizes to the wrong
+    // value! Or define a mapping SynthesizableVal -> SCEV to override the
+    // expanded value.
 
-	  assert(getStmtOfMap(UseToTargetMapping, isl_dim_out) == TargetStmt);
-	  assert(getStmtOfMap(UseToTargetMapping, isl_dim_in) == UseStmt);
+    assert(getStmtOfMap(UseToTargetMapping, isl_dim_out) == TargetStmt);
+    assert(getStmtOfMap(UseToTargetMapping, isl_dim_in) == UseStmt);
 
     // Don't handle PHIs (yet)
     if (isa<PHINode>(UseVal))
@@ -3321,7 +3331,7 @@ private:
     // { DomainDef[] -> DomainTarget[] }
     isl::map DefToTargetMapping;
 
-	ScopStmt *DefStmt = nullptr;
+    ScopStmt *DefStmt = nullptr;
 
     switch (VUse.getKind()) {
     case VirtualUse::Constant:
@@ -3333,27 +3343,27 @@ private:
       return false;
 
     case VirtualUse::ReadOnly:
-		if (DoIt && ModelReadOnlyScalars ) {
-		auto Access=	TargetStmt->lookupInputAccessOf(UseVal);
-		if (!Access) {
-			auto *SAI = S->getOrCreateScopArrayInfo(UseVal, UseVal->getType(), {},
-				MemoryKind::Value);
-			auto *Access = new MemoryAccess(TargetStmt, nullptr, MemoryAccess::READ,
-				UseVal, UseVal->getType(), true, {}, {},
-				UseVal, MemoryKind::Value, true);
-			Access->buildAccessRelation(SAI);
-			S->addAccessFunction(Access);
-			TargetStmt->addAccess(Access);
-			MappedReadOnly++;
-		}
-		DontRemove = Access;
+      if (DoIt && ModelReadOnlyScalars) {
+        auto Access = TargetStmt->lookupInputAccessOf(UseVal);
+        if (!Access) {
+          auto *SAI = S->getOrCreateScopArrayInfo(UseVal, UseVal->getType(), {},
+                                                  MemoryKind::Value);
+          auto *Access = new MemoryAccess(
+              TargetStmt, nullptr, MemoryAccess::READ, UseVal,
+              UseVal->getType(), true, {}, {}, UseVal, MemoryKind::Value, true);
+          Access->buildAccessRelation(SAI);
+          S->addAccessFunction(Access);
+          TargetStmt->addAccess(Access);
+          MappedReadOnly++;
+        }
+        DontRemove = Access;
       }
       return true;
 
     case VirtualUse::Intra:
       DefScatter = UseScatter;
       DefToTargetMapping = UseToTargetMapping;
-	  DefStmt = UseStmt;
+      DefStmt = UseStmt;
       assert(DefScatter && DefToTargetMapping);
 
       LLVM_FALLTHROUGH;
@@ -3363,8 +3373,8 @@ private:
           !isa<LoadInst>(Inst)) // isSafeToSpeculativelyExecute()???
         return false;
 
-	  if (!DefStmt)
-		DefStmt = S->getStmtFor(Inst);
+      if (!DefStmt)
+        DefStmt = S->getStmtFor(Inst);
       assert(DefStmt);
       // auto DefLoop = LI->getLoopFor(Inst->getParent());
       if (DefScatter.is_null() || DefToTargetMapping.is_null()) {
@@ -3392,10 +3402,10 @@ private:
       }
 
       if (auto LI = dyn_cast<LoadInst>(Inst)) {
-		  MemoryAccess *Dummy;
+        MemoryAccess *Dummy;
         if (!canForwardTree(LI->getPointerOperand(), DefStmt, UseLoop,
                             DefScatter, TargetStmt, DefToTargetMapping,
-                            Depth + 1, DoIt, ReuseMe,Dummy))
+                            Depth + 1, DoIt, ReuseMe, Dummy))
           return false;
 
         auto *RA = &DefStmt->getArrayAccessFor(LI);
@@ -3443,7 +3453,9 @@ private:
               TargetStmt->addAccess(Access, true);
             }
 
-			// Necessary so matmul pattern detection recognizes this access. It expects the map to have exactly 2 constrains (i0=o0 and i1=o1, for the two surrounding loops)
+            // Necessary so matmul pattern detection recognizes this access. It
+            // expects the map to have exactly 2 constrains (i0=o0 and i1=o1,
+            // for the two surrounding loops)
             SameVal = SameVal.gist_domain(
                 give(TargetStmt->getDomain())
                     .intersect_params(give(S->getContext())));
@@ -3463,9 +3475,10 @@ private:
         return false;
 
       for (auto OpVal : Inst->operand_values()) {
-		  MemoryAccess *Dummy;
+        MemoryAccess *Dummy;
         if (!canForwardTree(OpVal, DefStmt, UseLoop, DefScatter, TargetStmt,
-                            DefToTargetMapping, Depth + 1, DoIt, ReuseMe,Dummy))
+                            DefToTargetMapping, Depth + 1, DoIt, ReuseMe,
+                            Dummy))
           return false;
       }
 
@@ -3485,18 +3498,18 @@ private:
         isl_space_map_from_domain_and_range(DomSpace.copy(), DomSpace.copy())));
     auto Scatter = getScatterFor(Stmt);
     MemoryAccess *DontReuse = nullptr;
-	MemoryAccess *Dummy;
+    MemoryAccess *Dummy;
     if (!canForwardTree(RA->getAccessValue(), Stmt, InLoop, Scatter, Stmt,
-                        Identity, 0, false, DontReuse,Dummy))
+                        Identity, 0, false, DontReuse, Dummy))
       return false;
 
-	MemoryAccess *KeepMe = nullptr;
+    MemoryAccess *KeepMe = nullptr;
     bool Success = canForwardTree(RA->getAccessValue(), Stmt, InLoop, Scatter,
                                   Stmt, Identity, 0, true, RA, KeepMe);
     assert(Success && "If it says it can do it, it must be able to do it");
 
     // Remove if not been reused.
-    if (RA && RA!=KeepMe)
+    if (RA && RA != KeepMe)
       Stmt->removeSingleMemoryAccess(RA);
 
     return true;

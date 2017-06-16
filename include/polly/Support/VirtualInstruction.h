@@ -18,8 +18,8 @@
 #include "polly/ScopInfo.h"
 
 namespace polly {
-	class VirtualUse;
-	class VirtualInstruction;
+class VirtualUse;
+class VirtualInstruction;
 
 class ScalarDefUseChains {
 public:
@@ -196,7 +196,7 @@ public:
   /// if any.
   MemoryAccess *getMemoryAccess() const { return InputMA; }
 
-  VirtualInstruction getDefinition() const ;
+  VirtualInstruction getDefinition() const;
 
   /// Print a description of this object.
   ///
@@ -216,40 +216,52 @@ public:
 
 MemoryAccess *getOutputAccessFor(Value *OutputVal, ScopStmt *Stmt);
 
+class VirtualOperandIterator
+    : public std::iterator<std::forward_iterator_tag, VirtualUse> {
+  friend class VirtualInstruction;
+  friend class VirtualUse;
 
+  using super = std::iterator<std::forward_iterator_tag, VirtualUse>;
+  using Self = VirtualOperandIterator;
 
-class VirtualOperandIterator : public std::iterator<std::forward_iterator_tag, VirtualUse> {
-	friend class VirtualInstruction;
-	friend class VirtualUse;
+  ScopStmt *User;
+  User::op_iterator U;
 
-	using super = std::iterator<std::forward_iterator_tag, VirtualUse>;
-	using Self = VirtualOperandIterator;
-
-	ScopStmt *User;
-	User::op_iterator U;
-
-	VirtualOperandIterator(ScopStmt *User, User::op_iterator U) : User(User), U(U) {}
+  VirtualOperandIterator(ScopStmt *User, User::op_iterator U)
+      : User(User), U(U) {}
 
 public:
-	using pointer = typename super::pointer;
-	using reference = typename super::reference;
+  using pointer = typename super::pointer;
+  using reference = typename super::reference;
 
-	inline bool operator==(const Self& that) const { assert(this->User==that.User); return this->U == that.U; }
-	inline bool operator!=(const Self& that) const { assert(this->User == that.User); return this->U != that.U; }
+  inline bool operator==(const Self &that) const {
+    assert(this->User == that.User);
+    return this->U == that.U;
+  }
+  inline bool operator!=(const Self &that) const {
+    assert(this->User == that.User);
+    return this->U != that.U;
+  }
 
-	inline VirtualUse operator*() const {
-		return VirtualUse::create(User, User->getSurroundingLoop(), U->get(), true);
-	}
-	inline Use *operator->() const { return U; }
+  inline VirtualUse operator*() const {
+    return VirtualUse::create(User, User->getSurroundingLoop(), U->get(), true);
+  }
+  inline Use *operator->() const { return U; }
 
-	inline Self& operator++() {		U++;		return *this;	}
-	inline Self operator++(int) {		Self tmp = *this; ++*this; return tmp;	}
+  inline Self &operator++() {
+    U++;
+    return *this;
+  }
+  inline Self operator++(int) {
+    Self tmp = *this;
+    ++*this;
+    return tmp;
+  }
 };
 
-
-
 class VirtualInstruction {
-	friend class VirtualOperandIterator;
+  friend class VirtualOperandIterator;
+
 private:
   ScopStmt *Stmt = nullptr;
   Instruction *Inst = nullptr;
@@ -264,9 +276,15 @@ public:
   VirtualInstruction(ScopStmt *Stmt, Instruction *Inst)
       : Stmt(Stmt), Inst(Inst){};
 
-  VirtualOperandIterator operand_begin() const { return VirtualOperandIterator(Stmt, Inst->op_begin()); }
-  VirtualOperandIterator operand_end() const { return VirtualOperandIterator(Stmt, Inst->op_end());  }
-  llvm::iterator_range<VirtualOperandIterator>  operands() const { return { operand_begin (), operand_end() }; }
+  VirtualOperandIterator operand_begin() const {
+    return VirtualOperandIterator(Stmt, Inst->op_begin());
+  }
+  VirtualOperandIterator operand_end() const {
+    return VirtualOperandIterator(Stmt, Inst->op_end());
+  }
+  llvm::iterator_range<VirtualOperandIterator> operands() const {
+    return {operand_begin(), operand_end()};
+  }
 
   Scop *getScop() const { return Stmt->getParent(); }
   ScopStmt *getStmt() const { return Stmt; }
@@ -308,8 +326,8 @@ static inline bool operator==(VirtualInstruction LHS, VirtualInstruction RHS) {
 }
 
 void markReachable(Scop *S, LoopInfo *LI,
-	DenseSet<VirtualInstruction> &UsedInsts, DenseSet<MemoryAccess *> &UsedAccs,
-	ScopStmt  *OnlyLocal);
+                   DenseSet<VirtualInstruction> &UsedInsts,
+                   DenseSet<MemoryAccess *> &UsedAccs, ScopStmt *OnlyLocal);
 
 void markReachableGlobal(Scop *S, std::vector<VirtualInstruction> &InstList,
                          DenseSet<MemoryAccess *> &UsedMA, LoopInfo *LI);

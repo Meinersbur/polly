@@ -1418,11 +1418,12 @@ public:
   /// Return true if this statement does not contain any accesses.
   bool isEmpty() const { return MemAccs.empty(); }
 
- const MemoryAccessList *lookupArrayAccessesFor(const Instruction *Inst) const {
-	auto It =  InstructionToAccess.find(Inst);
-	if (It == InstructionToAccess.end())
-		return nullptr;
-	return &It->second;
+  const MemoryAccessList *
+  lookupArrayAccessesFor(const Instruction *Inst) const {
+    auto It = InstructionToAccess.find(Inst);
+    if (It == InstructionToAccess.end())
+      return nullptr;
+    return &It->second;
   }
 
   /// Return the only array access for @p Inst, if existing.
@@ -1547,13 +1548,20 @@ public:
     return Instructions;
   }
 
-  void setInstructions(ArrayRef<Instruction*> Range) {
-	  Instructions.assign(Range.begin(), Range.end());
+  void setInstructions(ArrayRef<Instruction *> Range) {
+    Instructions.assign(Range.begin(), Range.end());
   }
 
- auto inst_begin() const ->  decltype(this->Instructions.begin())  { return Instructions.begin(); }
- auto inst_end() const ->  decltype(this->Instructions.end()) { return Instructions.end(); }
- auto instructions() const -> llvm::iterator_range<decltype(this->inst_begin())> { return llvm::make_range(inst_begin(), inst_end()); }
+  auto inst_begin() const -> decltype(this->Instructions.begin()) {
+    return Instructions.begin();
+  }
+  auto inst_end() const -> decltype(this->Instructions.end()) {
+    return Instructions.end();
+  }
+  auto instructions() const
+      -> llvm::iterator_range<decltype(this->inst_begin())> {
+    return llvm::make_range(inst_begin(), inst_end());
+  }
 
   void prependInstrunction(Instruction *Inst) {
 #if 0
@@ -1564,8 +1572,7 @@ public:
 		Instructions.erase(VecIt);
 	}
 #endif
-	Instructions.insert(Instructions.begin(), Inst);
-
+    Instructions.insert(Instructions.begin(), Inst);
   }
 
   const char *getBaseName() const;
@@ -1860,7 +1867,8 @@ private:
   //@}
 
   /// Initialize this ScopBuilder.
-  //void init(AliasAnalysis &AA, AssumptionCache &AC, DominatorTree &DT,LoopInfo &LI);
+  // void init(AliasAnalysis &AA, AssumptionCache &AC, DominatorTree
+  // &DT,LoopInfo &LI);
 
   /// Propagate domains that are known due to graph properties.
   ///
@@ -2243,7 +2251,7 @@ private:
   //@{
   void printContext(raw_ostream &OS) const;
   void printArrayInfo(raw_ostream &OS) const;
-  void printStatements(raw_ostream &OS,bool Reproducible=true) const;
+  void printStatements(raw_ostream &OS, bool Reproducible = true) const;
   void printAliasAssumptions(raw_ostream &OS) const;
   //@}
 

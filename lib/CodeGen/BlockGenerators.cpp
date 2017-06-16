@@ -383,10 +383,10 @@ void BlockGenerator::copyInstruction(ScopStmt &Stmt, Instruction *Inst,
     return;
 
   if (Stmt.isBlockStmt())
-  if (auto PHI = dyn_cast<PHINode>(Inst)) {
-	  generateComputedPHIs(Stmt, LTS, BBMap, PHI);
-	  return;
-  }
+    if (auto PHI = dyn_cast<PHINode>(Inst)) {
+      generateComputedPHIs(Stmt, LTS, BBMap, PHI);
+      return;
+    }
 
   if (auto *Load = dyn_cast<LoadInst>(Inst)) {
     Value *NewLoad = generateArrayLoad(Stmt, Load, BBMap, LTS, NewAccesses);
@@ -796,72 +796,72 @@ void BlockGenerator::generateBeginStmtTrace(ScopStmt &Stmt, LoopToScevMapT &LTS,
 }
 #endif
 
+void BlockGenerator::generateComputedPHIs(ScopStmt &Stmt, LoopToScevMapT &LTS,
+                                          ValueMapT &BBMap, PHINode *PHI) {
+  auto &IncomingValues = Stmt.ComputedPHIs[PHI];
+  assert(IncomingValues);
 
-void BlockGenerator::generateComputedPHIs(ScopStmt &Stmt, LoopToScevMapT &LTS, ValueMapT &BBMap, PHINode *PHI) {
-	auto &IncomingValues = Stmt.ComputedPHIs[PHI];
-	assert(IncomingValues);
+  auto Build = give(isl_ast_build_copy(Stmt.getAstBuild()));
+  // auto Build = give(isl_ast_build_copy( Stmt.getAstBuild()));
+  auto USchedule = give(isl_ast_build_get_schedule(Build.keep()));
+  auto UDomain = give(isl_union_set_from_set(Stmt.getDomain()));
+  auto USchedule2 =
+      give(isl_union_map_intersect_domain(USchedule.copy(), UDomain.copy()));
 
-	auto Build = give(isl_ast_build_copy(Stmt.getAstBuild()));
-	// auto Build = give(isl_ast_build_copy( Stmt.getAstBuild()));
-	auto USchedule = give(isl_ast_build_get_schedule(Build.keep()));
-	auto UDomain = give(isl_union_set_from_set(Stmt.getDomain()));
-	auto USchedule2 =
-		give(isl_union_map_intersect_domain(USchedule.copy(), UDomain.copy()));
+  auto ScheduleValues = give(
+      isl_union_map_apply_domain(IncomingValues.copy(), USchedule2.copy()));
 
-	auto ScheduleValues = give(
-		isl_union_map_apply_domain(IncomingValues.copy(), USchedule2.copy()));
+  SmallVector<isl::set, 8> RestrictDomains;
+  SmallVector<isl::map, 8> Maps;
+  ScheduleValues.foreach_map([&, this](isl::map Map) -> isl::stat {
+    Maps.push_back(Map);
+    auto Dom = give(isl_map_domain(Map.copy()));
+    RestrictDomains.push_back(Dom);
+    return isl::stat::ok;
+  });
+  for (int i = RestrictDomains.size() - 1; i > 0; i--) {
+    RestrictDomains[i - 1] = give(isl_set_union(RestrictDomains[i - 1].take(),
+                                                RestrictDomains[i].copy()));
+  }
 
-	SmallVector<isl::set, 8> RestrictDomains;
-	SmallVector<isl::map, 8> Maps;
-	ScheduleValues.foreach_map([&, this](isl::map Map) -> isl::stat {
-		Maps.push_back(Map);
-		auto Dom = give(isl_map_domain(Map.copy()));
-		RestrictDomains.push_back(Dom);
-		return isl::stat::ok;
-	});
-	for (int i = RestrictDomains.size() - 1; i > 0; i--) {
-		RestrictDomains[i - 1] = give(isl_set_union(RestrictDomains[i - 1].take(),
-			RestrictDomains[i].copy()));
-	}
+  int i = RestrictDomains.size() - 1;
+  Value *PwVal = UndefValue::get(PHI->getType());
+  for (auto &Map : reverse(Maps)) {
+    assert(i >= 0);
+    auto RangeId = give(isl_map_get_tuple_id(Map.keep(), isl_dim_out));
+    auto IncomingVal =
+        static_cast<llvm::Value *>(isl_id_get_user(RangeId.keep()));
 
-	int i = RestrictDomains.size() - 1;
-	Value *PwVal = UndefValue::get(PHI->getType());
-	for (auto &Map : reverse(Maps)) {
-		assert(i >= 0);
-		auto RangeId = give(isl_map_get_tuple_id(Map.keep(), isl_dim_out));
-		auto IncomingVal =
-			static_cast<llvm::Value *>(isl_id_get_user(RangeId.keep()));
+    // undef value have been normalized to not conflict with undef of other
+    // types.
+    if (isa<UndefValue>(IncomingVal)) {
+      IncomingVal = UndefValue::get(PHI->getType());
+    }
 
-		// undef value have been normalized to not conflict with undef of other
-		// types.
-		if (isa<UndefValue>(IncomingVal)) {
-			IncomingVal = UndefValue::get(PHI->getType());
-		}
+    auto NewVal =
+        getNewValue(Stmt, IncomingVal, BBMap, LTS, Stmt.getSurroundingLoop());
 
-		auto NewVal =
-			getNewValue(Stmt, IncomingVal, BBMap, LTS, Stmt.getSurroundingLoop());
+    auto PossibleDom = RestrictDomains[i];
+    auto Dom = give(isl_map_domain(Map.copy()));
+    auto RestrictedBuild =
+        give(isl_ast_build_restrict(Build.copy(), PossibleDom.copy()));
+    i -= 1;
 
-		auto PossibleDom = RestrictDomains[i];
-		auto Dom = give(isl_map_domain(Map.copy()));
-		auto RestrictedBuild =
-			give(isl_ast_build_restrict(Build.copy(), PossibleDom.copy()));
-		i -= 1;
-
-		auto IsInSet =
-			give(isl_ast_build_expr_from_set(RestrictedBuild.keep(), Dom.copy()));
-		auto *IsInSetExpr = ExprBuilder->create(IsInSet.copy());
-		IsInSetExpr = Builder.CreateICmpNE(
-			IsInSetExpr, ConstantInt::get(IsInSetExpr->getType(), 0));
-		PwVal = Builder.CreateSelect(IsInSetExpr, NewVal, PwVal);
-	}
-	PwVal->setName("phi_" + PHI->getName());
-	BBMap[PHI] = PwVal;
+    auto IsInSet =
+        give(isl_ast_build_expr_from_set(RestrictedBuild.keep(), Dom.copy()));
+    auto *IsInSetExpr = ExprBuilder->create(IsInSet.copy());
+    IsInSetExpr = Builder.CreateICmpNE(
+        IsInSetExpr, ConstantInt::get(IsInSetExpr->getType(), 0));
+    PwVal = Builder.CreateSelect(IsInSetExpr, NewVal, PwVal);
+  }
+  PwVal->setName("phi_" + PHI->getName());
+  BBMap[PHI] = PwVal;
 }
 
 void BlockGenerator::generateComputedPHIs(ScopStmt &Stmt, LoopToScevMapT &LTS,
                                           ValueMapT &BBMap) {
-  for (auto &X : Stmt.ComputedPHIs) 
-	  generateComputedPHIs(Stmt, LTS, BBMap, X.first);
+  for (auto &X : Stmt.ComputedPHIs)
+    generateComputedPHIs(Stmt, LTS, BBMap, X.first);
 }
 
 void BlockGenerator::generateScalarStores(
@@ -1583,7 +1583,7 @@ void RegionGenerator::copyStmt(ScopStmt &Stmt, LoopToScevMapT &LTS,
 
   ValueMapT &EntryBBMap = RegionMaps[EntryBBCopy];
   generateScalarLoads(Stmt, LTS, EntryBBMap, IdToAstExp);
-  //generateComputedPHIs(Stmt, LTS, EntryBBMap);
+// generateComputedPHIs(Stmt, LTS, EntryBBMap);
 #if 1 // Debug tracing
   generateBeginStmtTrace(Stmt, LTS, EntryBBMap);
 #endif

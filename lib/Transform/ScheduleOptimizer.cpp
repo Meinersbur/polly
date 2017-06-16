@@ -1373,7 +1373,7 @@ ScheduleTreeOptimizer::optimizeBand(__isl_take isl_schedule_node *Node,
   MatMulInfoTy MMI;
   if (PMBasedOpts && User && isMatrMultPattern(Node, OAI->D, MMI)) {
     DEBUG(dbgs() << "The matrix multiplication pattern was detected\n");
-	MatMuls++;
+    MatMuls++;
     return optimizeMatMulPattern(Node, OAI->TTI, MMI);
   }
 
@@ -1603,7 +1603,7 @@ bool IslScheduleOptimizer::runOnScop(Scop &S) {
   S.markAsOptimized();
 
   if (OptimizedScops)
-	  S.print(llvm::outs());
+    S.print(llvm::outs());
 
   return false;
 }
