@@ -179,7 +179,6 @@ static bool CodeGen(Scop &S, IslAstInfo &AI, LoopInfo &LI, DominatorTree &DT,
 
   ScopAnnotator Annotator;
 
-
   simplifyRegion(R, &DT, &LI, &RI);
   assert(R->isSimple());
   BasicBlock *EnteringBB = S.getEnteringBlock();
@@ -199,6 +198,8 @@ static bool CodeGen(Scop &S, IslAstInfo &AI, LoopInfo &LI, DominatorTree &DT,
 
   IslNodeBuilder NodeBuilder(Builder, Annotator, DL, LI, SE, DT, S, StartBlock);
 
+  // All arrays must have their base pointers known before
+  // ScopAnnotator::buildAliasScopes.
   NodeBuilder.allocateNewArrays();
   Annotator.buildAliasScopes(S);
 
