@@ -1552,14 +1552,13 @@ public:
     Instructions.assign(Range.begin(), Range.end());
   }
 
-  auto inst_begin() const -> decltype(this->Instructions.begin()) {
+  std::vector<Instruction *>::const_iterator inst_begin() const{
     return Instructions.begin();
   }
-  auto inst_end() const -> decltype(this->Instructions.end()) {
+  std::vector<Instruction *>::const_iterator inst_end() const  {
     return Instructions.end();
   }
-  auto instructions() const
-      -> llvm::iterator_range<decltype(this->inst_begin())> {
+  llvm::iterator_range<std::vector<Instruction *>::const_iterator> instructions() const {
     return llvm::make_range(inst_begin(), inst_end());
   }
 
