@@ -178,7 +178,7 @@ static bool CodeGen(Scop &S, IslAstInfo &AI, LoopInfo &LI, DominatorTree &DT,
   assert(!R->isTopLevelRegion() && "Top level regions are not supported");
 
   ScopAnnotator Annotator;
-  Annotator.buildAliasScopes(S);
+
 
   simplifyRegion(R, &DT, &LI, &RI);
   assert(R->isSimple());
@@ -198,6 +198,9 @@ static bool CodeGen(Scop &S, IslAstInfo &AI, LoopInfo &LI, DominatorTree &DT,
   auto *SplitBlock = StartBlock->getSinglePredecessor();
 
   IslNodeBuilder NodeBuilder(Builder, Annotator, DL, LI, SE, DT, S, StartBlock);
+
+  NodeBuilder.allocateNewArrays();
+  Annotator.buildAliasScopes(S);
 
   if (PerfMonitoring) {
     PerfMonitor P(S, EnteringBB->getParent()->getParent());
@@ -243,7 +246,6 @@ static bool CodeGen(Scop &S, IslAstInfo &AI, LoopInfo &LI, DominatorTree &DT,
 
     ScopsCodegenFails++;
   } else {
-    NodeBuilder.allocateNewArrays();
     NodeBuilder.addParameters(S.getContext());
     Value *RTC = NodeBuilder.createRTC(AI.getRunCondition());
 
