@@ -543,10 +543,11 @@ void polly::addCleanupPasses(llvm::legacy::PassManagerBase &PM) {
   PM.add(wrapCleanupPass(createInstructionCombiningPass()));
   PM.add(
       wrapCleanupPass(createLibCallsShrinkWrapPass())); //  -libcalls-shrinkwrap
-  // PM.add(wrapCleanupPass(createPGOMemOPSizeOptLegacyPass())); // -pgo-memop-opt
-  PM.add(wrapCleanupPass(createTailCallEliminationPass()));   // -tailcallelim
-  PM.add(wrapCleanupPass(createCFGSimplificationPass()));     // -simplifycfg
-  PM.add(wrapCleanupPass(createReassociatePass()));           // -reassociate
+  // PM.add(wrapCleanupPass(createPGOMemOPSizeOptLegacyPass())); //
+  // -pgo-memop-opt
+  PM.add(wrapCleanupPass(createTailCallEliminationPass())); // -tailcallelim
+  PM.add(wrapCleanupPass(createCFGSimplificationPass()));   // -simplifycfg
+  PM.add(wrapCleanupPass(createReassociatePass()));         // -reassociate
   // -domtree -loops -loop-simplify -lcssa-verification -lcssa -basicaa -aa
   // -scalar-evolution
   PM.add(wrapCleanupPass(
