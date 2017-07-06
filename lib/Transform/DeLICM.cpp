@@ -295,6 +295,11 @@ STATISTIC(MappedKnown, "Number of deviated scalar loads to known content");
 STATISTIC(MappedReadOnly, "Number of rematerialized read-only vars");
 STATISTIC(KnownScopsModified, "Number of SCoPs optimized");
 
+STATISTIC(ForwardedReadOnly, "Number of forwarded Read-Only accesses");
+STATISTIC(ForwardedInsts, "Number of forwarded instructions");
+STATISTIC(ForwardedLoads, "Number of forwarded LoadInsts");
+STATISTIC(ForwardedTrees, "Number of forwarded operand trees");
+
 #undef DEBUG_TYPE
 #define DEBUG_TYPE "polly-delicm"
 
@@ -3343,20 +3348,24 @@ private:
       return false;
 
     case VirtualUse::ReadOnly:
-      if (DoIt && ModelReadOnlyScalars) {
-        auto Access = TargetStmt->lookupInputAccessOf(UseVal);
-        if (!Access) {
-          auto *SAI = S->getOrCreateScopArrayInfo(UseVal, UseVal->getType(), {},
-                                                  MemoryKind::Value);
-          auto *Access = new MemoryAccess(
-              TargetStmt, nullptr, MemoryAccess::READ, UseVal,
-              UseVal->getType(), true, {}, {}, UseVal, MemoryKind::Value, true);
-          Access->buildAccessRelation(SAI);
-          S->addAccessFunction(Access);
-          TargetStmt->addAccess(Access);
-          MappedReadOnly++;
+      if (DoIt) {
+        ForwardedReadOnly++;
+        if (ModelReadOnlyScalars) {
+          auto Access = TargetStmt->lookupInputAccessOf(UseVal);
+          if (!Access) {
+            auto *SAI = S->getOrCreateScopArrayInfo(UseVal, UseVal->getType(),
+                                                    {}, MemoryKind::Value);
+            auto *Access =
+                new MemoryAccess(TargetStmt, nullptr, MemoryAccess::READ,
+                                 UseVal, UseVal->getType(), true, {}, {},
+                                 UseVal, MemoryKind::Value, true);
+            Access->buildAccessRelation(SAI);
+            S->addAccessFunction(Access);
+            TargetStmt->addAccess(Access);
+            MappedReadOnly++;
+          }
+          DontRemove = Access;
         }
-        DontRemove = Access;
       }
       return true;
 
@@ -3399,6 +3408,7 @@ private:
 
       if (DoIt) {
         TargetStmt->prependInstrunction(Inst);
+        ForwardedInsts++;
       }
 
       if (auto LI = dyn_cast<LoadInst>(Inst)) {
@@ -3424,6 +3434,7 @@ private:
         if (!SameVal)
           return false;
         if (DoIt) {
+          ForwardedLoads++;
           MemoryAccess *Access = TargetStmt->getArrayAccessOrNULLFor(LI);
           if (!Access) {
             if (Depth == 0 && ReuseMe) {
@@ -3512,6 +3523,7 @@ private:
     if (RA && RA != KeepMe)
       Stmt->removeSingleMemoryAccess(RA);
 
+    ForwardedTrees += 1;
     return true;
   }
 

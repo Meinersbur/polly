@@ -4913,6 +4913,20 @@ void Scop::addScopStmt(Region *R, Loop *SurroundingLoop) {
     StmtMap[BB] = Stmt;
 }
 
+static int countLoops(Loop *L, const Region &IfContainedBy) {
+  int Result = IfContainedBy.contains(L);
+  for (auto SubLoop : L->getSubLoops())
+    Result += countLoops(SubLoop, IfContainedBy);
+  return Result;
+}
+
+int Scop::getNumContainedLoops() const {
+  int Result = 0;
+  for (auto TopLevelLoop : *getLI())
+    Result += countLoops(TopLevelLoop, getRegion());
+  return Result;
+}
+
 ScopStmt *Scop::addScopStmt(__isl_take isl_map *SourceRel,
                             __isl_take isl_map *TargetRel,
                             __isl_take isl_set *Domain) {

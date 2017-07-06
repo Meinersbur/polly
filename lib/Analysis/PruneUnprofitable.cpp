@@ -30,6 +30,13 @@ STATISTIC(LoopsProcessed, "Number of total loops in SCoPs");
 STATISTIC(LoopsProfitable, "Number of loops in SCoPs that survived scalar "
                            "dependences profitability check");
 
+static int countLoops(Loop *L, Region &IfInRegion) {
+  auto Result = IfInRegion.contains(L);
+  for (auto SubLoop : L->getSubLoops())
+    Result += countLoops(L, IfInRegion);
+  return Result;
+}
+
 class PruneUnprofitable : public ScopPass {
 private:
   PruneUnprofitable(const PruneUnprofitable &) = delete;
@@ -54,22 +61,17 @@ public:
 
     ScopsProcessed++;
 
-    auto &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
-    int Loops = 0;
-    for (auto &L : LI) {
-      if (S.getRegion().contains(L))
-        Loops += 1;
-    }
+    int Loops = S.getNumContainedLoops();
     LoopsProcessed += Loops;
 
     if (!S.isProfitable(true)) {
       DEBUG(dbgs() << "SCoP pruned because it probably cannot be optimized in "
                       "a significant way\n");
       ScopsPruned++;
-      LoopsProfitable += Loops;
       S.invalidate(PROFITABLE, DebugLoc());
     }
 
+    LoopsProfitable += Loops;
     return false;
   }
 };

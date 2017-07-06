@@ -2304,6 +2304,8 @@ public:
   /// @return The count of copy statements added to this Scop.
   unsigned getCopyStmtsNum() { return CopyStmtsNum; }
 
+  int getNumContainedLoops() const;
+
   /// Create a new copy statement.
   ///
   /// A new statement will be created and added to the statement vector.

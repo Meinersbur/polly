@@ -167,11 +167,7 @@ static bool CodeGen(Scop &S, IslAstInfo &AI, LoopInfo &LI, DominatorTree &DT,
     return false;
   }
 
-  int Loops = 0;
-  for (auto &L : LI) {
-    if (S.contains(L))
-      Loops += 1;
-  }
+  int Loops = S.getNumContainedLoops();
 
   auto &DL = S.getFunction().getParent()->getDataLayout();
   Region *R = &S.getRegion();
