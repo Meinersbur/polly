@@ -65,11 +65,20 @@ public:
     FPM->add(createCFGSimplificationPass());
     FPM->add(createSROAPass());
     FPM->add(createEarlyCSEPass());
+    // FPM->add(createLowerExpectIntrinsicPass());
+
+    FPM->add(createPromoteMemoryToRegisterPass());
     FPM->add(createInstructionCombiningPass());
+    FPM->add(createCFGSimplificationPass());
+    FPM->add(createSROAPass());
+    FPM->add(createEarlyCSEPass());
+    FPM->add(createSpeculativeExecutionIfHasBranchDivergencePass());
     FPM->add(createJumpThreadingPass());
     FPM->add(createCorrelatedValuePropagationPass());
     FPM->add(createCFGSimplificationPass());
     FPM->add(createInstructionCombiningPass());
+    FPM->add(createLibCallsShrinkWrapPass());
+    FPM->add(createTailCallEliminationPass());
     FPM->add(createCFGSimplificationPass());
     FPM->add(createReassociatePass());
     FPM->add(createLoopRotatePass());
@@ -81,19 +90,22 @@ public:
     FPM->add(createLoopIdiomPass());
     FPM->add(createLoopDeletionPass());
     FPM->add(createCFGSimplificationPass());
-    FPM->add(createSimpleLoopUnrollPass());
+    FPM->add(createSimpleLoopUnrollPass(3));
     FPM->add(createMergedLoadStoreMotionPass());
+    FPM->add(createGVNPass());
     FPM->add(createMemCpyOptPass());
+    FPM->add(createSCCPPass());
     FPM->add(createBitTrackingDCEPass());
     FPM->add(createInstructionCombiningPass());
     FPM->add(createJumpThreadingPass());
     FPM->add(createCorrelatedValuePropagationPass());
     FPM->add(createDeadStoreEliminationPass());
     FPM->add(createLICMPass());
-    FPM->add(createLoopRerollPass());
     FPM->add(createAggressiveDCEPass());
     FPM->add(createCFGSimplificationPass());
     FPM->add(createInstructionCombiningPass());
+    FPM->add(createFloat2IntPass());
+    // FPM->add(createLoopRerollPass());
 
     return FPM->doInitialization();
   }

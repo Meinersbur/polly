@@ -1406,7 +1406,6 @@ public:
       return BB == getBasicBlock();
     return getRegion()->contains(BB);
   }
-  bool contains(Instruction *Inst) const { return contains(Inst->getParent()); }
 
   /// Return whether this statement contains @p Inst.
   bool contains(Instruction *Inst) const {
