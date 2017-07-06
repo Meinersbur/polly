@@ -85,6 +85,8 @@ STATISTIC(NumScopsDepthLarger,
           "Number of scops with maximal loop depth 6 and larger");
 STATISTIC(MaxNumLoopsInScop, "Maximal number of loops in scops");
 
+STATISTIC(ScalarAccesses, "Number of remaining scalar accesses");
+
 // The maximal number of basic sets we allow during domain construction to
 // be created. More complex scops will result in very high compile time and
 // are also unlikely to result in good code
@@ -4924,6 +4926,17 @@ int Scop::getNumContainedLoops() const {
   int Result = 0;
   for (auto TopLevelLoop : *getLI())
     Result += countLoops(TopLevelLoop, getRegion());
+  return Result;
+}
+
+int Scop::getNumScalarWritesAccesses() const {
+  int Result = 0;
+  for (auto &Stmt : *this) {
+    for (auto MA : Stmt) {
+      if (MA->isLatestScalarKind())
+        Result += 1;
+    }
+  }
   return Result;
 }
 

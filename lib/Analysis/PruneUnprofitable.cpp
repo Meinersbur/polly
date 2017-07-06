@@ -30,12 +30,7 @@ STATISTIC(LoopsProcessed, "Number of total loops in SCoPs");
 STATISTIC(LoopsProfitable, "Number of loops in SCoPs that survived scalar "
                            "dependences profitability check");
 
-static int countLoops(Loop *L, Region &IfInRegion) {
-  auto Result = IfInRegion.contains(L);
-  for (auto SubLoop : L->getSubLoops())
-    Result += countLoops(L, IfInRegion);
-  return Result;
-}
+STATISTIC(ScalarAccesses, "Number of remaining scalar accesses");
 
 class PruneUnprofitable : public ScopPass {
 private:
@@ -62,6 +57,7 @@ public:
     ScopsProcessed++;
 
     int Loops = S.getNumContainedLoops();
+    ScalarAccesses += S.getNumScalarWritesAccesses();
     LoopsProcessed += Loops;
 
     if (!S.isProfitable(true)) {

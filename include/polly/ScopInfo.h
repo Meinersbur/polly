@@ -2306,6 +2306,8 @@ public:
 
   int getNumContainedLoops() const;
 
+  int getNumScalarWritesAccesses() const;
+
   /// Create a new copy statement.
   ///
   /// A new statement will be created and added to the statement vector.
