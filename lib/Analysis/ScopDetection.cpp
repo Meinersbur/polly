@@ -203,7 +203,7 @@ StringRef polly::PollySkipFnAttr = "polly.skip.fn";
 // Statistics.
 
 STATISTIC(NumScopRegions, "Number of scops");
-STATISTIC(NumLoops, "Number of loops (in- or out of scops)");
+STATISTIC(NumTotalLoops, "Number of loops (in- or out of scops)");
 STATISTIC(NumLoopsInScop, "Number of loops in scops");
 STATISTIC(NumScopsDepthOne, "Number of scops with maximal loop depth 1");
 STATISTIC(NumScopsDepthTwo, "Number of scops with maximal loop depth 2");
