@@ -284,7 +284,7 @@ static bool IsFnNameListedInOnlyFunctions(StringRef FnName) {
 // ScopDetection.
 
 static void countTotalLoops(Loop *L) {
-  NumLoops += 1;
+  NumTotalLoops += 1;
   for (auto SubLoop : L->getSubLoops())
     countTotalLoops(SubLoop);
 }
