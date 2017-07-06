@@ -36,7 +36,7 @@ void ScalarDefUseChains::reset() {
   ScalarPHILoopDeps = 0;
 }
 
-void ScalarDefUseChains::compute(Scop *S) {
+void ScalarDefUseChains::compute(const Scop *S) {
   reset();
 
   for (auto &Stmt : *S) {

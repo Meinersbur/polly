@@ -2306,7 +2306,10 @@ public:
 
   int getNumContainedLoops() const;
 
-  int getNumScalarWritesAccesses() const;
+  int getNumScalarAccesses() const;
+  int getNumScalarDeps() const;
+  int getNumScalarLoopDeps() const;
+  int getNumScalarWritesInLoops() const;
 
   /// Create a new copy statement.
   ///

@@ -25,6 +25,7 @@
 #include "polly/Support/ISLOStream.h"
 #include "polly/Support/SCEVValidator.h"
 #include "polly/Support/ScopHelper.h"
+#include "polly/Support/VirtualInstruction.h"
 #include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/PostOrderIterator.h"
@@ -4929,11 +4930,92 @@ int Scop::getNumContainedLoops() const {
   return Result;
 }
 
-int Scop::getNumScalarWritesAccesses() const {
+int Scop::getNumScalarAccesses() const {
   int Result = 0;
   for (auto &Stmt : *this) {
     for (auto MA : Stmt) {
       if (MA->isLatestScalarKind())
+        Result += 1;
+    }
+  }
+  return Result;
+}
+
+int Scop::getNumScalarDeps() const {
+  int Result = 0;
+  for (auto &Stmt : *this) {
+    for (auto MA : Stmt) {
+      if (MA->isLatestValueKind() && MA->isRead())
+        Result += 1;
+
+      if (MA->isLatestAnyPHIKind() && MA->isWrite())
+        Result += 1;
+    }
+  }
+  return Result;
+}
+
+static Loop *commonLoop(Loop *L1, Loop *L2) {
+  while (true) {
+    if (!L1 || !L2)
+      return nullptr;
+
+    if (L1 == L2)
+      return L1;
+
+    if (L1->contains(L2))
+      return L1;
+
+    if (L2->contains(L1))
+      return L2;
+
+    L1 = L1->getParentLoop();
+  }
+}
+
+int Scop::getNumScalarLoopDeps() const {
+  ScalarDefUseChains DefUse;
+  DefUse.compute(this);
+
+  int Result = 0;
+  for (auto &Stmt : *this) {
+    for (auto MA : Stmt) {
+      if (MA->isLatestValueKind() && MA->isRead()) {
+        auto Def = DefUse.getValueDef(MA->getLatestScopArrayInfo());
+        if (!Def)
+          continue;
+
+        auto CommonLoop = commonLoop(MA->getStatement()->getSurroundingLoop(),
+                                     Def->getStatement()->getSurroundingLoop());
+        if (contains(CommonLoop))
+          Result += 1;
+      }
+
+      else if (MA->isLatestAnyPHIKind() && MA->isWrite()) {
+        auto PHI = DefUse.getPHIRead(MA->getScopArrayInfo());
+        if (!PHI)
+          continue;
+
+        auto CommonLoop = commonLoop(MA->getStatement()->getSurroundingLoop(),
+                                     PHI->getStatement()->getSurroundingLoop());
+        if (contains(CommonLoop))
+          Result += 1;
+      }
+    }
+  }
+  return Result;
+}
+
+int Scop::getNumScalarWritesInLoops() const {
+  int Result = 0;
+  for (auto &Stmt : *this) {
+    for (auto MA : Stmt) {
+      if (!MA->isLatestScalarKind())
+        continue;
+      if (!MA->isWrite())
+        continue;
+
+      if (contains(MA->getStatement()->getSurroundingLoop()))
         Result += 1;
     }
   }

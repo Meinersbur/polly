@@ -29,8 +29,10 @@ STATISTIC(ScopsPruned, "Number of pruned SCoPs because it they cannot be "
 STATISTIC(LoopsProcessed, "Number of total loops in SCoPs");
 STATISTIC(LoopsProfitable, "Number of loops in SCoPs that survived scalar "
                            "dependences profitability check");
+STATISTIC(LoopsPruned, "Number of loops pruned");
 
 STATISTIC(ScalarAccesses, "Number of remaining scalar accesses");
+STATISTIC(ScalarWritesInLoops, "Number of remaining scalar writes in loops");
 
 class PruneUnprofitable : public ScopPass {
 private:
@@ -57,13 +59,15 @@ public:
     ScopsProcessed++;
 
     int Loops = S.getNumContainedLoops();
-    ScalarAccesses += S.getNumScalarWritesAccesses();
+    ScalarAccesses += S.getNumScalarAccesses();
+    ScalarWritesInLoops += S.getNumScalarWritesInLoops();
     LoopsProcessed += Loops;
 
     if (!S.isProfitable(true)) {
       DEBUG(dbgs() << "SCoP pruned because it probably cannot be optimized in "
                       "a significant way\n");
       ScopsPruned++;
+      LoopsPruned += Loops;
       S.invalidate(PROFITABLE, DebugLoc());
     }
 

@@ -284,6 +284,12 @@ STATISTIC(MapRequiredUndefined,
 STATISTIC(MapUndefinedReject,
           "Number of value maps that would require a partial access");
 
+STATISTIC(BeforeDeLICMScalarAccesses, "Number of scalar accesses");
+STATISTIC(AfterDeLICMScalarAccesses, "Number of scalar accesses");
+
+STATISTIC(BeforeDeLICMScalarWritesInLoop, "Number of scalar writes in loops");
+STATISTIC(AfterDeLICMScalarWritesInLoop, "Number of scalar writes in loops");
+
 #undef DEBUG_TYPE
 #define DEBUG_TYPE "polly-known"
 
@@ -299,6 +305,12 @@ STATISTIC(ForwardedReadOnly, "Number of forwarded Read-Only accesses");
 STATISTIC(ForwardedInsts, "Number of forwarded instructions");
 STATISTIC(ForwardedLoads, "Number of forwarded LoadInsts");
 STATISTIC(ForwardedTrees, "Number of forwarded operand trees");
+
+STATISTIC(BeforeKnownScalarAccesses, "Number of scalar accesses");
+STATISTIC(AfterKnownScalarAccesses, "Number of scalar accesses");
+
+STATISTIC(BeforeKnownScalarWritesInLoop, "Number of scalar writes in loops");
+STATISTIC(AfterKnownScalarWritesInLoop, "Number of scalar writes in loops");
 
 #undef DEBUG_TYPE
 #define DEBUG_TYPE "polly-delicm"
@@ -3173,7 +3185,11 @@ public:
       DEBUG(dbgs() << "WARNING: -polly-unprofitable-scalar-accs=true active; "
                       "optimizable SCoPs might have been pruned prematurely\n");
 
+    BeforeDeLICMScalarAccesses += S.getNumScalarAccesses();
+    BeforeDeLICMScalarWritesInLoop += S.getNumScalarWritesInLoops();
     collapseToUnused(S);
+    AfterDeLICMScalarAccesses += S.getNumScalarAccesses();
+    AfterDeLICMScalarWritesInLoop += S.getNumScalarWritesInLoops();
 
     return false;
   }
@@ -3834,7 +3850,11 @@ public:
                       "optimizable SCoPs might have been pruned prematurely\n");
 
     IslCtx = S.getSharedIslCtx();
+    BeforeKnownScalarAccesses += S.getNumScalarAccesses();
+    BeforeKnownScalarWritesInLoop += S.getNumScalarWritesInLoops();
     collapseToKnown(S);
+    AfterKnownScalarAccesses += S.getNumScalarAccesses();
+    AfterKnownScalarWritesInLoop += S.getNumScalarWritesInLoops();
 
     return false;
   }

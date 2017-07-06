@@ -45,7 +45,7 @@ public:
 
 public:
   /// Find the MemoryAccesses that access the ScopArrayInfo-represented memory.
-  void compute(Scop *S);
+  void compute(const Scop *S);
 
   void reset();
 
