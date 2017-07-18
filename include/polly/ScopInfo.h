@@ -856,6 +856,9 @@ public:
   /// Get an isl string representing a new access function, if available.
   std::string getNewAccessRelationStr() const;
 
+  /// Get an isl string representing the latest access relation.
+  std::string getAccessRelationStr() const;
+
   /// Get the original base address of this access (e.g. A for A[i+j]) when
   /// detected.
   ///
@@ -1679,6 +1682,12 @@ private:
   /// The name of the SCoP (identical to the regions name)
   std::string name;
 
+  /// The ID to be assigned to the next Scop in a function
+  static int NextScopID;
+
+  /// The name of the function currently under consideration
+  static std::string CurrentFunc;
+
   // Access functions of the SCoP.
   //
   // This owns all the MemoryAccess objects of the Scop created in this pass.
@@ -1715,6 +1724,9 @@ private:
   /// The context of the SCoP created during SCoP detection.
   ScopDetection::DetectionContext &DC;
 
+  /// OptimizationRemarkEmitter object for displaying diagnostic remarks
+  OptimizationRemarkEmitter &ORE;
+
   /// Isl context.
   ///
   /// We need a shared_ptr with reference counter to delete the context when all
@@ -1724,11 +1736,12 @@ private:
   /// delete the last object that creates isl objects with the context.
   std::shared_ptr<isl_ctx> IslCtx;
 
-  /// A map from basic blocks to SCoP statements.
-  DenseMap<BasicBlock *, ScopStmt *> StmtMap;
+  /// A map from basic blocks to vector of SCoP statements. Currently this
+  /// vector comprises only of a single statement.
+  DenseMap<BasicBlock *, std::vector<ScopStmt *>> StmtMap;
 
   /// A map from basic blocks to their domains.
-  DenseMap<BasicBlock *, isl_set *> DomainMap;
+  DenseMap<BasicBlock *, isl::set> DomainMap;
 
   /// Constraints on parameters.
   isl_set *Context;
@@ -1871,9 +1884,15 @@ private:
   /// The smallest statement index not yet assigned.
   long StmtIdx = 0;
 
+  /// A number that uniquely represents a Scop within its function
+  const int ID;
+
+  /// Return the ID for a new Scop within a function
+  static int getNextID(std::string ParentFunc);
+
   /// Scop constructor; invoked from ScopBuilder::buildScop.
   Scop(Region &R, ScalarEvolution &SE, LoopInfo &LI,
-       ScopDetection::DetectionContext &DC);
+       ScopDetection::DetectionContext &DC, OptimizationRemarkEmitter &ORE);
 
   LoopInfo *getLI() const { return Affinator.getLI(); }
 
@@ -1910,7 +1929,7 @@ private:
   void propagateDomainConstraintsToRegionExit(
       BasicBlock *BB, Loop *BBLoop,
       SmallPtrSetImpl<BasicBlock *> &FinishedExitBlocks, LoopInfo &LI,
-      DenseMap<BasicBlock *, __isl_keep isl_set *> &InvalidDomainMap);
+      DenseMap<BasicBlock *, isl::set> &InvalidDomainMap);
 
   /// Compute the union of predecessor domains for @p BB.
   ///
@@ -1938,7 +1957,7 @@ private:
   /// @returns True if there was no problem and false otherwise.
   bool addLoopBoundsToHeaderDomain(
       Loop *L, LoopInfo &LI,
-      DenseMap<BasicBlock *, __isl_keep isl_set *> &InvalidDomainMap);
+      DenseMap<BasicBlock *, isl::set> &InvalidDomainMap);
 
   /// Compute the branching constraints for each basic block in @p R.
   ///
@@ -1952,7 +1971,7 @@ private:
   /// @returns True if there was no problem and false otherwise.
   bool buildDomainsWithBranchConstraints(
       Region *R, DominatorTree &DT, LoopInfo &LI,
-      DenseMap<BasicBlock *, __isl_keep isl_set *> &InvalidDomainMap);
+      DenseMap<BasicBlock *, isl::set> &InvalidDomainMap);
 
   /// Propagate the domain constraints through the region @p R.
   ///
@@ -1966,7 +1985,7 @@ private:
   /// @returns True if there was no problem and false otherwise.
   bool propagateDomainConstraints(
       Region *R, DominatorTree &DT, LoopInfo &LI,
-      DenseMap<BasicBlock *, __isl_keep isl_set *> &InvalidDomainMap);
+      DenseMap<BasicBlock *, isl::set> &InvalidDomainMap);
 
   /// Propagate invalid domains of statements through @p R.
   ///
@@ -1984,7 +2003,7 @@ private:
   /// @returns True if there was no problem and false otherwise.
   bool propagateInvalidStmtDomains(
       Region *R, DominatorTree &DT, LoopInfo &LI,
-      DenseMap<BasicBlock *, __isl_keep isl_set *> &InvalidDomainMap);
+      DenseMap<BasicBlock *, isl::set> &InvalidDomainMap);
 
   /// Compute the domain for each basic block in @p R.
   ///
@@ -1995,9 +2014,8 @@ private:
   ///                         region.
   ///
   /// @returns True if there was no problem and false otherwise.
-  bool
-  buildDomains(Region *R, DominatorTree &DT, LoopInfo &LI,
-               DenseMap<BasicBlock *, __isl_keep isl_set *> &InvalidDomainMap);
+  bool buildDomains(Region *R, DominatorTree &DT, LoopInfo &LI,
+                    DenseMap<BasicBlock *, isl::set> &InvalidDomainMap);
 
   /// Add parameter constraints to @p C that imply a non-empty domain.
   __isl_give isl_set *addNonEmptyDomainConstraints(__isl_take isl_set *C) const;
@@ -2105,9 +2123,8 @@ private:
   void buildContext();
 
   /// Add user provided parameter constraints to context (source code).
-  void addUserAssumptions(
-      AssumptionCache &AC, DominatorTree &DT, LoopInfo &LI,
-      DenseMap<BasicBlock *, __isl_keep isl_set *> &InvalidDomainMap);
+  void addUserAssumptions(AssumptionCache &AC, DominatorTree &DT, LoopInfo &LI,
+                          DenseMap<BasicBlock *, isl::set> &InvalidDomainMap);
 
   /// Add user provided parameter constraints to context (command line).
   void addUserContext();
@@ -2202,6 +2219,19 @@ private:
   /// accesses always remain within bounds. We do this as last step, after
   /// all memory accesses have been modeled and canonicalized.
   void assumeNoOutOfBounds();
+
+  /// Remove statements from the list of scop statements.
+  ///
+  /// @param ShouldDelete A function that returns true if the statement passed
+  ///                     to it should be deleted.
+  void removeStmts(std::function<bool(ScopStmt &)> ShouldDelete);
+
+  /// Removes @p Stmt from the StmtMap.
+  void removeFromStmtMap(ScopStmt &Stmt);
+
+  /// Removes all statements where the entry block of the statement does not
+  /// have a corresponding domain in the domain map.
+  void removeStmtNotInDomainMap();
 
   /// Mark arrays that have memory accesses with FortranArrayDescriptor.
   void markFortranArrays();
@@ -2450,6 +2480,9 @@ public:
   /// Check if the SCoP is to be skipped by ScopPass passes.
   bool isToBeSkipped() const { return SkipScop; }
 
+  /// Return the ID of the Scop
+  int getID() const { return ID; }
+
   /// Get the name of the entry and exit blocks of this Scop.
   ///
   /// These along with the function name can uniquely identify a Scop.
@@ -2499,10 +2532,12 @@ public:
   /// @param Loc  The location in the source that caused this assumption.
   /// @param Sign Enum to indicate if the assumptions in @p Set are positive
   ///             (needed/assumptions) or negative (invalid/restrictions).
+  /// @param BB   The block in which this assumption was taken. Used to
+  ///             calculate hotness when emitting remark.
   ///
   /// @returns True if the assumption is not trivial.
   bool trackAssumption(AssumptionKind Kind, __isl_keep isl_set *Set,
-                       DebugLoc Loc, AssumptionSign Sign);
+                       DebugLoc Loc, AssumptionSign Sign, BasicBlock *BB);
 
   /// Add assumptions to assumed context.
   ///
@@ -2520,8 +2555,10 @@ public:
   /// @param Loc  The location in the source that caused this assumption.
   /// @param Sign Enum to indicate if the assumptions in @p Set are positive
   ///             (needed/assumptions) or negative (invalid/restrictions).
+  /// @param BB   The block in which this assumption was taken. Used to
+  ///             calculate hotness when emitting remark.
   void addAssumption(AssumptionKind Kind, __isl_take isl_set *Set, DebugLoc Loc,
-                     AssumptionSign Sign);
+                     AssumptionSign Sign, BasicBlock *BB);
 
   /// Record an assumption for later addition to the assumed context.
   ///
@@ -2554,7 +2591,8 @@ public:
   ///
   /// @param Kind The assumption kind describing the underlying cause.
   /// @param Loc  The location in the source that triggered .
-  void invalidate(AssumptionKind Kind, DebugLoc Loc);
+  /// @param BB   The BasicBlock where it was triggered.
+  void invalidate(AssumptionKind Kind, DebugLoc Loc, BasicBlock *BB = nullptr);
 
   /// Get the invalid context for this Scop.
   ///

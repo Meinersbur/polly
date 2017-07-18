@@ -272,10 +272,17 @@ private:
           continue;
         if (!WA->isLatestArrayKind())
           continue;
-        if (!isa<StoreInst>(WA->getAccessInstruction()))
+        if (!isa<StoreInst>(WA->getAccessInstruction()) && !WA->isPHIKind())
           continue;
 
         auto ReadingValue = WA->getAccessValue();
+
+        if (WA->isPHIKind()) {
+          PHINode *PHI = cast<PHINode>(WA->getAccessValue());
+          BasicBlock *BB = Stmt.getBasicBlock();
+          ReadingValue = PHI->getIncomingValueForBlock(BB);
+        }
+
         if (!ReadingValue)
           continue;
 
@@ -405,7 +412,7 @@ private:
   }
 
   /// Remove statements without side effects.
-  void removeUnnecessayStmts() {
+  void removeUnnecessaryStmts() {
     auto NumStmtsBefore = S->getSize();
     S->simplifySCoP(true);
     assert(NumStmtsBefore >= S->getSize());
@@ -581,7 +588,7 @@ public:
     markAndSweep(&getAnalysis<LoopInfoWrapperPass>().getLoopInfo());
 
     DEBUG(dbgs() << "Removing statements without side effects...\n");
-    removeUnnecessayStmts();
+    removeUnnecessaryStmts();
 
     if (isModified())
       ScopsModified++;

@@ -291,8 +291,8 @@ static void countTotalLoops(Loop *L) {
 
 ScopDetection::ScopDetection(Function &F, const DominatorTree &DT,
                              ScalarEvolution &SE, LoopInfo &LI, RegionInfo &RI,
-                             AliasAnalysis &AA)
-    : DT(DT), SE(SE), LI(LI), RI(RI), AA(AA) {
+                             AliasAnalysis &AA, OptimizationRemarkEmitter &ORE)
+    : DT(DT), SE(SE), LI(LI), RI(RI), AA(AA), ORE(ORE) {
 
   if (!PollyProcessUnprofitable && LI.empty())
     return;
@@ -872,7 +872,8 @@ bool ScopDetection::hasValidArraySizes(DetectionContext &Context,
         continue;
       }
     }
-    if (hasScalarDepsInsideRegion(DelinearizedSize, &CurRegion, Scope, false))
+    if (hasScalarDepsInsideRegion(DelinearizedSize, &CurRegion, Scope, false,
+                                  Context.RequiredILS))
       return invalid<ReportNonAffineAccess>(
           Context, /*Assert=*/true, DelinearizedSize,
           Context.Accesses[BasePointer].front().first, BaseValue);
@@ -1417,9 +1418,19 @@ bool ScopDetection::allBlocksValid(DetectionContext &Context) const {
 
   for (const BasicBlock *BB : CurRegion.blocks()) {
     Loop *L = LI.getLoopFor(BB);
-    if (L && L->getHeader() == BB && CurRegion.contains(L) &&
-        (!isValidLoop(L, Context) && !KeepGoing))
-      return false;
+    if (L && L->getHeader() == BB) {
+      if (CurRegion.contains(L)) {
+        if (!isValidLoop(L, Context) && !KeepGoing)
+          return false;
+      } else {
+        SmallVector<BasicBlock *, 1> Latches;
+        L->getLoopLatches(Latches);
+        for (BasicBlock *Latch : Latches)
+          if (CurRegion.contains(Latch))
+            return invalid<ReportLoopOnlySomeLatches>(Context, /*Assert=*/true,
+                                                      L);
+      }
+    }
   }
 
   for (BasicBlock *BB : CurRegion.blocks()) {
@@ -1584,7 +1595,7 @@ void ScopDetection::emitMissedRemarks(const Function &F) {
   for (auto &DIt : DetectionContextMap) {
     auto &DC = DIt.getSecond();
     if (DC.Log.hasErrors())
-      emitRejectionRemarks(DIt.getFirst(), DC.Log);
+      emitRejectionRemarks(DIt.getFirst(), DC.Log, ORE);
   }
 }
 
@@ -1736,7 +1747,8 @@ bool ScopDetectionWrapperPass::runOnFunction(llvm::Function &F) {
   auto &AA = getAnalysis<AAResultsWrapperPass>().getAAResults();
   auto &SE = getAnalysis<ScalarEvolutionWrapperPass>().getSE();
   auto &DT = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
-  Result.reset(new ScopDetection(F, DT, SE, LI, RI, AA));
+  auto &ORE = getAnalysis<OptimizationRemarkEmitterWrapperPass>().getORE();
+  Result.reset(new ScopDetection(F, DT, SE, LI, RI, AA, ORE));
   return false;
 }
 
@@ -1744,6 +1756,7 @@ void ScopDetectionWrapperPass::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addRequired<LoopInfoWrapperPass>();
   AU.addRequiredTransitive<ScalarEvolutionWrapperPass>();
   AU.addRequired<DominatorTreeWrapperPass>();
+  AU.addRequired<OptimizationRemarkEmitterWrapperPass>();
   // We also need AA and RegionInfo when we are verifying analysis.
   AU.addRequiredTransitive<AAResultsWrapperPass>();
   AU.addRequiredTransitive<RegionInfoPass>();
@@ -1775,7 +1788,8 @@ ScopDetection ScopAnalysis::run(Function &F, FunctionAnalysisManager &FAM) {
   auto &AA = FAM.getResult<AAManager>(F);
   auto &SE = FAM.getResult<ScalarEvolutionAnalysis>(F);
   auto &DT = FAM.getResult<DominatorTreeAnalysis>(F);
-  return {F, DT, SE, LI, RI, AA};
+  auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(F);
+  return {F, DT, SE, LI, RI, AA, ORE};
 }
 
 PreservedAnalyses ScopAnalysisPrinterPass::run(Function &F,
@@ -1800,5 +1814,6 @@ INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass);
 INITIALIZE_PASS_DEPENDENCY(RegionInfoPass);
 INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass);
 INITIALIZE_PASS_DEPENDENCY(ScalarEvolutionWrapperPass);
+INITIALIZE_PASS_DEPENDENCY(OptimizationRemarkEmitterWrapperPass);
 INITIALIZE_PASS_END(ScopDetectionWrapperPass, "polly-detect",
                     "Polly - Detect static control parts (SCoPs)", false, false)
