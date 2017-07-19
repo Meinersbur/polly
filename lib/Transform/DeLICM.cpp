@@ -2189,6 +2189,7 @@ private:
 
     // Redirect the use accesses.
     SmallVector<MemoryAccess *, 4> SecondaryAccs;
+    for (auto *MA : S->getValueUses(SAI)) {
       // { DomainUse[] }
       auto Domain = getDomainFor(MA);
       auto DomainSpace = give(isl_set_get_space(Domain.keep()));
@@ -2219,6 +2220,7 @@ private:
     if (RequiresUndefined)
       MapRequiredUndefined++;
 
+    auto *WA = S->getValueDef(SAI);
 
     WA->setNewAccessRelation(DefTarget.copy());
     applyLifetime(Proposed);
@@ -2283,7 +2285,7 @@ private:
     if (!DelicmMapPHI)
       return false;
 
-    auto *PHIRead = DefUse.getPHIRead(SAI);
+    auto *PHIRead = S->getPHIRead(SAI);
     assert(PHIRead->isPHIKind());
     assert(PHIRead->isRead());
 
@@ -2398,13 +2400,13 @@ private:
     if (!DelicmComputePHI)
       return false;
 
-    auto *PHIRead = DefUse.getPHIRead(SAI);
+    auto *PHIRead = S->getPHIRead(SAI);
     assert(PHIRead->isPHIKind());
     assert(PHIRead->isRead());
     auto *PHI = cast<PHINode>(PHIRead->getAccessInstruction());
     auto *ReadStmt = PHIRead->getStatement();
     // Do no support non-affine subregion's exit phis
-    for (auto PHIWrite : DefUse.getPHIIncomings(SAI)) {
+    for (auto PHIWrite : S->getPHIIncomings(SAI)) {
       if (PHIWrite->getIncoming().size() != 1)
         return false;
     }
@@ -2526,7 +2528,7 @@ private:
         // DefStmt = IncomingStmt;
 
         // Ensure write of value if it does not exist yet.
-        if (!DefUse.getValueDef(ValSAI) && DefStmt) {
+        if (!S->getValueDef(ValSAI) && DefStmt) {
           auto *WA = new MemoryAccess(
               IncomingStmt, cast<Instruction>(IncomingVal),
               MemoryAccess::MUST_WRITE, IncomingVal, IncomingVal->getType(),
@@ -2534,9 +2536,9 @@ private:
           WA->buildAccessRelation(ValSAI);
           IncomingStmt->addAccess(WA);
           S->addAccessFunction(WA);
-          assert(DefUse.ValueDefAccs.find(SAI) == DefUse.ValueDefAccs.end());
-          DefUse.ValueDefAccs[ValSAI] = WA;
-          assert(DefUse.getValueDef(ValSAI)->getStatement() == DefStmt);
+         // assert(S->ValueDefAccs.find(SAI) == S->ValueDefAccs.end());
+         // S->ValueDefAccs[ValSAI] = WA;
+         // assert(S->getValueDef(ValSAI)->getStatement() == DefStmt);
         }
 
         auto *RA =
@@ -2546,7 +2548,7 @@ private:
         RA->buildAccessRelation(ValSAI);
         ReadStmt->addAccess(RA);
         S->addAccessFunction(RA);
-        DefUse.ValueUseAccs[ValSAI].push_back(RA);
+        S->ValueUseAccs[ValSAI].push_back(RA);
       }
 
       return isl::stat::ok;
@@ -2597,7 +2599,7 @@ private:
     }
 #endif
     // Remove ExitPHI accesses
-    for (auto PHIWrite : DefUse.getPHIIncomings(SAI)) {
+    for (auto PHIWrite : S->getPHIIncomings(SAI)) {
       auto *WriteStmt = PHIWrite->getStatement();
       WriteStmt->removeSingleMemoryAccess(PHIWrite);
     }
@@ -2665,7 +2667,7 @@ private:
 
     // Redirect the PHI incoming writes.
     SmallVector<MemoryAccess *, 4> SecondaryAccs;
-    for (auto *MA : DefUse.getPHIIncomings(SAI)) {
+    for (auto *MA : S->getPHIIncomings(SAI)) {
       // { DomainWrite[] }
       auto Domain = getDomainFor(MA);
       auto DomainSpace = give(isl_set_get_space(Domain.keep()));
@@ -2800,7 +2802,7 @@ private:
 
           // Add inputs of all incoming statements to the worklist. Prefer the
           // input accesses of the incoming blocks.
-          for (auto *PHIWrite : DefUse.getPHIIncomings(SAI)) {
+          for (auto *PHIWrite : S->getPHIIncomings(SAI)) {
             auto *PHIWriteStmt = PHIWrite->getStatement();
             bool FoundAny = false;
             for (auto Incoming : PHIWrite->getIncoming()) {
@@ -2818,7 +2820,7 @@ private:
           }
           AnyMapped = true;
         } else if (tryComputePHI(SAI)) {
-          auto *PHIAcc = DefUse.getPHIRead(SAI);
+          auto *PHIAcc = S->getPHIRead(SAI);
           ProcessAllIncoming(PHIAcc->getStatement());
         }
       }

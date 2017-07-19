@@ -1902,10 +1902,12 @@ private:
   /// A number that uniquely represents a Scop within its function
   const int ID;
 
+  public:
   /// List of all uses (i.e. read MemoryAccesses) for a MemoryKind::Value
   /// scalar.
   DenseMap<const ScopArrayInfo *, SmallVector<MemoryAccess *, 4>> ValueUseAccs;
 
+  private:
   /// List of all incoming values (write MemoryAccess) of a MemoryKind::PHI or
   /// MemoryKind::ExitPHI scalar.
   DenseMap<const ScopArrayInfo *, SmallVector<MemoryAccess *, 4>>
