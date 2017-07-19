@@ -315,101 +315,6 @@ STATISTIC(AfterKnownScalarWritesInLoop, "Number of scalar writes in loops");
 #undef DEBUG_TYPE
 #define DEBUG_TYPE "polly-delicm"
 
-#if 0
-/// Class for keeping track of scalar def-use chains in the polyhedral
-/// representation.
-///
-/// MemoryKind::Value:
-/// There is one definition per llvm::Value or zero (read-only values defined
-/// before the SCoP) and an arbitrary number of reads.
-///
-/// MemoryKind::PHI, MemoryKind::ExitPHI:
-/// There is at least one write (the incoming blocks/stmts) and one
-/// (MemoryKind::PHI) or zero (MemoryKind::ExitPHI) reads per llvm::PHINode.
-class ScalarDefUseChains {
-public:
-  /// The definitions (i.e. write MemoryAccess) of a MemoryKind::Value scalar.
-  DenseMap<const ScopArrayInfo *, MemoryAccess *> ValueDefAccs;
-
-  /// List of all uses (i.e. read MemoryAccesses) for a MemoryKind::Value
-  /// scalar.
-  DenseMap<const ScopArrayInfo *, SmallVector<MemoryAccess *, 4>> ValueUseAccs;
-
-  /// The receiving part (i.e. read MemoryAccess) of a MemoryKind::PHI scalar.
-  DenseMap<const ScopArrayInfo *, MemoryAccess *> PHIReadAccs;
-
-  /// List of all incoming values (write MemoryAccess) of a MemoryKind::PHI or
-  /// MemoryKind::ExitPHI scalar.
-  DenseMap<const ScopArrayInfo *, SmallVector<MemoryAccess *, 4>>
-      PHIIncomingAccs;
-
-public:
-  /// Find the MemoryAccesses that access the ScopArrayInfo-represented memory.
-  ///
-  /// @param S The SCoP to analyze.
-  void compute(Scop *S) {
-    // Purge any previous result.
-    reset();
-
-    for (auto &Stmt : *S) {
-      for (auto *MA : Stmt) {
-        if (MA->isOriginalValueKind() && MA->isWrite()) {
-          auto *SAI = MA->getScopArrayInfo();
-          assert(!ValueDefAccs.count(SAI) &&
-                 "There can be at most one "
-                 "definition per MemoryKind::Value scalar");
-          ValueDefAccs[SAI] = MA;
-        }
-
-        if (MA->isOriginalValueKind() && MA->isRead())
-          ValueUseAccs[MA->getScopArrayInfo()].push_back(MA);
-
-        if (MA->isOriginalAnyPHIKind() && MA->isRead()) {
-          auto *SAI = MA->getScopArrayInfo();
-          assert(!PHIReadAccs.count(SAI) &&
-                 "There must be exactly one read "
-                 "per PHI (that's where the PHINode is)");
-          PHIReadAccs[SAI] = MA;
-        }
-
-        if (MA->isOriginalAnyPHIKind() && MA->isWrite())
-          PHIIncomingAccs[MA->getScopArrayInfo()].push_back(MA);
-      }
-    }
-  }
-
-  /// Free all memory used by the analysis.
-  void reset() {
-    ValueDefAccs.clear();
-    ValueUseAccs.clear();
-    PHIReadAccs.clear();
-    PHIIncomingAccs.clear();
-  }
-
-  MemoryAccess *getValueDef(const ScopArrayInfo *SAI) const {
-    return ValueDefAccs.lookup(SAI);
-  }
-
-  ArrayRef<MemoryAccess *> getValueUses(const ScopArrayInfo *SAI) const {
-    auto It = ValueUseAccs.find(SAI);
-    if (It == ValueUseAccs.end())
-      return {};
-    return It->second;
-  }
-
-  MemoryAccess *getPHIRead(const ScopArrayInfo *SAI) const {
-    return PHIReadAccs.lookup(SAI);
-  }
-
-  ArrayRef<MemoryAccess *> getPHIIncomings(const ScopArrayInfo *SAI) const {
-    auto It = PHIIncomingAccs.find(SAI);
-    if (It == PHIIncomingAccs.end())
-      return {};
-    return It->second;
-  }
-};
-#endif
-
 isl::union_map computeReachingDefinition(isl::union_map Schedule,
                                          isl::union_map Writes, bool InclDef,
                                          bool InclRedef) {
@@ -1960,8 +1865,6 @@ private:
   /// Log of every applied mapping transformations.
   SmallVector<MapReport, 8> MapReports;
 
-  ScalarDefUseChains DefUse;
-
   /// Number of StoreInsts something can be mapped to.
   int NumberOfCompatibleTargets = 0;
 
@@ -1990,7 +1893,7 @@ private:
     assert(SAI);
 
     if (SAI->isValueKind()) {
-      auto *MA = DefUse.getValueDef(SAI);
+      auto *MA = S->getValueDef(SAI);
       if (!MA) {
         DEBUG(dbgs()
               << "    Reject because value is read-only within the scop\n");
@@ -2017,7 +1920,7 @@ private:
     }
 
     if (SAI->isPHIKind()) {
-      auto *MA = DefUse.getPHIRead(SAI);
+      auto *MA = S->getPHIRead(SAI);
       assert(MA);
 
       // Mapping of an incoming block from before the SCoP is not supported by
@@ -2054,14 +1957,14 @@ private:
     auto Reads = makeEmptyUnionSet();
 
     // Find all uses.
-    for (auto *MA : DefUse.getValueUses(SAI))
+    for (auto *MA : S->getValueUses(SAI))
       Reads =
           give(isl_union_set_add_set(Reads.take(), getDomainFor(MA).take()));
 
     // { DomainRead[] -> Scatter[] }
     auto ReadSchedule = getScatterFor(Reads);
 
-    auto *DefMA = DefUse.getValueDef(SAI);
+    auto *DefMA = S->getValueDef(SAI);
     assert(DefMA);
 
     // { DomainDef[] }
@@ -2110,14 +2013,14 @@ private:
     auto PHIWriteScatter = makeEmptyUnionMap();
 
     // Collect all incoming block timepoint.
-    for (auto *MA : DefUse.getPHIIncomings(SAI)) {
+    for (auto *MA : S->getPHIIncomings(SAI)) {
       auto Scatter = getScatterFor(MA);
       PHIWriteScatter =
           give(isl_union_map_add_map(PHIWriteScatter.take(), Scatter.take()));
     }
 
     // { DomainPHIRead[] -> Scatter[] }
-    auto PHIReadScatter = getScatterFor(DefUse.getPHIRead(SAI));
+    auto PHIReadScatter = getScatterFor(S->getPHIRead(SAI));
 
     // { DomainPHIRead[] -> Scatter[] }
     auto BeforeRead = beforeScatter(PHIReadScatter, true);
@@ -2151,7 +2054,7 @@ private:
   bool tryMapValue(const ScopArrayInfo *SAI, isl::map TargetElt) {
     assert(SAI->isValueKind());
 
-    auto *DefMA = DefUse.getValueDef(SAI);
+    auto *DefMA = S->getValueDef(SAI);
     assert(DefMA->isValueKind());
     assert(DefMA->isMustWrite());
     auto *V = DefMA->getAccessValue();
@@ -2286,7 +2189,6 @@ private:
 
     // Redirect the use accesses.
     SmallVector<MemoryAccess *, 4> SecondaryAccs;
-    for (auto *MA : DefUse.getValueUses(SAI)) {
       // { DomainUse[] }
       auto Domain = getDomainFor(MA);
       auto DomainSpace = give(isl_set_get_space(Domain.keep()));
@@ -2317,7 +2219,6 @@ private:
     if (RequiresUndefined)
       MapRequiredUndefined++;
 
-    auto *WA = DefUse.getValueDef(SAI);
 
     WA->setNewAccessRelation(DefTarget.copy());
     applyLifetime(Proposed);
@@ -2339,7 +2240,7 @@ private:
     auto Result = makeEmptyUnionMap();
 
     // Collect the incoming values.
-    for (auto *MA : DefUse.getPHIIncomings(SAI)) {
+    for (auto *MA : S->getPHIIncomings(SAI)) {
       // { DomainWrite[] -> ValInst[] }
       isl::union_map ValInst;
       auto *WriteStmt = MA->getStatement();
@@ -2418,7 +2319,7 @@ private:
     // { DomainWrite[] }
     auto UniverseWritesDom = give(isl_union_set_empty(ParamSpace.copy()));
 
-    for (auto *MA : DefUse.getPHIIncomings(SAI))
+    for (auto *MA : S->getPHIIncomings(SAI))
       UniverseWritesDom = give(isl_union_set_add_set(UniverseWritesDom.take(),
                                                      getDomainFor(MA).take()));
 
@@ -2788,7 +2689,7 @@ private:
     }
 
     // Redirect the PHI read.
-    auto *PHIRead = DefUse.getPHIRead(SAI);
+    auto *PHIRead = S->getPHIRead(SAI);
     PHIRead->setNewAccessRelation(ReadTarget.copy());
     applyLifetime(Proposed);
 
@@ -2886,7 +2787,7 @@ private:
         if (!tryMapValue(SAI, EltTarget))
           continue;
 
-        auto *DefAcc = DefUse.getValueDef(SAI);
+        auto *DefAcc = S->getValueDef(SAI);
         ProcessAllIncoming(DefAcc->getStatement());
 
         AnyMapped = true;
@@ -3023,7 +2924,6 @@ public:
       return false;
     }
 
-    DefUse.compute(S);
     isl::union_set EltUnused;
     isl::union_map EltKnown, EltWritten;
 
