@@ -191,8 +191,8 @@ static cl::opt<bool>
                          cl::desc("Enable polyhedral interface of Polly"),
                          cl::Hidden, cl::init(false), cl::cat(PollyCategory));
 
-static cl::opt<bool> EnableKnown(
-    "polly-enable-known",
+static cl::opt<bool> EnableForwardOpTree(
+    "polly-enable-optree",
     cl::desc("Use scalar-to-array access conversion using known array content"),
     cl::Hidden, cl::init(false), cl::cat(PollyCategory));
 
@@ -275,7 +275,7 @@ void initializePollyPasses(PassRegistry &Registry) {
   initializeScopInfoWrapperPassPass(Registry);
   initializeCodegenCleanupPass(Registry);
   initializeFlattenSchedulePass(Registry);
-  initializeKnownPass(Registry);
+  initializeForwardOpTreePass(Registry);
   initializeDeLICMPass(Registry);
   initializeSimplifyPass(Registry);
   initializePruneUnprofitablePass(Registry);
@@ -337,8 +337,8 @@ void registerPollyPasses(llvm::legacy::PassManagerBase &PM) {
   if (EnablePolyhedralInfo)
     PM.add(polly::createPolyhedralInfoPass());
 
-  if (EnableKnown)
-    PM.add(polly::createKnownPass());
+  if (EnableForwardOpTree)
+    PM.add(polly::createForwardOpTreePass());
   if (EnableDeLICM)
     PM.add(polly::createDeLICMPass());
   if (EnableSimplify)

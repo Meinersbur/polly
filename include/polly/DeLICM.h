@@ -31,7 +31,7 @@ class Scop;
 /// Create a new DeLICM pass instance.
 llvm::Pass *createDeLICMPass();
 
-llvm::Pass *createKnownPass();
+llvm::Pass *createForwardOpTreePass();
 
 /// Compute the timepoints from a write to its (last) use.
 ///
@@ -91,7 +91,7 @@ bool isConflicting(isl::union_set ExistingOccupied,
 
 namespace llvm {
 void initializeDeLICMPass(llvm::PassRegistry &);
-void initializeKnownPass(llvm::PassRegistry &);
+void initializeForwardOpTreePass(llvm::PassRegistry &);
 } // namespace llvm
 
 #endif /* POLLY_DELICM_H */

@@ -4158,10 +4158,10 @@ public:
 /// scalar definition are redirected (We currently do not care about removing
 /// the write in this case).  This is also useful for the main DeLICM pass as
 /// there are less scalars to be mapped.
-class Known : public ScopPass {
+class ForwardOpTree : public ScopPass {
 private:
-  Known(const Known &) = delete;
-  const Known &operator=(const Known &) = delete;
+  ForwardOpTree(const ForwardOpTree &) = delete;
+  const ForwardOpTree &operator=(const ForwardOpTree &) = delete;
 
   /// Hold a reference to the isl_ctx to avoid it being freed before we released
   /// all of the ISL objects.
@@ -4194,7 +4194,7 @@ private:
 
 public:
   static char ID;
-  explicit Known() : ScopPass(ID) {}
+  explicit ForwardOpTree() : ScopPass(ID) {}
   virtual void getAnalysisUsage(AnalysisUsage &AU) const override {
     // TODO: preserve only ScopInfo and dependencies
     AU.addRequiredTransitive<ScopInfoRegionPass>();
@@ -4238,16 +4238,16 @@ public:
 
 }; // class Known
 
-char Known::ID;
+char ForwardOpTree::ID;
 } // anonymous namespace
 
-Pass *polly::createKnownPass() { return new Known(); }
+Pass *polly::createForwardOpTreePass() { return new ForwardOpTree(); }
 
 // TODO: use llvm::RegisterPass
-INITIALIZE_PASS_BEGIN(Known, "polly-known",
+INITIALIZE_PASS_BEGIN(ForwardOpTree, "polly-known",
                       "Polly - Scalar accesses to explicit", false, false)
-INITIALIZE_PASS_END(Known, "polly-known", "Polly - Scalar accesses to explicit",
-                    false, false)
+INITIALIZE_PASS_END(ForwardOpTree, "polly-known",
+                    "Polly - Scalar accesses to explicit", false, false)
 
 isl::union_map
 polly::computeArrayLifetime(isl::union_map Schedule, isl::union_map Writes,
