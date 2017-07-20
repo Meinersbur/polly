@@ -288,7 +288,7 @@ private:
   /// The instruction of a statement.
   Instruction *Inst = nullptr;
 
-  private:
+private:
   MemoryAccess *findOutputAccess(Value *Val) const {
     return getOutputAccessFor(Val, Stmt);
   }
@@ -329,7 +329,7 @@ public:
   /// Return the instruction in the statement.
   Instruction *getInstruction() const { return Inst; }
 
-    int getNumOperands() const { return Inst->getNumOperands(); }
+  int getNumOperands() const { return Inst->getNumOperands(); }
   Value *getOperand(unsigned i) const { return Inst->getOperand(i); }
 
   VirtualUse getVirtualUse(const Use &U, LoopInfo *LI,
@@ -349,8 +349,6 @@ public:
   VirtualUse getVirtualUse(int i, LoopInfo *LI) const {
     return getVirtualUse(Inst->getOperandUse(i), LI);
   }
-
-
 
   /// Print a description of this object.
   ///
@@ -388,12 +386,11 @@ void markReachable(Scop *S, LoopInfo *LI,
                    DenseSet<MemoryAccess *> &UsedAccs,
                    ScopStmt *OnlyLocal = nullptr);
 
-                   void markReachableGlobal(Scop *S, std::vector<VirtualInstruction> &InstList,
+void markReachableGlobal(Scop *S, std::vector<VirtualInstruction> &InstList,
                          DenseSet<MemoryAccess *> &UsedMA, LoopInfo *LI);
 void markReachableLocal(ScopStmt *Stmt,
                         std::vector<VirtualInstruction> &InstList,
                         LoopInfo *LI);
-
 
 } // namespace polly
 

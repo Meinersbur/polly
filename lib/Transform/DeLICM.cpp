@@ -2536,9 +2536,9 @@ private:
           WA->buildAccessRelation(ValSAI);
           IncomingStmt->addAccess(WA);
           S->addAccessFunction(WA);
-         // assert(S->ValueDefAccs.find(SAI) == S->ValueDefAccs.end());
-         // S->ValueDefAccs[ValSAI] = WA;
-         // assert(S->getValueDef(ValSAI)->getStatement() == DefStmt);
+          // assert(S->ValueDefAccs.find(SAI) == S->ValueDefAccs.end());
+          // S->ValueDefAccs[ValSAI] = WA;
+          // assert(S->getValueDef(ValSAI)->getStatement() == DefStmt);
         }
 
         auto *RA =

@@ -151,7 +151,6 @@ static bool isEscaping(MemoryAccess *MA) {
                     cast<Instruction>(MA->getAccessValue()));
 }
 
-
 static void markReachable2(Scop *S, ArrayRef<VirtualInstruction> Roots,
                            SmallVectorImpl<MemoryAccess *> &&WorklistMA,
                            std::vector<VirtualInstruction> &InstList,
@@ -485,22 +484,21 @@ static void markReachable2(Scop *S, ArrayRef<VirtualInstruction> Roots,
   std::swap(InstList, ResultList);
 }
 
-
 /// Add non-removable virtual instructions in @p Stmt to @p RootInsts.
 static void
 addInstructionRoots(ScopStmt *Stmt,
-	SmallVectorImpl<VirtualInstruction> &RootInsts) {
-	// For region statements we must keep all instructions because we do not
-	// support removing instructions from region statements.
-	if (!Stmt->isBlockStmt()) {
-		for (auto *BB : Stmt->getRegion()->blocks())
-			for (Instruction &Inst : *BB)
-				RootInsts.emplace_back(Stmt, &Inst);
-	}
+                    SmallVectorImpl<VirtualInstruction> &RootInsts) {
+  // For region statements we must keep all instructions because we do not
+  // support removing instructions from region statements.
+  if (!Stmt->isBlockStmt()) {
+    for (auto *BB : Stmt->getRegion()->blocks())
+      for (Instruction &Inst : *BB)
+        RootInsts.emplace_back(Stmt, &Inst);
+  }
 
-	for (Instruction *Inst : Stmt->getInstructions())
-		if (isRoot(Inst))
-			RootInsts.emplace_back(Stmt, Inst);
+  for (Instruction *Inst : Stmt->getInstructions())
+    if (isRoot(Inst))
+      RootInsts.emplace_back(Stmt, Inst);
 }
 
 /// Add non-removable memory accesses in @p Stmt to @p RootInsts.
@@ -512,40 +510,39 @@ addInstructionRoots(ScopStmt *Stmt,
 ///              is global mode, where such writes must be marked by theirs uses
 ///              in order to be reachable.
 static void addAccessRoots(ScopStmt *Stmt,
-	SmallVectorImpl<MemoryAccess *> &RootAccs,
-	bool Local) {
-	for (auto *MA : *Stmt) {
-		if (!MA->isWrite())
-			continue;
+                           SmallVectorImpl<MemoryAccess *> &RootAccs,
+                           bool Local) {
+  for (auto *MA : *Stmt) {
+    if (!MA->isWrite())
+      continue;
 
-		// Writes to arrays are always used.
-		if (MA->isLatestArrayKind())
-			RootAccs.push_back(MA);
+    // Writes to arrays are always used.
+    if (MA->isLatestArrayKind())
+      RootAccs.push_back(MA);
 
-		// Values are roots if they are escaping.
-		else if (MA->isLatestValueKind()) {
-			if (Local || isEscaping(MA))
-				RootAccs.push_back(MA);
-		}
+    // Values are roots if they are escaping.
+    else if (MA->isLatestValueKind()) {
+      if (Local || isEscaping(MA))
+        RootAccs.push_back(MA);
+    }
 
-		// Exit phis are, by definition, escaping.
-		else if (MA->isLatestExitPHIKind())
-			RootAccs.push_back(MA);
+    // Exit phis are, by definition, escaping.
+    else if (MA->isLatestExitPHIKind())
+      RootAccs.push_back(MA);
 
-		// phi writes are only roots if we are not visiting the statement
-		// containing the PHINode.
-		else if (Local && MA->isLatestPHIKind())
-			RootAccs.push_back(MA);
-	}
+    // phi writes are only roots if we are not visiting the statement
+    // containing the PHINode.
+    else if (Local && MA->isLatestPHIKind())
+      RootAccs.push_back(MA);
+  }
 }
-
 
 /// Determine all instruction and access roots.
 static void addRoots(ScopStmt *Stmt,
-	SmallVectorImpl<VirtualInstruction> &RootInsts,
-	SmallVectorImpl<MemoryAccess *> &RootAccs, bool Local) {
-	addInstructionRoots(Stmt, RootInsts);
-	addAccessRoots(Stmt, RootAccs, Local);
+                     SmallVectorImpl<VirtualInstruction> &RootInsts,
+                     SmallVectorImpl<MemoryAccess *> &RootAccs, bool Local) {
+  addInstructionRoots(Stmt, RootInsts);
+  addAccessRoots(Stmt, RootAccs, Local);
 }
 
 void polly::markReachableGlobal(Scop *S,
@@ -556,7 +553,7 @@ void polly::markReachableGlobal(Scop *S,
   SmallVector<MemoryAccess *, 32> WorklistMA;
 
   for (auto &Stmt : *S)
-    addRoots(&Stmt, Worklist, WorklistMA,  false);
+    addRoots(&Stmt, Worklist, WorklistMA, false);
 
   markReachable2(S, Worklist, std::move(WorklistMA), InstList, UsedMA, nullptr,
                  LI);
@@ -738,12 +735,6 @@ static bool isRoot(const Instruction *Inst) {
 
   return false;
 }
-
-
-
-
-
-
 
 /// Mark accesses and instructions as used if they are reachable from a root,
 /// walking the operand trees.

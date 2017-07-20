@@ -43,14 +43,14 @@ STATISTIC(TotalRedundantWritesRemoved,
 
 STATISTIC(TotalWritesCoalesced, "Number of writes coalesced with another");
 
-
 STATISTIC(TotalEmptyPartialAccessesRemoved,
           "Number of empty partial accesses removed");
 
 STATISTIC(TotalDeadComputedPHIs, "Number of dead computed PHIs removed");
 
 STATISTIC(TotalDeadAccessesRemoved, "Number of dead accesses removed");
-STATISTIC(TotalDeadInstructionsRemoved,"Number of unused instructions removed");
+STATISTIC(TotalDeadInstructionsRemoved,
+          "Number of unused instructions removed");
 STATISTIC(TotalStmtsRemoved, "Number of statements removed in any SCoP");
 
 STATISTIC(UnusedAccs, "Number of unused accesses");
@@ -127,15 +127,11 @@ private:
 
   int EmptyPartialAccessesRemoved = 0;
 
-
-  
   /// Number of unused accesses removed from this SCoP.
   int DeadAccessesRemoved = 0;
 
   /// Number of unused instructions removed from this SCoP.
   int DeadInstructionsRemoved = 0;
-
-
 
   int DeadComputedPHIs = 0;
 
@@ -145,9 +141,9 @@ private:
   /// Return whether at least one simplification has been applied.
   bool isModified() const {
     return OverwritesRemoved > 0 || RedundantWritesRemoved > 0 ||
-           WritesCoalesced > 0 || 
-           EmptyPartialAccessesRemoved > 0 || DeadComputedPHIs > 0 ||
-           DeadAccessesRemoved > 0 || DeadInstructionsRemoved > 0 || StmtsRemoved > 0;
+           WritesCoalesced > 0 || EmptyPartialAccessesRemoved > 0 ||
+           DeadComputedPHIs > 0 || DeadAccessesRemoved > 0 ||
+           DeadInstructionsRemoved > 0 || StmtsRemoved > 0;
   }
 
   MemoryAccess *getReadAccessForValue(ScopStmt *Stmt, llvm::Value *Val) {
@@ -426,8 +422,8 @@ private:
                  << ") statements\n");
     TotalStmtsRemoved += StmtsRemoved;
   }
-  
-    void removeEmptyPartialAccesses() {
+
+  void removeEmptyPartialAccesses() {
     for (auto &Stmt : *S) {
       SmallVector<MemoryAccess *, 8> Accs{Stmt.begin(), Stmt.end()};
       for (auto *MA : Accs) {
@@ -442,7 +438,6 @@ private:
       }
     }
   }
-
 
   /// Mark all reachable instructions and access, and sweep those that are not
   /// reachable.
@@ -496,9 +491,6 @@ private:
       // Set the new instruction list to be only those we did not remove.
       Stmt.setInstructions(RemainInsts);
     }
-  
-
-
 
 #if 0
     for (auto &Stmt : *S) {
@@ -596,7 +588,7 @@ public:
     DEBUG(dbgs() << "Coalesce partial writes...\n");
     coalescePartialWrites();
 
-       DEBUG(dbgs() << "Cleanup unused accesses...\n");
+    DEBUG(dbgs() << "Cleanup unused accesses...\n");
     LoopInfo *LI = &getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
     markAndSweep(LI);
 

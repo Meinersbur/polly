@@ -1618,7 +1618,7 @@ public:
     return {insts_begin(), insts_end()};
   }
 
-    void prependInstrunction(Instruction *Inst) {
+  void prependInstrunction(Instruction *Inst) {
 #if 0
     //assert(!contains(Inst->getParent()));
 	auto InsertIt =  InstructionSet.insert(Inst);
@@ -1629,7 +1629,7 @@ public:
 #endif
     Instructions.insert(Instructions.begin(), Inst);
   }
-  
+
   const char *getBaseName() const;
 
   /// Set the isl AST build.
@@ -1921,12 +1921,12 @@ private:
   /// A number that uniquely represents a Scop within its function
   const int ID;
 
-  public:
+public:
   /// List of all uses (i.e. read MemoryAccesses) for a MemoryKind::Value
   /// scalar.
   DenseMap<const ScopArrayInfo *, SmallVector<MemoryAccess *, 4>> ValueUseAccs;
 
-  private:
+private:
   /// List of all incoming values (write MemoryAccess) of a MemoryKind::PHI or
   /// MemoryKind::ExitPHI scalar.
   DenseMap<const ScopArrayInfo *, SmallVector<MemoryAccess *, 4>>
