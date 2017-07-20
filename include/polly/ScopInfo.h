@@ -1273,6 +1273,9 @@ private:
   /// will be inserted.
   DenseMap<PHINode *, MemoryAccess *> PHIWrites;
 
+  /// Map from PHI nodes to its read access in this statement.
+  DenseMap<PHINode *, MemoryAccess *> PHIReads;
+
   //@}
 
   /// A SCoP statement represents either a basic block (affine/precise case) or
@@ -1454,10 +1457,18 @@ public:
   /// Return true if this statement does not contain any accesses.
   bool isEmpty() const { return MemAccs.empty(); }
 
+  /// Find all array accesses for @p Inst.
+  ///
+  /// @param Inst The instruction accessing an array.
+  ///
+  /// @return A list of array accesses (MemoryKind::Array) accessed by @p Inst.
+  ///         If there is no such access, it returns nullptr.
   const MemoryAccessList *
   lookupArrayAccessesFor(const Instruction *Inst) const {
     auto It = InstructionToAccess.find(Inst);
     if (It == InstructionToAccess.end())
+      return nullptr;
+    if (It->second.empty())
       return nullptr;
     return &It->second;
   }
@@ -1514,7 +1525,10 @@ public:
 
   /// Return the MemoryAccess that loads a PHINode value, or nullptr if not
   /// existing, respectively not yet added.
-  MemoryAccess *lookupPHIReadOf(PHINode *PHI) const;
+  MemoryAccess *lookupPHIReadOf(PHINode *PHI) const {
+    assert(isBlockStmt() || R->getEntry() == PHI->getParent());
+    return PHIReads.lookup(PHI);
+  }
 
   /// Return the PHI write MemoryAccess for the incoming values from any
   ///        basic block in this ScopStmt, or nullptr if not existing,
@@ -1584,22 +1598,27 @@ public:
     return Instructions;
   }
 
+  /// Set the list of instructions for this statement. It replaces the current
+  /// list.
   void setInstructions(ArrayRef<Instruction *> Range) {
     Instructions.assign(Range.begin(), Range.end());
   }
 
-  std::vector<Instruction *>::const_iterator inst_begin() const {
+  std::vector<Instruction *>::const_iterator insts_begin() const {
     return Instructions.begin();
   }
-  std::vector<Instruction *>::const_iterator inst_end() const {
+
+  std::vector<Instruction *>::const_iterator insts_end() const {
     return Instructions.end();
   }
+
+  /// The range of instructions in this statement.
   llvm::iterator_range<std::vector<Instruction *>::const_iterator>
-  instructions() const {
-    return llvm::make_range(inst_begin(), inst_end());
+  insts() const {
+    return {insts_begin(), insts_end()};
   }
 
-  void prependInstrunction(Instruction *Inst) {
+    void prependInstrunction(Instruction *Inst) {
 #if 0
     //assert(!contains(Inst->getParent()));
 	auto InsertIt =  InstructionSet.insert(Inst);
@@ -1610,7 +1629,7 @@ public:
 #endif
     Instructions.insert(Instructions.begin(), Inst);
   }
-
+  
   const char *getBaseName() const;
 
   /// Set the isl AST build.
@@ -2702,22 +2721,25 @@ public:
   ///        none.
   ScopStmt *getStmtFor(BasicBlock *BB) const;
 
+  /// Return the list of ScopStmts that represent the given @p BB.
+  ArrayRef<ScopStmt *> getStmtListFor(BasicBlock *BB) const;
+
   /// Return the last statement representing @p BB.
   ///
   /// Of the sequence of statements that represent a @p BB, this is the last one
   /// to be executed. It is typically used to determine which instruction to add
   /// a MemoryKind::PHI WRITE to. For this purpose, it is not strictly required
   /// to be executed last, only that the incoming value is available in it.
-  ScopStmt *getLastStmtFor(BasicBlock *BB) const { return getStmtFor(BB); }
+  ScopStmt *getLastStmtFor(BasicBlock *BB) const;
 
-  /// Return the ScopStmt that represents the Region @p R, or nullptr if
+  /// Return the ScopStmts that represents the Region @p R, or nullptr if
   ///        it is not represented by any statement in this Scop.
-  ScopStmt *getStmtFor(Region *R) const;
+  ArrayRef<ScopStmt *> getStmtListFor(Region *R) const;
 
-  /// Return the ScopStmt that represents @p RN; can return nullptr if
+  /// Return the ScopStmts that represents @p RN; can return nullptr if
   ///        the RegionNode is not within the SCoP or has been removed due to
   ///        simplifications.
-  ScopStmt *getStmtFor(RegionNode *RN) const;
+  ArrayRef<ScopStmt *> getStmtListFor(RegionNode *RN) const;
 
   /// Return the ScopStmt an instruction belongs to, or nullptr if it
   ///        does not belong to any statement in this Scop.

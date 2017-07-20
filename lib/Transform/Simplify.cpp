@@ -43,6 +43,9 @@ STATISTIC(TotalRedundantWritesRemoved,
 
 STATISTIC(TotalWritesCoalesced, "Number of writes coalesced with another");
 
+STATISTIC(TotalDeadAccessesRemoved, "Number of dead accesses removed");
+STATISTIC(TotalDeadInstructionsRemoved,
+          "Number of unused instructions removed");
 STATISTIC(TotalEmptyPartialAccessesRemoved,
           "Number of empty partial accesses removed");
 STATISTIC(TotalDeadAccessesRemoved, "Number of dead accesses removed");
@@ -123,6 +126,12 @@ private:
   int EmptyPartialAccessesRemoved = 0;
 
   int DeadAccessesRemoved = 0;
+  
+  /// Number of unused accesses removed from this SCoP.
+  int DeadAccessesRemoved = 0;
+
+  /// Number of unused instructions removed from this SCoP.
+  int DeadInstructionsRemoved = 0;
 
   int DeadInstructionsRemoved = 0;
 
@@ -134,9 +143,9 @@ private:
   /// Return whether at least one simplification has been applied.
   bool isModified() const {
     return OverwritesRemoved > 0 || RedundantWritesRemoved > 0 ||
-           WritesCoalesced > 0 || StmtsRemoved > 0 ||
+           WritesCoalesced > 0 || 
            EmptyPartialAccessesRemoved > 0 || DeadComputedPHIs > 0 ||
-           DeadAccessesRemoved > 0 || DeadInstructionsRemoved > 0;
+           DeadAccessesRemoved > 0 || DeadInstructionsRemoved > 0 || StmtsRemoved > 0;
   }
 
   MemoryAccess *getReadAccessForValue(ScopStmt *Stmt, llvm::Value *Val) {
@@ -415,8 +424,8 @@ private:
                  << ") statements\n");
     TotalStmtsRemoved += StmtsRemoved;
   }
-
-  void removeEmptyPartialAccesses() {
+  
+    void removeEmptyPartialAccesses() {
     for (auto &Stmt : *S) {
       SmallVector<MemoryAccess *, 8> Accs{Stmt.begin(), Stmt.end()};
       for (auto *MA : Accs) {
@@ -432,44 +441,61 @@ private:
     }
   }
 
-  void markAndSweep(LoopInfo *LI) {
-#if 0
-    if (!UseVirtualStmts) {
-      DEBUG(dbgs()
-            << "Mark-and-sweep simplifier needs -polly-codegen-virtual-stmts");
-      return;
-    }
-#endif
 
-    //  DenseSet<VirtualInstruction > Used;
+  /// Mark all reachable instructions and access, and sweep those that are not
+  /// reachable.
+  void markAndSweep(LoopInfo *LI) {
     DenseSet<MemoryAccess *> UsedMA;
-    // std::vector<VirtualInstruction> InstList;
     DenseSet<VirtualInstruction> UsedInsts;
 
-    // markReachableGlobal(S, InstList, UsedMA, LI);
-    markReachable(S, LI, UsedInsts, UsedMA, nullptr);
+    // Get all reachable instructions and accesses.
+    markReachable(S, LI, UsedInsts, UsedMA);
 
+    // Remove all non-reachable accesses.
+    // We need get all MemoryAccesses first, in order to not invalidate the
+    // iterators when removing them.
     SmallVector<MemoryAccess *, 64> AllMAs;
-    for (auto &Stmt : *S)
+    for (ScopStmt &Stmt : *S)
       AllMAs.append(Stmt.begin(), Stmt.end());
 
-    for (auto *MA : AllMAs) {
+    for (MemoryAccess *MA : AllMAs) {
       if (UsedMA.count(MA))
         continue;
       DEBUG(dbgs() << "Removing " << MA << " because its value is not used\n");
-      auto Stmt = MA->getStatement();
+      ScopStmt *Stmt = MA->getStatement();
       Stmt->removeSingleMemoryAccess(MA);
 
-      UnusedAccs++;
       DeadAccessesRemoved++;
+      TotalDeadAccessesRemoved++;
     }
 
-    for (auto &Stmt : *S) {
-      SmallVector<Instruction *, 32> AllInsts(Stmt.inst_begin(),
-                                              Stmt.inst_end());
+    // Remove all non-reachable instructions.
+    for (ScopStmt &Stmt : *S) {
+      SmallVector<Instruction *, 32> AllInsts(Stmt.insts_begin(),
+                                              Stmt.insts_end());
       SmallVector<Instruction *, 32> RemainInsts;
-      auto Size = AllInsts.size();
-      for (auto *Inst : AllInsts) {
+
+      for (Instruction *Inst : AllInsts) {
+        auto It = UsedInsts.find({&Stmt, Inst});
+        if (It == UsedInsts.end()) {
+          DEBUG(dbgs() << "Removing "; Inst->print(dbgs());
+                dbgs() << " because it is not used\n");
+          DeadInstructionsRemoved++;
+          TotalDeadInstructionsRemoved++;
+          continue;
+        }
+
+        RemainInsts.push_back(Inst);
+
+        // If instructions appear multiple times, keep only the first.
+        UsedInsts.erase(It);
+      }
+
+      // Set the new instruction list to be only those we did not remove.
+      Stmt.setInstructions(RemainInsts);
+    }
+  }
+
         auto It = UsedInsts.find({&Stmt, Inst});
         if (It == UsedInsts.end()) {
           DEBUG(dbgs() << "Removing "; Inst->print(dbgs());
@@ -525,6 +551,10 @@ private:
                           << '\n';
     OS.indent(Indent + 4) << "Redundant writes removed: "
                           << RedundantWritesRemoved << "\n";
+    OS.indent(Indent + 4) << "Dead accesses removed: " << DeadAccessesRemoved
+                          << '\n';
+    OS.indent(Indent + 4) << "Dead instructions removed: "
+                          << DeadInstructionsRemoved << '\n';
     OS.indent(Indent + 4) << "Empty partial access removed: "
                           << EmptyPartialAccessesRemoved << "\n";
     OS.indent(Indent + 4) << "Partial writes coalesced: " << WritesCoalesced
@@ -579,8 +609,9 @@ public:
     DEBUG(dbgs() << "Coalesce partial writes...\n");
     coalescePartialWrites();
 
-    DEBUG(dbgs() << "Cleanup unused accesses...\n");
-    markAndSweep(&getAnalysis<LoopInfoWrapperPass>().getLoopInfo());
+       DEBUG(dbgs() << "Cleanup unused accesses...\n");
+    LoopInfo *LI = &getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
+    markAndSweep(LI);
 
     DEBUG(dbgs() << "Removing statements without side effects...\n");
     removeUnnecessaryStmts();
@@ -610,6 +641,8 @@ public:
 
     OverwritesRemoved = 0;
     RedundantWritesRemoved = 0;
+    DeadAccessesRemoved = 0;
+    DeadInstructionsRemoved = 0;
     WritesCoalesced = 0;
     EmptyPartialAccessesRemoved = 0;
     DeadAccessesRemoved = 0;
@@ -627,5 +660,6 @@ Pass *polly::createSimplifyPass() { return new Simplify(); }
 
 INITIALIZE_PASS_BEGIN(Simplify, "polly-simplify", "Polly - Simplify", false,
                       false)
+INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
 INITIALIZE_PASS_END(Simplify, "polly-simplify", "Polly - Simplify", false,
                     false)
