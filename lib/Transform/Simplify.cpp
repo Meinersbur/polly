@@ -43,14 +43,16 @@ STATISTIC(TotalRedundantWritesRemoved,
 
 STATISTIC(TotalWritesCoalesced, "Number of writes coalesced with another");
 
-STATISTIC(TotalDeadAccessesRemoved, "Number of dead accesses removed");
-STATISTIC(TotalDeadInstructionsRemoved,
-          "Number of unused instructions removed");
+
 STATISTIC(TotalEmptyPartialAccessesRemoved,
           "Number of empty partial accesses removed");
-STATISTIC(TotalDeadAccessesRemoved, "Number of dead accesses removed");
+
 STATISTIC(TotalDeadComputedPHIs, "Number of dead computed PHIs removed");
+
+STATISTIC(TotalDeadAccessesRemoved, "Number of dead accesses removed");
+STATISTIC(TotalDeadInstructionsRemoved,"Number of unused instructions removed");
 STATISTIC(TotalStmtsRemoved, "Number of statements removed in any SCoP");
+
 STATISTIC(UnusedAccs, "Number of unused accesses");
 STATISTIC(UnusedInsts, "Number of unused instructions");
 
@@ -125,7 +127,7 @@ private:
 
   int EmptyPartialAccessesRemoved = 0;
 
-  int DeadAccessesRemoved = 0;
+
   
   /// Number of unused accesses removed from this SCoP.
   int DeadAccessesRemoved = 0;
@@ -133,7 +135,7 @@ private:
   /// Number of unused instructions removed from this SCoP.
   int DeadInstructionsRemoved = 0;
 
-  int DeadInstructionsRemoved = 0;
+
 
   int DeadComputedPHIs = 0;
 
@@ -494,24 +496,9 @@ private:
       // Set the new instruction list to be only those we did not remove.
       Stmt.setInstructions(RemainInsts);
     }
-  }
+  
 
-        auto It = UsedInsts.find({&Stmt, Inst});
-        if (It == UsedInsts.end()) {
-          DEBUG(dbgs() << "Removing "; Inst->print(dbgs());
-                dbgs() << " because it's not used\n");
-          UnusedInsts++;
-          DeadInstructionsRemoved++;
-          continue;
-        }
 
-        RemainInsts.push_back(Inst);
-
-        // If instructions appear multiple times, keep only the first.
-        UsedInsts.erase(It);
-      }
-      Stmt.setInstructions(RemainInsts);
-    }
 
 #if 0
     for (auto &Stmt : *S) {

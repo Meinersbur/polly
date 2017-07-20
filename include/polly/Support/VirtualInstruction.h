@@ -332,11 +332,26 @@ public:
     int getNumOperands() const { return Inst->getNumOperands(); }
   Value *getOperand(unsigned i) const { return Inst->getOperand(i); }
 
-    VirtualUse getVirtualUse(int i, LoopInfo *LI) const {
+  VirtualUse getVirtualUse(const Use &U, LoopInfo *LI,
+                           bool Virtual = true) const {
+    assert(U.getUser() == Inst); // TODO: Not true for virtual operand trees
+    return VirtualUse::create(Stmt->getParent(), U, LI, Virtual);
+    //  return VirtualUse::create(Stmt, U.get(),
+    //  LI->getLoopFor(Inst->getParent()), Stmt->getParent()->getSE());
+  }
+
+  VirtualUse getIntraVirtualUse(Instruction *Val) const {
+    return VirtualUse::create(Stmt->getParent(), Stmt,
+                              Stmt->getSurroundingLoop(), Val, true);
+    // return VirtualUse(Stmt, Val, VirtualUse::Intra, nullptr, nullptr);
+  }
+
+  VirtualUse getVirtualUse(int i, LoopInfo *LI) const {
     return getVirtualUse(Inst->getOperandUse(i), LI);
   }
 
-  
+
+
   /// Print a description of this object.
   ///
   /// @param OS           Stream to print to.
@@ -372,7 +387,7 @@ void markReachable(Scop *S, LoopInfo *LI,
                    DenseSet<VirtualInstruction> &UsedInsts,
                    DenseSet<MemoryAccess *> &UsedAccs,
                    ScopStmt *OnlyLocal = nullptr);
-                   
+
                    void markReachableGlobal(Scop *S, std::vector<VirtualInstruction> &InstList,
                          DenseSet<MemoryAccess *> &UsedMA, LoopInfo *LI);
 void markReachableLocal(ScopStmt *Stmt,

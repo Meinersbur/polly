@@ -151,169 +151,6 @@ static bool isEscaping(MemoryAccess *MA) {
                     cast<Instruction>(MA->getAccessValue()));
 }
 
-static void addRoots(ScopStmt *Stmt,
-                     SmallVectorImpl<VirtualInstruction> &RootInsts,
-                     SmallVectorImpl<MemoryAccess *> &RootAccs, bool Local) {
-  if (Stmt->isBlockStmt()) {
-    addRoots(Stmt, Stmt->getBasicBlock(), RootInsts);
-  } else {
-    for (auto *BB : Stmt->getRegion()->blocks())
-      addRoots(Stmt, BB, RootInsts);
-  }
-
-  for (auto *MA : *Stmt) {
-    if (!MA->isWrite())
-      continue;
-
-    // Writes to arrays are always used.
-    if (MA->isLatestArrayKind()) {
-      // auto Inst = MA->getAccessInstruction();
-      // RootInsts.emplace_back(&Stmt, Inst);
-      RootAccs.push_back(MA);
-    }
-
-    // Values are roots if they are escaping.
-    else if (MA->isLatestValueKind()) {
-      if (Local || isEscaping(MA))
-        RootAccs.push_back(MA);
-    }
-
-    // Exit phis are, by definition, escaping.
-    else if (MA->isLatestExitPHIKind()) {
-      // auto ComputingInst=  dyn_cast<Instruction>( MA->getAccessValue());
-      // if (ComputingInst)
-      // Worklist.emplace_back(&Stmt, ComputingInst);
-      RootAccs.push_back(MA);
-    }
-
-    else if (MA->isLatestPHIKind() && Local)
-      RootAccs.push_back(MA);
-  }
-}
-
-static void walkReachable(Scop *S, LoopInfo *LI,
-                          ArrayRef<VirtualInstruction> RootInsts,
-                          ArrayRef<MemoryAccess *> RootAccs,
-                          DenseSet<VirtualInstruction> &UsedInsts,
-                          DenseSet<MemoryAccess *> &UsedAccs,
-                          ScopStmt *OnlyLocal) {
-
-  UsedInsts.clear();
-  UsedAccs.clear();
-
-  ScalarDefUseChains DefUse;
-  DefUse.compute(S);
-
-  SmallVector<VirtualInstruction, 32> WorklistInsts;
-  SmallVector<MemoryAccess *, 32> WorklistAccs;
-
-  WorklistInsts.append(RootInsts.begin(), RootInsts.end());
-  WorklistAccs.append(RootAccs.begin(), RootAccs.end());
-
-  auto AddToWorklist = [&](VirtualUse VUse) {
-    switch (VUse.getKind()) {
-    case VirtualUse::Block:
-    case VirtualUse::Constant:
-    case VirtualUse::Synthesizable:
-    case VirtualUse::Hoisted:
-      break;
-    case VirtualUse::ReadOnly:
-      if (!ModelReadOnlyScalars)
-        break;
-      LLVM_FALLTHROUGH;
-    case VirtualUse::Inter:
-      assert(VUse.getMemoryAccess());
-      WorklistAccs.push_back(VUse.getMemoryAccess());
-      break;
-    case VirtualUse::Intra:
-      WorklistInsts.emplace_back(VUse.getUser(),
-                                 cast<Instruction>(VUse.getValue()));
-      break;
-    }
-  };
-
-  while (true) {
-
-    while (!WorklistAccs.empty()) {
-      auto *Acc = WorklistAccs.pop_back_val();
-
-      auto *Stmt = Acc->getStatement();
-      if (OnlyLocal && Stmt != OnlyLocal)
-        continue;
-
-      auto Inserted = UsedAccs.insert(Acc);
-      if (!Inserted.second)
-        continue;
-
-      if (Acc->isRead()) {
-        auto *SAI = Acc->getScopArrayInfo();
-
-        if (Acc->isOriginalValueKind()) {
-          auto *DefAcc = DefUse.getValueDef(SAI);
-
-          // Accesses to read-only value do not have a definition.
-          if (DefAcc)
-            WorklistAccs.push_back(DefUse.getValueDef(SAI));
-        }
-
-        if (Acc->isOriginalAnyPHIKind()) {
-          auto &IncomingMAs = DefUse.getPHIIncomings(SAI);
-          WorklistAccs.append(IncomingMAs.begin(), IncomingMAs.end());
-        }
-      }
-
-      if (Acc->isWrite()) {
-        if (Acc->isOriginalValueKind() ||
-            (Acc->isOriginalArrayKind() && Acc->getAccessValue())) {
-          auto *Scope = Stmt->getSurroundingLoop();
-          auto VUse =
-              VirtualUse::create(S, Stmt, Scope, Acc->getAccessValue(), true);
-          AddToWorklist(VUse);
-        }
-
-        if (Acc->isOriginalAnyPHIKind()) {
-          for (auto Incoming : Acc->getIncoming()) {
-            auto VUse = VirtualUse::create(
-                S, Stmt, LI->getLoopFor(Incoming.first), Incoming.second, true);
-            AddToWorklist(VUse);
-          }
-        }
-
-        if (Acc->isExplicit())
-          WorklistInsts.emplace_back(Stmt, Acc->getAccessInstruction());
-      }
-    }
-
-    if (WorklistInsts.empty())
-      break;
-
-    auto VInst = WorklistInsts.pop_back_val();
-    auto *Stmt = VInst.getStmt();
-    auto *Inst = VInst.getInstruction();
-
-    if (OnlyLocal && Stmt != OnlyLocal)
-      continue;
-
-    auto InsertResult = UsedInsts.insert(VInst);
-    if (!InsertResult.second)
-      continue;
-
-    if (auto *PHI = dyn_cast<PHINode>(Inst)) {
-      if (auto *PHIRead = Stmt->lookupPHIReadOf(PHI))
-        WorklistAccs.push_back(PHIRead);
-    } else {
-      for (auto VUse : VInst.operands())
-        AddToWorklist(VUse);
-    }
-
-    auto Accs = Stmt->lookupArrayAccessesFor(Inst);
-    if (!Accs)
-      continue;
-
-    for (auto Acc : *Accs)
-      WorklistAccs.push_back(Acc);
-  }
-}
 
 static void markReachable2(Scop *S, ArrayRef<VirtualInstruction> Roots,
                            SmallVectorImpl<MemoryAccess *> &&WorklistMA,
@@ -648,22 +485,67 @@ static void markReachable2(Scop *S, ArrayRef<VirtualInstruction> Roots,
   std::swap(InstList, ResultList);
 }
 
-void polly::markReachable(Scop *S, LoopInfo *LI,
-                          DenseSet<VirtualInstruction> &UsedInsts,
-                          DenseSet<MemoryAccess *> &UsedAccs,
-                          ScopStmt *OnlyLocal) {
 
-  SmallVector<VirtualInstruction, 32> RootInsts;
-  SmallVector<MemoryAccess *, 32> RootAccs;
+/// Add non-removable virtual instructions in @p Stmt to @p RootInsts.
+static void
+addInstructionRoots(ScopStmt *Stmt,
+	SmallVectorImpl<VirtualInstruction> &RootInsts) {
+	// For region statements we must keep all instructions because we do not
+	// support removing instructions from region statements.
+	if (!Stmt->isBlockStmt()) {
+		for (auto *BB : Stmt->getRegion()->blocks())
+			for (Instruction &Inst : *BB)
+				RootInsts.emplace_back(Stmt, &Inst);
+	}
 
-  if (OnlyLocal) {
-    addRoots(OnlyLocal, RootInsts, RootAccs, true);
-  } else {
-    for (auto &Stmt : *S)
-      addRoots(&Stmt, RootInsts, RootAccs, false);
-  }
+	for (Instruction *Inst : Stmt->getInstructions())
+		if (isRoot(Inst))
+			RootInsts.emplace_back(Stmt, Inst);
+}
 
-  walkReachable(S, LI, RootInsts, RootAccs, UsedInsts, UsedAccs, OnlyLocal);
+/// Add non-removable memory accesses in @p Stmt to @p RootInsts.
+///
+/// @param Local If true, all writes are assumed to escape. markAndSweep
+/// algorithms can use this to be applicable to a single ScopStmt only without
+/// the risk of removing definitions required by other statements.
+///              If false, only writes for SCoP-escaping values are roots.  This
+///              is global mode, where such writes must be marked by theirs uses
+///              in order to be reachable.
+static void addAccessRoots(ScopStmt *Stmt,
+	SmallVectorImpl<MemoryAccess *> &RootAccs,
+	bool Local) {
+	for (auto *MA : *Stmt) {
+		if (!MA->isWrite())
+			continue;
+
+		// Writes to arrays are always used.
+		if (MA->isLatestArrayKind())
+			RootAccs.push_back(MA);
+
+		// Values are roots if they are escaping.
+		else if (MA->isLatestValueKind()) {
+			if (Local || isEscaping(MA))
+				RootAccs.push_back(MA);
+		}
+
+		// Exit phis are, by definition, escaping.
+		else if (MA->isLatestExitPHIKind())
+			RootAccs.push_back(MA);
+
+		// phi writes are only roots if we are not visiting the statement
+		// containing the PHINode.
+		else if (Local && MA->isLatestPHIKind())
+			RootAccs.push_back(MA);
+	}
+}
+
+
+/// Determine all instruction and access roots.
+static void addRoots(ScopStmt *Stmt,
+	SmallVectorImpl<VirtualInstruction> &RootInsts,
+	SmallVectorImpl<MemoryAccess *> &RootAccs, bool Local) {
+	addInstructionRoots(Stmt, RootInsts);
+	addAccessRoots(Stmt, RootAccs, Local);
 }
 
 void polly::markReachableGlobal(Scop *S,
@@ -674,7 +556,7 @@ void polly::markReachableGlobal(Scop *S,
   SmallVector<MemoryAccess *, 32> WorklistMA;
 
   for (auto &Stmt : *S)
-    addRoots(&Stmt, Worklist, WorklistMA, false);
+    addRoots(&Stmt, Worklist, WorklistMA,  false);
 
   markReachable2(S, Worklist, std::move(WorklistMA), InstList, UsedMA, nullptr,
                  LI);
@@ -857,85 +739,11 @@ static bool isRoot(const Instruction *Inst) {
   return false;
 }
 
-/// Return true if @p ComputingInst is used after SCoP @p S. It must not be
-/// removed in order for its value to be available after the SCoP.
-static bool isEscaping(Scop *S, Instruction *ComputingInst) {
-  for (Use &Use : ComputingInst->uses()) {
-    Instruction *User = cast<Instruction>(Use.getUser());
-    if (!S->contains(User))
-      return true;
-  }
-  return false;
-}
 
-/// Return true for MemoryAccesses that cannot be removed because it represents
-/// an llvm::Value that is used after the SCoP.
-static bool isEscaping(MemoryAccess *MA) {
-  assert(MA->isOriginalValueKind());
-  return isEscaping(MA->getStatement()->getParent(),
-                    cast<Instruction>(MA->getAccessValue()));
-}
 
-/// Add non-removable virtual instructions in @p Stmt to @p RootInsts.
-static void
-addInstructionRoots(ScopStmt *Stmt,
-                    SmallVectorImpl<VirtualInstruction> &RootInsts) {
-  // For region statements we must keep all instructions because we do not
-  // support removing instructions from region statements.
-  if (!Stmt->isBlockStmt()) {
-    for (auto *BB : Stmt->getRegion()->blocks())
-      for (Instruction &Inst : *BB)
-        RootInsts.emplace_back(Stmt, &Inst);
-  }
 
-  for (Instruction *Inst : Stmt->getInstructions())
-    if (isRoot(Inst))
-      RootInsts.emplace_back(Stmt, Inst);
-}
 
-/// Add non-removable memory accesses in @p Stmt to @p RootInsts.
-///
-/// @param Local If true, all writes are assumed to escape. markAndSweep
-/// algorithms can use this to be applicable to a single ScopStmt only without
-/// the risk of removing definitions required by other statements.
-///              If false, only writes for SCoP-escaping values are roots.  This
-///              is global mode, where such writes must be marked by theirs uses
-///              in order to be reachable.
-static void addAccessRoots(ScopStmt *Stmt,
-                           SmallVectorImpl<MemoryAccess *> &RootAccs,
-                           bool Local) {
-  for (auto *MA : *Stmt) {
-    if (!MA->isWrite())
-      continue;
 
-    // Writes to arrays are always used.
-    if (MA->isLatestArrayKind())
-      RootAccs.push_back(MA);
-
-    // Values are roots if they are escaping.
-    else if (MA->isLatestValueKind()) {
-      if (Local || isEscaping(MA))
-        RootAccs.push_back(MA);
-    }
-
-    // Exit phis are, by definition, escaping.
-    else if (MA->isLatestExitPHIKind())
-      RootAccs.push_back(MA);
-
-    // phi writes are only roots if we are not visiting the statement
-    // containing the PHINode.
-    else if (Local && MA->isLatestPHIKind())
-      RootAccs.push_back(MA);
-  }
-}
-
-/// Determine all instruction and access roots.
-static void addRoots(ScopStmt *Stmt,
-                     SmallVectorImpl<VirtualInstruction> &RootInsts,
-                     SmallVectorImpl<MemoryAccess *> &RootAccs, bool Local) {
-  addInstructionRoots(Stmt, RootInsts);
-  addAccessRoots(Stmt, RootAccs, Local);
-}
 
 /// Mark accesses and instructions as used if they are reachable from a root,
 /// walking the operand trees.
