@@ -21,50 +21,6 @@ namespace polly {
 class VirtualUse;
 class VirtualInstruction;
 
-class ScalarDefUseChains {
-public:
-  int ScalarValueDeps = 0;
-  int ScalarValueLoopDeps = 0;
-  int ScalarPHIDeps = 0;
-  int ScalarPHILoopDeps = 0;
-
-  /// The definitions/write MemoryAccess of an MK_Value scalar.
-  ///
-  /// Note that read-only values have no value-defining write access.
-  DenseMap<const ScopArrayInfo *, MemoryAccess *> ValueDefAccs;
-
-  /// List of all uses/read MemoryAccesses for an MK_Value scalar.
-  DenseMap<const ScopArrayInfo *, SmallVector<MemoryAccess *, 4>> ValueUseAccs;
-
-  /// The PHI/read MemoryAccess of an MK_PHI scalar.
-  DenseMap<const ScopArrayInfo *, MemoryAccess *> PHIReadAccs;
-
-  /// List of all incoming values/writes of an MK_PHI scalar.
-  DenseMap<const ScopArrayInfo *, SmallVector<MemoryAccess *, 4>>
-      PHIIncomingAccs;
-
-public:
-  /// Find the MemoryAccesses that access the ScopArrayInfo-represented memory.
-  void compute(const Scop *S);
-
-  void reset();
-
-  MemoryAccess *getValueDef(const ScopArrayInfo *SAI) {
-    return ValueDefAccs.lookup(SAI);
-  }
-  auto getValueUses(const ScopArrayInfo *SAI) -> decltype(ValueUseAccs[SAI]) {
-    return ValueUseAccs[SAI];
-  }
-
-  MemoryAccess *getPHIRead(const ScopArrayInfo *SAI) {
-    return PHIReadAccs.lookup(SAI);
-  }
-  auto getPHIIncomings(const ScopArrayInfo *SAI)
-      -> decltype(PHIIncomingAccs[SAI]) {
-    return PHIIncomingAccs[SAI];
-  }
-};
-
 /// Determine the nature of a value's use within a statement.
 ///
 /// These are not always representable by llvm::Use. For instance, scalar write

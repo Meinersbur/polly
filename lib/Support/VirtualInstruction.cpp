@@ -24,73 +24,6 @@ static bool isInLoop(MemoryAccess *MA) {
   return Stmt->getNumIterators() > 0;
 }
 
-void ScalarDefUseChains::reset() {
-  ValueDefAccs.clear();
-  ValueUseAccs.clear();
-  PHIReadAccs.clear();
-  PHIIncomingAccs.clear();
-
-  ScalarValueDeps = 0;
-  ScalarValueLoopDeps = 0;
-  ScalarPHIDeps = 0;
-  ScalarPHILoopDeps = 0;
-}
-
-void ScalarDefUseChains::compute(const Scop *S) {
-  reset();
-
-  for (auto &Stmt : *S) {
-    for (auto *MA : Stmt) {
-      if (MA->isOriginalValueKind() && MA->isWrite()) {
-        auto *SAI = MA->getScopArrayInfo();
-        assert(!ValueDefAccs.count(SAI) &&
-               "There can be at most one definition per MK_Value scalar");
-        ValueDefAccs[SAI] = MA;
-      }
-
-      if (MA->isOriginalValueKind() && MA->isRead())
-        ValueUseAccs[MA->getScopArrayInfo()].push_back(MA);
-
-      if (MA->isOriginalAnyPHIKind() && MA->isRead()) {
-        auto *SAI = MA->getScopArrayInfo();
-        assert(!PHIReadAccs.count(SAI) && "There must be exactly one read "
-                                          "per PHI (that's where the PHINode "
-                                          "is)");
-        PHIReadAccs[SAI] = MA;
-      }
-
-      if (MA->isOriginalAnyPHIKind() && MA->isWrite())
-        PHIIncomingAccs[MA->getScopArrayInfo()].push_back(MA);
-    }
-  }
-
-  for (auto ScalarVals : ValueDefAccs) {
-    if (!ValueUseAccs[ScalarVals.first].empty())
-      ScalarValueDeps++;
-
-    if (!isInLoop(ScalarVals.second))
-      continue;
-    for (auto Use : ValueUseAccs[ScalarVals.first])
-      if (isInLoop(Use)) {
-        ScalarValueLoopDeps++;
-        break;
-      }
-  }
-
-  for (auto ScalarPHIs : PHIReadAccs) {
-    if (!PHIIncomingAccs[ScalarPHIs.first].empty())
-      ScalarPHIDeps++;
-
-    if (!isInLoop(ScalarPHIs.second))
-      continue;
-    for (auto Incoming : PHIIncomingAccs[ScalarPHIs.first])
-      if (isInLoop(Incoming)) {
-        ScalarPHILoopDeps++;
-        break;
-      }
-  }
-}
-
 static bool isDefinedInStmt(Value *Val, ScopStmt *Stmt) {
   auto *Inst = dyn_cast<Instruction>(Val);
   if (!Inst)
@@ -156,8 +89,6 @@ static void markReachable2(Scop *S, ArrayRef<VirtualInstruction> Roots,
                            std::vector<VirtualInstruction> &InstList,
                            DenseSet<MemoryAccess *> &UsedMA,
                            ScopStmt *OnlyLocal, LoopInfo *LI) {
-  ScalarDefUseChains DefUse;
-  DefUse.compute(S);
   auto *SE = S->getSE();
 
   SmallVector<SmallVector<VirtualInstruction, 4>, 16> WorklistTree;
@@ -328,10 +259,10 @@ static void markReachable2(Scop *S, ArrayRef<VirtualInstruction> Roots,
       auto *Scope = Stmt->getSurroundingLoop();
 
       if (MA->isRead() && MA->isOriginalValueKind())
-        WorklistMA.push_back(DefUse.getValueDef(SAI));
+        WorklistMA.push_back(S->getValueDef(SAI));
 
       if (MA->isRead() && MA->isOriginalAnyPHIKind()) {
-        auto &IncomingMAs = DefUse.getPHIIncomings(SAI);
+        auto IncomingMAs = S->getPHIIncomings(SAI);
         WorklistMA.append(IncomingMAs.begin(), IncomingMAs.end());
         // Leaf.emplace_back(Stmt, MA->getAccessInstruction());
       }
@@ -640,10 +571,9 @@ VirtualInstruction VirtualUse::getDefinition() const {
   case Inter: {
     auto *S = User->getParent();
     auto *Inst = cast<Instruction>(Val);
-    ScalarDefUseChains DefUse;
-    DefUse.compute(S);
+
     auto SAI = InputMA->getOriginalScopArrayInfo();
-    auto *DefStmt = DefUse.getValueDef(SAI)->getStatement();
+    auto *DefStmt = S->getValueDef(SAI)->getStatement();
     return VirtualInstruction(DefStmt, Inst);
   }
   default:

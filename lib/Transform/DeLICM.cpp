@@ -1597,6 +1597,53 @@ protected:
     simplify(WriteReachDefZone);
   }
 
+  /// For each 'execution' of a PHINode, get the incoming block that was
+  /// executed before.
+  ///
+  /// For each PHI instance we can directly determine which was the incoming
+  /// block, and hence derive which value the PHI will have.
+  ///
+  /// @param SAI The ScopArrayInfo representing the PHI's storage.
+  ///
+  /// @return { DomainPHIRead[] -> DomainPHIWrite[] }
+  isl::union_map computePerPHI(const ScopArrayInfo *SAI) {
+    assert(SAI->isPHIKind());
+
+    // { DomainPHIWrite[] -> Scatter[] }
+    auto PHIWriteScatter = makeEmptyUnionMap();
+
+    // Collect all incoming block timepoint.
+    for (auto *MA : S->getPHIIncomings(SAI)) {
+      auto Scatter = getScatterFor(MA);
+      PHIWriteScatter =
+          give(isl_union_map_add_map(PHIWriteScatter.take(), Scatter.take()));
+    }
+
+    // { DomainPHIRead[] -> Scatter[] }
+    auto PHIReadScatter = getScatterFor(S->getPHIRead(SAI));
+
+    // { DomainPHIRead[] -> Scatter[] }
+    auto BeforeRead = beforeScatter(PHIReadScatter, true);
+
+    // { Scatter[] }
+    auto WriteTimes = singleton(
+        give(isl_union_map_range(PHIWriteScatter.copy())), ScatterSpace);
+
+    // { DomainPHIRead[] -> Scatter[] }
+    auto PHIWriteTimes =
+        give(isl_map_intersect_range(BeforeRead.take(), WriteTimes.take()));
+    simplify(PHIWriteTimes);
+    auto LastPerPHIWrites = give(isl_map_lexmax(PHIWriteTimes.take()));
+
+    // { DomainPHIRead[] -> DomainPHIWrite[] }
+    auto Result = give(isl_union_map_apply_range(
+        isl_union_map_from_map(LastPerPHIWrites.take()),
+        isl_union_map_reverse(PHIWriteScatter.take())));
+    assert(isl_union_map_is_single_valued(Result.keep()) == isl_bool_true);
+    assert(isl_union_map_is_injective(Result.keep()) == isl_bool_true);
+    return Result;
+  }
+
   /// Print the current state of all MemoryAccesses to @p.
   void printAccesses(llvm::raw_ostream &OS, int Indent = 0) const {
     OS.indent(Indent) << "After accesses {\n";
@@ -1995,53 +2042,6 @@ private:
     auto DefUses = give(isl_union_map_domain_factor_domain(Uses.take()));
 
     return std::make_pair(DefUses, Lifetime);
-  }
-
-  /// For each 'execution' of a PHINode, get the incoming block that was
-  /// executed before.
-  ///
-  /// For each PHI instance we can directly determine which was the incoming
-  /// block, and hence derive which value the PHI will have.
-  ///
-  /// @param SAI The ScopArrayInfo representing the PHI's storage.
-  ///
-  /// @return { DomainPHIRead[] -> DomainPHIWrite[] }
-  isl::union_map computePerPHI(const ScopArrayInfo *SAI) {
-    assert(SAI->isPHIKind());
-
-    // { DomainPHIWrite[] -> Scatter[] }
-    auto PHIWriteScatter = makeEmptyUnionMap();
-
-    // Collect all incoming block timepoint.
-    for (auto *MA : S->getPHIIncomings(SAI)) {
-      auto Scatter = getScatterFor(MA);
-      PHIWriteScatter =
-          give(isl_union_map_add_map(PHIWriteScatter.take(), Scatter.take()));
-    }
-
-    // { DomainPHIRead[] -> Scatter[] }
-    auto PHIReadScatter = getScatterFor(S->getPHIRead(SAI));
-
-    // { DomainPHIRead[] -> Scatter[] }
-    auto BeforeRead = beforeScatter(PHIReadScatter, true);
-
-    // { Scatter[] }
-    auto WriteTimes = singleton(
-        give(isl_union_map_range(PHIWriteScatter.copy())), ScatterSpace);
-
-    // { DomainPHIRead[] -> Scatter[] }
-    auto PHIWriteTimes =
-        give(isl_map_intersect_range(BeforeRead.take(), WriteTimes.take()));
-    simplify(PHIWriteTimes);
-    auto LastPerPHIWrites = give(isl_map_lexmax(PHIWriteTimes.take()));
-
-    // { DomainPHIRead[] -> DomainPHIWrite[] }
-    auto Result = give(isl_union_map_apply_range(
-        isl_union_map_from_map(LastPerPHIWrites.take()),
-        isl_union_map_reverse(PHIWriteScatter.take())));
-    assert(isl_union_map_is_single_valued(Result.keep()) == isl_bool_true);
-    assert(isl_union_map_is_injective(Result.keep()) == isl_bool_true);
-    return Result;
   }
 
   /// Try to map a MemoryKind::Value to a given array element.
@@ -3223,12 +3223,470 @@ private:
                               std::move(RequiredValue));
   }
 
+  enum ForwardingDecision {
+    FD_NotApplicable,
+    FD_CannotForward,
+    FD_CanForward,
+    FD_CanForwardPartially,
+    FD_DidForward,
+    FD_DidForwardPartially
+  };
+
+  ForwardingDecision
+  canForwardPHI(Instruction *Inst, ScopStmt *DefStmt, isl::map DefScatter,
+                isl::map DefToTargetMapping,
+
+                llvm::Value *UseVal, ScopStmt *UseStmt, Loop *UseLoop,
+                // { DomainUse[] -> Scatter[] }
+                isl::map UseScatter, ScopStmt *TargetStmt,
+                // { DomainUse[] -> DomainTarget[] }
+                isl::map UseToTargetMapping, int Depth, bool DoIt,
+                MemoryAccess *&ReuseMe, MemoryAccess *&DontRemove) {
+
+    auto PHI = dyn_cast<PHINode>(Inst);
+    if (!PHI)
+      return FD_NotApplicable;
+
+    if (DoIt)
+      TargetStmt->prependInstrunction(Inst);
+
+    auto PHIRead = DefStmt->lookupPHIReadOf(PHI);
+    assert(PHIRead);
+    assert(PHIRead->isPHIKind());
+    assert(PHIRead->isRead());
+
+    auto ReadStmt = DefStmt;
+    auto SAI = PHIRead->getOriginalScopArrayInfo();
+
+    for (auto PHIWrite : S->getPHIIncomings(SAI)) {
+      // TODO: support non-affine subregion's exit phis
+      if (PHIWrite->getIncoming().size() != 1)
+        return FD_CannotForward;
+    }
+
+    // { DomainPHIRead[] -> DomainPHIWrite[] }
+    auto IncomingWrites = computePerPHI(SAI);
+
+    // { PHIValInst[] -> ValInst[] }
+    auto ComputedPHITranslator = makeEmptyUnionMap();
+
+    // { DomainPHIRead[] -> Value[] }
+    auto IncomingValues = makeEmptyUnionMap();
+
+    bool Partial = false;
+    IncomingWrites.foreach_map([&, DoIt, this](isl::map Map) -> isl::stat {
+      auto Space = give(isl_map_get_space(Map.keep()));
+      auto RangeSpace = give(isl_space_range(Space.copy()));
+      auto RangeId = give(isl_space_get_tuple_id(Space.keep(), isl_dim_out));
+      auto *IncomingStmt =
+          static_cast<ScopStmt *>(isl_id_get_user(RangeId.keep()));
+      auto *IncomingVal =
+          PHI->getIncomingValueForBlock(IncomingStmt->getBasicBlock());
+      assert(IncomingVal &&
+             "TODO: exit block if predecessor is non-affine subregion");
+
+      // { DomainPHIRead[] }
+      auto PHIDomain = give(isl_map_domain(Map.copy()));
+
+      // { PHIValue[] }
+      auto PHISet = makeValueSet(PHI);
+
+      // { DomainPHIRead[] -> PHIValue[] } == { PHIValueInst[] }
+      auto PHIMap =
+          give(isl_map_from_domain_and_range(PHIDomain.copy(), PHISet.copy()));
+
+      // { DomainPHIRead[] -> PHIValueInst[] }
+      auto ReadToPHIInst =
+          give(isl_map_reverse(isl_map_domain_map(PHIMap.copy())));
+
+      // { DomainPHIWrite[] }
+      auto IncomingDomain = give(isl_map_range(Map.copy()));
+
+      // { IncomingValue[] }
+      auto ValSet = makeValueSet(IncomingVal);
+
+      // { DomainPHIRead[] -> IncomingValue[] }
+      auto SelectVal =
+          give(isl_map_from_domain_and_range(PHIDomain.copy(), ValSet.copy()));
+      IncomingValues =
+          give(isl_union_map_add_map(IncomingValues.take(), SelectVal.copy()));
+
+      // { PHIWriteDomain[] -> IncomingValInst[] }
+      auto IncomingValInst = makeValInst(IncomingVal, IncomingStmt,
+                                         IncomingStmt->getSurroundingLoop());
+
+      // { PHIWriteRead[] -> IncomingValInst[] }
+      auto PHIWriteInst =
+          give(isl_map_apply_range(Map.copy(), IncomingValInst.copy()));
+
+      // { PHIValueInst[] -> IncomingValueInst[] }
+      auto Translator =
+          give(isl_map_apply_domain(PHIWriteInst.copy(), ReadToPHIInst.copy()));
+      ComputedPHITranslator = give(isl_union_map_add_map(
+          ComputedPHITranslator.take(), Translator.copy()));
+
+      // { IncomingValInst[] }
+      auto ValInstSpace =
+          give(isl_space_range(isl_map_get_space(IncomingValInst.keep())));
+
+      ScopStmt *DefStmt = nullptr;
+      if (isl_space_is_wrapping(ValInstSpace.keep())) {
+        auto Unwrapped = give(isl_space_unwrap(ValInstSpace.copy()));
+        // ValSpace = give(isl_space_range(Unwrapped.copy()));
+        // auto DefStmtSpace = give(isl_space_domain(Unwrapped.copy()));
+        auto DefStmtId =
+            give(isl_space_get_tuple_id(Unwrapped.keep(), isl_dim_in));
+        DefStmt = static_cast<ScopStmt *>(isl_id_get_user(DefStmtId.keep()));
+        assert(DefStmt);
+
+        auto ValId =
+            give(isl_space_get_tuple_id(Unwrapped.keep(), isl_dim_out));
+        assert(IncomingVal ==
+               static_cast<Value *>(isl_id_get_user(ValId.keep())));
+      }
+
+      // IncomingVal might be available in multiple Stmts: The Stmt it is
+      // originally defined in and those it is has been rematerialized (e.g. by
+      // polly-known pass). makeValInst will prefer the rematerialized one so
+      // inter-stmt dependencies are avoided. Indeed, the original defining
+      // might not even exist anymore and been removed (by polly-simplify pass).
+      // If that happens we have no other choice than to use the scop where it
+      // has been rematerialized. There might be multiple such stmts and we risk
+      // that the rematerialization is only done after use in this statement
+      // (FIXME: Have to think about whether this is even possible)
+      ScopStmt *DefStmt2 = S->getStmtFor(IncomingVal);
+      if (DefStmt2) {
+        assert(DefStmt && "Contradicting information on whether the value is "
+                          "defined within the SCoP");
+        DefStmt = DefStmt2;
+      }
+
+      MemoryAccess *Dummy = nullptr;
+      if (!canForwardTree(IncomingVal, IncomingStmt, UseLoop, DefScatter,
+                          TargetStmt, DefToTargetMapping, Depth + 1, DoIt,
+                          ReuseMe, Dummy)) {
+        Partial = true;
+      }
+
+      if (!DoIt)
+        return isl::stat::ok;
+
+      // TODO: Refactor with ScopBuilder
+      bool NeedAccess;
+      if (canSynthesize(IncomingVal, *S, S->getSE(),
+                        ReadStmt->getSurroundingLoop()))
+        NeedAccess = false;
+      else if (DefStmt) {
+        NeedAccess = true;
+      } else {
+        NeedAccess = !isa<Constant>(IncomingVal) && ModelReadOnlyScalars;
+      }
+
+      // Ensure read of value in the BB we add a use to.
+      if (NeedAccess && !ReadStmt->lookupValueReadOf(IncomingVal)) {
+        auto *ValSAI = S->getOrCreateScopArrayInfo(
+            IncomingVal, IncomingVal->getType(), {}, MemoryKind::Value);
+
+        // ScopStmt *DefStmt2 =  S->getStmtFor( IncomingVal );
+        // assert(DefStmt == S->getStmtFor(IncomingVal));
+        // if (!DefStmt)
+        // DefStmt = IncomingStmt;
+
+        // Ensure write of value if it does not exist yet.
+        if (!S->getValueDef(ValSAI) && DefStmt) {
+          auto *WA = new MemoryAccess(
+              IncomingStmt, cast<Instruction>(IncomingVal),
+              MemoryAccess::MUST_WRITE, IncomingVal, IncomingVal->getType(),
+              true, {}, {}, IncomingVal, MemoryKind::Value, true);
+          WA->buildAccessRelation(ValSAI);
+          IncomingStmt->addAccess(WA);
+          S->addAccessFunction(WA);
+          // assert(S->ValueDefAccs.find(SAI) == S->ValueDefAccs.end());
+          // S->ValueDefAccs[ValSAI] = WA;
+          // assert(S->getValueDef(ValSAI)->getStatement() == DefStmt);
+        }
+
+        auto *RA =
+            new MemoryAccess(ReadStmt, PHI, MemoryAccess::READ, IncomingVal,
+                             IncomingVal->getType(), true, {}, {}, IncomingVal,
+                             MemoryKind::Value, true);
+        RA->buildAccessRelation(ValSAI);
+        ReadStmt->addAccess(RA);
+        S->addAccessFunction(RA);
+        // DefUse.ValueUseAccs[ValSAI].push_back(RA);
+      }
+
+      return isl::stat::ok;
+    });
+
+    if (!DoIt)
+      return FD_CanForward;
+
+    // Remove ExitPHI accesses
+    for (auto PHIWrite : S->getPHIIncomings(SAI)) {
+      auto *WriteStmt = PHIWrite->getStatement();
+      WriteStmt->removeSingleMemoryAccess(PHIWrite);
+    }
+
+    ReadStmt->removeSingleMemoryAccess(PHIRead);
+    ReadStmt->ComputedPHIs[PHI] = IncomingValues;
+    ReadStmt->prependInstrunction(PHI);
+    ComputedPHIScalars++;
+
+    return FD_DidForward;
+  }
+
+  ForwardingDecision
+  canForwardLoad(Instruction *Inst, ScopStmt *DefStmt, isl::map DefScatter,
+                 isl::map DefToTargetMapping,
+
+                 llvm::Value *UseVal, ScopStmt *UseStmt, Loop *UseLoop,
+                 // { DomainUse[] -> Scatter[] }
+                 isl::map UseScatter, ScopStmt *TargetStmt,
+                 // { DomainUse[] -> DomainTarget[] }
+                 isl::map UseToTargetMapping, int Depth, bool DoIt,
+                 MemoryAccess *&ReuseMe, MemoryAccess *&DontRemove) {
+
+    auto LI = dyn_cast<LoadInst>(Inst);
+    if (!LI)
+      return FD_NotApplicable;
+
+    if (DoIt)
+      TargetStmt->prependInstrunction(Inst);
+
+    MemoryAccess *Dummy;
+    if (!canForwardTree(LI->getPointerOperand(), DefStmt, UseLoop, DefScatter,
+                        TargetStmt, DefToTargetMapping, Depth + 1, DoIt,
+                        ReuseMe, Dummy))
+      return FD_CannotForward;
+
+    auto *RA = &DefStmt->getArrayAccessFor(LI);
+
+    // { DomainDef[] -> ValInst[] }
+    auto ExpectedVal = makeValInst(UseVal, DefStmt, UseLoop);
+
+    // { DomainTarget[] -> ValInst[] }
+    auto ToExpectedVal = give(
+        isl_map_apply_domain(ExpectedVal.copy(), DefToTargetMapping.copy()));
+
+    isl::union_map Candidates;
+    // { DomainTo[] -> Element[] }
+    auto SameVal =
+        containsSameValue(ToExpectedVal, getScatterFor(TargetStmt), Candidates);
+    if (!SameVal)
+      return FD_CannotForward;
+
+    if (!DoIt)
+      return FD_CanForward;
+
+    MemoryAccess *Access = TargetStmt->getArrayAccessOrNULLFor(LI);
+    if (!Access) {
+      if (Depth == 0 && ReuseMe) {
+        Access = ReuseMe;
+        ReuseMe = nullptr;
+      } else {
+        auto ArrayId = give(isl_map_get_tuple_id(SameVal.keep(), isl_dim_out));
+        auto SAI =
+            reinterpret_cast<ScopArrayInfo *>(isl_id_get_user(ArrayId.keep()));
+        SmallVector<const SCEV *, 4> Sizes;
+        Sizes.reserve(SAI->getNumberOfDimensions());
+        SmallVector<const SCEV *, 4> Subscripts;
+        Subscripts.reserve(SAI->getNumberOfDimensions());
+        for (unsigned i = 0; i < SAI->getNumberOfDimensions(); i += 1) {
+          auto DimSize = SAI->getDimensionSize(i);
+          Sizes.push_back(DimSize);
+
+          // Dummy access, to be replaced anyway.
+          Subscripts.push_back(nullptr);
+        }
+        Access = new MemoryAccess(TargetStmt, LI, MemoryAccess::READ,
+                                  SAI->getBasePtr(), Inst->getType(), true, {},
+                                  Sizes, Inst, MemoryKind::Array, false);
+        S->addAccessFunction(Access);
+        TargetStmt->addAccess(Access, true);
+      }
+
+      // Necessary so matmul pattern detection recognizes this access. It
+      // expects the map to have exactly 2 constrains (i0=o0 and i1=o1, for the
+      // two surrounding loops)
+      SameVal =
+          SameVal.gist_domain(give(TargetStmt->getDomain())
+                                  .intersect_params(give(S->getContext())));
+
+      Access->setNewAccessRelation(SameVal.copy());
+    }
+
+    MappedKnown++;
+    KnownReports.emplace_back(RA, std::move(Candidates), std::move(SameVal),
+                              std::move(ToExpectedVal));
+    return FD_DidForward;
+  }
+
+  ForwardingDecision canForwardTree(llvm::Value *UseVal, ScopStmt *UseStmt,
+                                    Loop *UseLoop,
+                                    // { DomainUse[] -> Scatter[] }
+                                    isl::map UseScatter, ScopStmt *TargetStmt,
+                                    // { DomainUse[] -> DomainTarget[] }
+                                    isl::map UseToTargetMapping, int Depth,
+                                    bool DoIt, MemoryAccess *&ReuseMe,
+                                    MemoryAccess *&DontRemove) {
+    // TODO: Do not forward past loop headers, it synthesizes to the wrong
+    // value! Or define a mapping SynthesizableVal -> SCEV to override the
+    // expanded value.
+
+    assert(getStmtOfMap(UseToTargetMapping, isl_dim_out) == TargetStmt);
+    assert(getStmtOfMap(UseToTargetMapping, isl_dim_in) == UseStmt);
+
+    // Don't handle PHIs (yet)
+    if (isa<PHINode>(UseVal))
+      return FD_CannotForward;
+
+    auto VUse = VirtualUse::create(UseStmt, UseLoop, UseVal);
+
+    // { DomainDef[] -> Scatter[] }
+    isl::map DefScatter;
+
+    // { DomainDef[] -> DomainTarget[] }
+    isl::map DefToTargetMapping;
+
+    ScopStmt *DefStmt = nullptr;
+
+    switch (VUse.getKind()) {
+    case VirtualUse::Constant:
+    case VirtualUse::Synthesizable:
+    case VirtualUse::Block:
+      return DoIt ? FD_DidForward : FD_CanForward;
+
+    case VirtualUse::Hoisted:
+      // FIXME: This should be not hard to support
+      return FD_CannotForward;
+
+    case VirtualUse::ReadOnly:
+      if (!DoIt)
+        return FD_CanForward;
+
+      if (ModelReadOnlyScalars) {
+        auto Access = TargetStmt->lookupInputAccessOf(UseVal);
+        if (!Access) {
+          auto *SAI = S->getOrCreateScopArrayInfo(UseVal, UseVal->getType(), {},
+                                                  MemoryKind::Value);
+          auto *Access = new MemoryAccess(
+              TargetStmt, nullptr, MemoryAccess::READ, UseVal,
+              UseVal->getType(), true, {}, {}, UseVal, MemoryKind::Value, true);
+          Access->buildAccessRelation(SAI);
+          S->addAccessFunction(Access);
+          TargetStmt->addAccess(Access);
+          MappedReadOnly++;
+        }
+        DontRemove = Access;
+      }
+      return FD_DidForward;
+
+    case VirtualUse::Intra:
+      DefScatter = UseScatter;
+      DefToTargetMapping = UseToTargetMapping;
+      DefStmt = UseStmt;
+      assert(DefScatter && DefToTargetMapping);
+
+      LLVM_FALLTHROUGH;
+    case VirtualUse::Inter:
+      auto Inst = cast<Instruction>(UseVal);
+      if (Inst->mayHaveSideEffects() &&
+          !isa<LoadInst>(Inst)) // isSafeToSpeculativelyExecute()???
+        return FD_CannotForward;
+
+      if (!DefStmt)
+        DefStmt = S->getStmtFor(Inst);
+      assert(DefStmt);
+      // auto DefLoop = LI->getLoopFor(Inst->getParent());
+      if (DefScatter.is_null() || DefToTargetMapping.is_null()) {
+        // { DomainDef[] -> Scatter[] }
+        DefScatter = getScatterFor(DefStmt);
+
+        // { Scatter[] -> DomainDef[] }
+        auto ReachDef = getScalarReachingDefinition(DefStmt);
+
+        // { DomainUse[] -> DomainDef[] }
+        auto DefToUseMapping =
+            give(isl_map_apply_range(UseScatter.copy(), ReachDef.copy()));
+
+        // { DomainDef[] -> DomainTarget[] }
+        DefToTargetMapping =
+            give(isl_map_apply_range(isl_map_reverse(DefToUseMapping.copy()),
+                                     UseToTargetMapping.copy()));
+
+        assert(getStmtOfMap(DefToTargetMapping, isl_dim_in) == DefStmt);
+        assert(getStmtOfMap(DefToTargetMapping, isl_dim_out) == TargetStmt);
+      }
+
+#if 0
+      if (DoIt) 
+        TargetStmt->prependInstrunction(Inst);
+#endif
+
+      auto ForwardLoad =
+          canForwardLoad(Inst, DefStmt, DefScatter, DefToTargetMapping, UseVal,
+                         UseStmt, UseLoop, UseScatter, TargetStmt,
+                         UseToTargetMapping, Depth, DoIt, ReuseMe, DontRemove);
+      if (ForwardLoad != FD_NotApplicable)
+        return ForwardLoad;
+
+      auto ForwardPHI =
+          canForwardPHI(Inst, DefStmt, DefScatter, DefToTargetMapping, UseVal,
+                        UseStmt, UseLoop, UseScatter, TargetStmt,
+                        UseToTargetMapping, Depth, DoIt, ReuseMe, DontRemove);
+      if (ForwardPHI != FD_NotApplicable)
+        return ForwardPHI;
+
+      if (Inst->mayHaveSideEffects()) // TODO: isSpeculativelyExecutable
+        return FD_CannotForward;
+
+      bool Partial = false;
+      for (auto OpVal : Inst->operand_values()) {
+        MemoryAccess *Dummy;
+        auto ForwardOperand =
+            canForwardTree(OpVal, DefStmt, UseLoop, DefScatter, TargetStmt,
+                           DefToTargetMapping, Depth + 1, DoIt, ReuseMe, Dummy);
+        switch (ForwardOperand) {
+        case FD_CannotForward:
+          if (DoIt) {
+            // Since we cannot forward the instruction, need create Def-Use
+            // MemoryAccesses
+
+            llvm_unreachable("To be implemented");
+          }
+        case FD_CanForwardPartially:
+          Partial = true;
+          LLVM_FALLTHROUGH;
+        case FD_CanForward:
+          assert(!DoIt);
+          break;
+        case FD_DidForwardPartially:
+          Partial = true;
+          LLVM_FALLTHROUGH;
+        case FD_DidForward:
+          assert(DoIt);
+          break;
+        case FD_NotApplicable:
+          llvm_unreachable("Must be applicable");
+        }
+      }
+
+      if (DoIt)
+        return Partial ? FD_DidForwardPartially : FD_DidForward;
+      return Partial ? FD_CanForwardPartially : FD_CanForward;
+    }
+
+    llvm_unreachable("Case unhandled");
+  }
+
   static ScopStmt *getStmtOfMap(isl::map Map, isl_dim_type DimType) {
     auto Id = give(isl_map_get_tuple_id(Map.keep(), DimType));
     auto *Result = reinterpret_cast<ScopStmt *>(isl_id_get_user(Id.keep()));
     return Result;
   }
 
+#if 0
   bool canForwardTree(llvm::Value *UseVal, ScopStmt *UseStmt, Loop *UseLoop,
                       // { DomainUse[] -> Scatter[] }
                       isl::map UseScatter, ScopStmt *TargetStmt,
@@ -3416,6 +3874,7 @@ private:
 
     llvm_unreachable("Case unhandled");
   }
+#endif
 
   bool tryForwardTree(MemoryAccess *RA) {
     assert(RA->isLatestScalarKind());

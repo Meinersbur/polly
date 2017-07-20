@@ -5086,14 +5086,11 @@ static Loop *commonLoop(Loop *L1, Loop *L2) {
 }
 
 int Scop::getNumScalarLoopDeps() const {
-  ScalarDefUseChains DefUse;
-  DefUse.compute(this);
-
   int Result = 0;
   for (auto &Stmt : *this) {
     for (auto MA : Stmt) {
       if (MA->isLatestValueKind() && MA->isRead()) {
-        auto Def = DefUse.getValueDef(MA->getLatestScopArrayInfo());
+        auto Def = getValueDef(MA->getLatestScopArrayInfo());
         if (!Def)
           continue;
 
@@ -5104,7 +5101,7 @@ int Scop::getNumScalarLoopDeps() const {
       }
 
       else if (MA->isLatestAnyPHIKind() && MA->isWrite()) {
-        auto PHI = DefUse.getPHIRead(MA->getScopArrayInfo());
+        auto PHI = getPHIRead(MA->getScopArrayInfo());
         if (!PHI)
           continue;
 
