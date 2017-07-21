@@ -253,6 +253,7 @@ void initializePollyPasses(PassRegistry &Registry) {
   initializeDeLICMPass(Registry);
   initializeSimplifyPass(Registry);
   initializeDumpModulePass(Registry);
+  initializePrintScopPass(Registry);
   initializePruneUnprofitablePass(Registry);
 }
 
