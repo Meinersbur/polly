@@ -1655,7 +1655,8 @@ public:
   /// Print the ScopStmt.
   ///
   /// @param OS The output stream the ScopStmt is printed to.
-  void print(raw_ostream &OS, bool Reproducible = true) const;
+  void print(raw_ostream &OS, bool ForceStatementPrinting = false,
+             bool Reproducible = true) const;
 
   /// Print the instructions in ScopStmt.
   ///
@@ -1667,7 +1668,7 @@ public:
 
 /// Print ScopStmt S to raw_ostream O.
 static inline raw_ostream &operator<<(raw_ostream &O, const ScopStmt &S) {
-  S.print(O);
+  S.print(O, false, true);
   return O;
 }
 
@@ -2365,7 +2366,8 @@ private:
   //@{
   void printContext(raw_ostream &OS) const;
   void printArrayInfo(raw_ostream &OS) const;
-  void printStatements(raw_ostream &OS, bool Reproducible = true) const;
+  void printStatements(raw_ostream &OS, bool ForceStatementPrinting,
+                       bool Reproducible = true) const;
   void printAliasAssumptions(raw_ostream &OS) const;
   //@}
 
@@ -2871,7 +2873,8 @@ public:
   /// Print the static control part.
   ///
   /// @param OS The output stream the static control part is printed to.
-  void print(raw_ostream &OS, bool Reproducible = true) const;
+  void print(raw_ostream &OS, bool ForceStatementPrinting = false,
+             bool Reproducible = true) const;
 
   /// Print the ScopStmt to stderr.
   void dump() const;

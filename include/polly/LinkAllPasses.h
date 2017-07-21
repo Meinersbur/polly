@@ -21,6 +21,7 @@
 #include "polly/PruneUnprofitable.h"
 #include "polly/Simplify.h"
 #include "polly/Support/DumpModulePass.h"
+#include "polly/Support/DumpScopPass.h"
 #include "llvm/ADT/StringRef.h"
 #include <cstdlib>
 
@@ -94,6 +95,7 @@ struct PollyForcePassLinking {
     polly::createForwardOpTreePass();
     polly::createDeLICMPass();
     polly::createDumpModulePass("", true);
+    polly::createDumpScopPass();
     polly::createDumpDebugPass();
     polly::createSimplifyPass();
     polly::createPruneUnprofitablePass();

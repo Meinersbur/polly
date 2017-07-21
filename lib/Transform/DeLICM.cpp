@@ -3193,6 +3193,15 @@ private:
   // LoopInfo *LI;
   // ScalarEvolution *SE;
 
+  int NumInstructionsCopied = 0;
+
+  void printStatistics(raw_ostream &OS, int Indent) {
+    OS.indent(Indent) << "Statistics {\n";
+    OS.indent(Indent + 4) << "Instructions copied: " << NumInstructionsCopied
+                          << '\n';
+    OS.indent(Indent) << "}\n";
+  }
+
   /// Redirect a read MemoryAccess to an array element that we have proven to
   /// contain the same value.
   ///
@@ -4141,6 +4150,8 @@ public:
   /// Print the analysis result, performed transformations and the scop after
   /// the transformation.
   void print(llvm::raw_ostream &OS, int Indent = 0) {
+    printStatistics(OS, Indent);
+
     OS.indent(Indent) << "Known zone: " << Known << "\n";
     OS.indent(Indent) << "Redirected knowns {\n";
     for (auto &Report : KnownReports)
@@ -4200,6 +4211,7 @@ public:
     AU.addRequiredTransitive<ScopInfoRegionPass>();
     AU.addRequired<LoopInfoWrapperPass>();
     AU.setPreservesAll();
+    // ScopPass::getAnalysisUsage(AU);
   }
 
   virtual bool runOnScop(Scop &S) override {
@@ -4236,7 +4248,7 @@ public:
     IslCtx.reset();
   }
 
-}; // class Known
+}; // class ForwardOpTree
 
 char ForwardOpTree::ID;
 } // anonymous namespace
@@ -4244,9 +4256,10 @@ char ForwardOpTree::ID;
 Pass *polly::createForwardOpTreePass() { return new ForwardOpTree(); }
 
 // TODO: use llvm::RegisterPass
-INITIALIZE_PASS_BEGIN(ForwardOpTree, "polly-known",
+INITIALIZE_PASS_BEGIN(ForwardOpTree, "polly-optree",
                       "Polly - Scalar accesses to explicit", false, false)
-INITIALIZE_PASS_END(ForwardOpTree, "polly-known",
+INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
+INITIALIZE_PASS_END(ForwardOpTree, "polly-optree",
                     "Polly - Scalar accesses to explicit", false, false)
 
 isl::union_map

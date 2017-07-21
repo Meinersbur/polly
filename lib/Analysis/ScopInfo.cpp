@@ -2113,7 +2113,8 @@ void ScopStmt::printInstructions(raw_ostream &OS) const {
   OS.indent(16) << "}\n";
 }
 
-void ScopStmt::print(raw_ostream &OS, bool Reproducible) const {
+void ScopStmt::print(raw_ostream &OS, bool ForceStatementPrinting,
+                     bool Reproducible) const {
   OS.indent(8) << getBaseName() << "\n";
   OS.indent(12) << "Domain :=\n";
 
@@ -2132,11 +2133,11 @@ void ScopStmt::print(raw_ostream &OS, bool Reproducible) const {
   for (MemoryAccess *Access : MemAccs)
     Access->print(OS);
 
-  if (PollyPrintInstructions || !Reproducible)
+  if (ForceStatementPrinting || PollyPrintInstructions || !Reproducible)
     printInstructions(OS.indent(12));
 }
 
-void ScopStmt::dump() const { print(dbgs(), false); }
+void ScopStmt::dump() const { print(dbgs(), true, false); }
 
 void ScopStmt::removeAccessData(MemoryAccess *MA) {
   if (MA->isRead() && MA->isOriginalValueKind()) {
@@ -4769,11 +4770,12 @@ void Scop::printAliasAssumptions(raw_ostream &OS) const {
   }
 }
 
-void Scop::printStatements(raw_ostream &OS, bool Reproducible) const {
+void Scop::printStatements(raw_ostream &OS, bool ForceStatementPrinting,
+                           bool Reproducible) const {
   OS << "Statements {\n";
 
   for (const ScopStmt &Stmt : *this)
-    Stmt.print(OS, Reproducible);
+    Stmt.print(OS, ForceStatementPrinting, Reproducible);
 
   OS.indent(4) << "}\n";
 }
@@ -4794,7 +4796,8 @@ void Scop::printArrayInfo(raw_ostream &OS) const {
   OS.indent(4) << "}\n";
 }
 
-void Scop::print(raw_ostream &OS, bool Reproducible) const {
+void Scop::print(raw_ostream &OS, bool ForceStatementPrinting,
+                 bool Reproducible) const {
   OS.indent(4) << "Function: " << getFunction().getName() << "\n";
   OS.indent(4) << "Region: " << getNameStr() << "\n";
   OS.indent(4) << "Max Loop Depth:  " << getMaxLoopDepth() << "\n";

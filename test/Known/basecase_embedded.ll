@@ -1,4 +1,5 @@
-; RUN: opt %loadPolly -polly-flatten-schedule -polly-known -analyze < %s
+; RUN: opt %loadPolly -polly-flatten-schedule -polly-optree -analyze < %s
+; XFAIL: *
 
 define void @func(double* noalias nonnull %A, double* noalias nonnull %B) {
 entry:

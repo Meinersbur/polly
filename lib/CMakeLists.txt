@@ -51,6 +51,7 @@ add_library(PollyCore OBJECT
   Support/ScopLocation.cpp
   Support/ISLTools.cpp
   Support/DumpModulePass.cpp
+  Support/DumpScopPass.cpp
   Support/VirtualInstruction.cpp
   ${POLLY_JSON_FILES}
   Transform/Canonicalization.cpp

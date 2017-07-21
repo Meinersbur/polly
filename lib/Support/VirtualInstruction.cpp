@@ -335,14 +335,6 @@ static void markReachable2(Scop *S, ArrayRef<VirtualInstruction> Roots,
     if (!InsertResult.second)
       continue;
 
-    if (Inst->getName().startswith("mul16.i")) {
-      int a = 0;
-    }
-
-    if (Inst->getName() == "tmp62") {
-      int b = 0;
-    }
-
     // This will also cause VInst to be appended to InstList later.
     WorklistTree.emplace_back();
     auto &NewLeaf = WorklistTree.back();
