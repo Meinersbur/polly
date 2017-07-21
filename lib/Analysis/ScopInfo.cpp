@@ -4816,10 +4816,10 @@ void Scop::print(raw_ostream &OS, bool ForceStatementPrinting,
   printContext(OS.indent(4));
   printArrayInfo(OS.indent(4));
   printAliasAssumptions(OS);
-  printStatements(OS.indent(4), Reproducible);
+  printStatements(OS.indent(4), ForceStatementPrinting, Reproducible);
 }
 
-void Scop::dump() const { print(dbgs(), false); }
+void Scop::dump() const { print(dbgs(), true, false); }
 
 isl_ctx *Scop::getIslCtx() const { return IslCtx.get(); }
 

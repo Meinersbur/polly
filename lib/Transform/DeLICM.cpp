@@ -291,7 +291,7 @@ STATISTIC(BeforeDeLICMScalarWritesInLoop, "Number of scalar writes in loops");
 STATISTIC(AfterDeLICMScalarWritesInLoop, "Number of scalar writes in loops");
 
 #undef DEBUG_TYPE
-#define DEBUG_TYPE "polly-known"
+#define DEBUG_TYPE "polly-optree"
 
 STATISTIC(KnownAnalyzed, "Number of successfully analyzed SCoPs");
 STATISTIC(KnownOutOfQuota,
@@ -311,6 +311,8 @@ STATISTIC(AfterKnownScalarAccesses, "Number of scalar accesses");
 
 STATISTIC(BeforeKnownScalarWritesInLoop, "Number of scalar writes in loops");
 STATISTIC(AfterKnownScalarWritesInLoop, "Number of scalar writes in loops");
+
+STATISTIC(TotalInstructionsCopied, "Number of copied instructions");
 
 #undef DEBUG_TYPE
 #define DEBUG_TYPE "polly-delicm"
@@ -3628,10 +3630,11 @@ private:
         assert(getStmtOfMap(DefToTargetMapping, isl_dim_out) == TargetStmt);
       }
 
-#if 0
-      if (DoIt) 
+      if (DoIt) {
         TargetStmt->prependInstrunction(Inst);
-#endif
+        NumInstructionsCopied++;
+        TotalInstructionsCopied++;
+      }
 
       auto ForwardLoad =
           canForwardLoad(Inst, DefStmt, DefScatter, DefToTargetMapping, UseVal,
@@ -4152,12 +4155,14 @@ public:
   void print(llvm::raw_ostream &OS, int Indent = 0) {
     printStatistics(OS, Indent);
 
+#if 0
     OS.indent(Indent) << "Known zone: " << Known << "\n";
     OS.indent(Indent) << "Redirected knowns {\n";
     for (auto &Report : KnownReports)
       Report.print(OS, Indent + 4);
     OS.indent(Indent) << "}\n";
     printAccesses(OS, Indent);
+#endif
   }
 };
 

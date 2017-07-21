@@ -280,6 +280,7 @@ void initializePollyPasses(PassRegistry &Registry) {
   initializeSimplifyPass(Registry);
   initializePruneUnprofitablePass(Registry);
   initializeDumpModulePass(Registry);
+  initializeDumpScopPass(Registry);
   initializeDumpDebugPass(Registry);
   initializePruneUnprofitablePass(Registry);
 }
