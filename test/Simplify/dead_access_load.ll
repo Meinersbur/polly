@@ -1,4 +1,4 @@
-; RUN: opt %loadPolly -polly-simplify -analyze < %s | FileCheck %s -match-full-lines
+; RUN: opt %loadPolly -polly-simplify -polly-analyze-scop -analyze < %s | FileCheck %s -match-full-lines
 ;
 ; Remove a dead load-instruction
 ; (an load whose result is not used anywhere)
@@ -39,8 +39,15 @@ return:
 ; CHECK:     Dead instructions removed: 1
 ; CHECK: }
 
-; CHECK:      After accesses {
+; CHECK:      Statements {
 ; CHECK-NEXT:     Stmt_body
-; CHECK-NEXT:             MustWriteAccess :=  [Reduction Type: NONE] [Scalar: 0]
-; CHECK-NEXT:                 [n] -> { Stmt_body[i0] -> MemRef_A[0] };
+; CHECK-NEXT:        Domain :=
+; CHECK-NEXT:            [n] -> { Stmt_body[i0] : 0 <= i0 < n };
+; CHECK-NEXT:        Schedule :=
+; CHECK-NEXT:            [n] -> { Stmt_body[i0] -> [i0] };
+; CHECK-NEXT:        MustWriteAccess :=  [Reduction Type: NONE] [Scalar: 0]
+; CHECK-NEXT:            [n] -> { Stmt_body[i0] -> MemRef_A[0] };
+; CHECK-NEXT:        Instructions {
+; CHECK-NEXT:              store double 4.200000e+01, double* %A
+; CHECK-NEXT:            }
 ; CHECK-NEXT: }

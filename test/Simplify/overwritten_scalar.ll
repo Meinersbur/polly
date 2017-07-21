@@ -1,4 +1,4 @@
-; RUN: opt %loadPolly -polly-import-jscop -polly-import-jscop-postfix=transformed -polly-simplify -analyze < %s | FileCheck -match-full-lines %s
+; RUN: opt %loadPolly -polly-import-jscop -polly-import-jscop-postfix=transformed -polly-simplify -polly-analyze-scop -analyze < %s | FileCheck -match-full-lines %s
 ;
 ; Remove identical writes
 ; (two stores in the same statement that write the same value to the same
@@ -54,3 +54,35 @@ return:
 ; CHECK-NEXT:            [n] -> { Stmt_body[i0] ->  MemRef_val[] };
 ; CHECK-NEXT:       new: [n] -> { Stmt_body[i0] -> MemRef_A[1] };
 ; CHECK-NEXT: Stmt_user
+
+; CHECK-NEXT: Statements {
+; CHECK-NEXT:     Stmt_body
+; CHECK-NEXT:         Domain :=
+; CHECK-NEXT:             [n] -> { Stmt_body[i0] : 0 <= i0 < n };
+; CHECK-NEXT:         Schedule :=
+; CHECK-NEXT:             [n] -> { Stmt_body[i0] -> [i0, 0] };
+; CHECK-NEXT:         MustWriteAccess :=  [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:             [n] -> { Stmt_body[i0] -> MemRef_val[] };
+; CHECK-NEXT:        new: [n] -> { Stmt_body[i0] -> MemRef_A[1] };
+; CHECK-NEXT:         Instructions {
+; CHECK-NEXT:               %val = fadd double 2.100000e+01, 2.100000e+01
+; CHECK-NEXT:             }
+; CHECK-NEXT:     Stmt_user
+; CHECK-NEXT:         Domain :=
+; CHECK-NEXT:             [n] -> { Stmt_user[i0] : 0 <= i0 < n };
+; CHECK-NEXT:         Schedule :=
+; CHECK-NEXT:             [n] -> { Stmt_user[i0] -> [i0, 1] };
+; CHECK-NEXT:         ReadAccess :=       [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:             [n] -> { Stmt_user[i0] -> MemRef_phi__phi[] };
+; CHECK-NEXT:        new: [n] -> { Stmt_user[i0] -> MemRef_A[1] };
+; CHECK-NEXT:         ReadAccess :=       [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:             [n] -> { Stmt_user[i0] -> MemRef_val[] };
+; CHECK-NEXT:        new: [n] -> { Stmt_user[i0] -> MemRef_A[1] };
+; CHECK-NEXT:         MustWriteAccess :=  [Reduction Type: NONE] [Scalar: 0]
+; CHECK-NEXT:             [n] -> { Stmt_user[i0] -> MemRef_A[0] };
+; CHECK-NEXT:         Instructions {
+; CHECK-NEXT:               %phi = phi double [ %val, %body ]
+; CHECK-NEXT:               %add = fadd double %val, %phi
+; CHECK-NEXT:               store double %add, double* %A
+; CHECK-NEXT:             }
+; CHECK-NEXT: }

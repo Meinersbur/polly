@@ -388,17 +388,6 @@ private:
     OS.indent(Indent) << "}\n";
   }
 
-  /// Print the current state of all MemoryAccesses to @p OS.
-  void printAccesses(llvm::raw_ostream &OS, int Indent = 0) const {
-    OS.indent(Indent) << "After accesses {\n";
-    for (auto &Stmt : *S) {
-      OS.indent(Indent + 4) << Stmt.getBaseName() << "\n";
-      for (auto *MA : Stmt)
-        MA->print(OS);
-    }
-    OS.indent(Indent) << "}\n";
-  }
-
 public:
   static char ID;
   explicit Simplify() : ScopPass(ID) {}
@@ -448,7 +437,6 @@ public:
       OS << "SCoP could not be simplified\n";
       return;
     }
-    printAccesses(OS);
   }
 
   virtual void releaseMemory() override {

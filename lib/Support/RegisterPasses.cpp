@@ -254,6 +254,7 @@ void initializePollyPasses(PassRegistry &Registry) {
   initializeSimplifyPass(Registry);
   initializeDumpModulePass(Registry);
   initializePrintScopPass(Registry);
+  initializeAnalyzeScopPass(Registry);
   initializePruneUnprofitablePass(Registry);
 }
 
