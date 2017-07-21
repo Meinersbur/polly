@@ -1229,13 +1229,11 @@ void MemoryAccess::print(raw_ostream &OS, bool Oneline) const {
 }
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
-LLVM_DUMP_METHOD void MemoryAccess::dump() const { print(errs()); }
-#endif
-
-void MemoryAccess::dump() const {
-  print(errs(), true);
+LLVM_DUMP_METHOD void MemoryAccess::dump() const {
+  print(errs());
   errs() << '\n';
 }
+#endif
 
 __isl_give isl_pw_aff *MemoryAccess::getPwAff(const SCEV *E) {
   auto *Stmt = getStatement();
@@ -4789,7 +4787,7 @@ void Scop::printStatements(raw_ostream &OS, bool PrintInstructions,
 
   for (const ScopStmt &Stmt : *this) {
     OS.indent(4);
-    Stmt.print(OS, PrintInstructions, Reprodicible);
+    Stmt.print(OS, PrintInstructions, Reproducible);
   }
 
   OS.indent(4) << "}\n";

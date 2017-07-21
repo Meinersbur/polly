@@ -2882,7 +2882,8 @@ public:
   /// @param OS The output stream the static control part is printed to.
   /// @param PrintInstructions Whether to print the statement's instructions as
   ///                          well.
-  void print(raw_ostream &OS, bool PrintInstructions,bool Reproducible = true) const;
+  void print(raw_ostream &OS, bool PrintInstructions,
+             bool Reproducible = true) const;
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
   /// Print the ScopStmt to stderr.

@@ -97,10 +97,9 @@ struct PollyForcePassLinking {
     polly::createForwardOpTreePass();
     polly::createDeLICMPass();
     polly::createDumpModulePass("", true);
-    polly::createDumpScopPass();
     polly::createDumpDebugPass();
     polly::createPrintScopPass(dummy);
-	polly::createAnalyzeScopPass();
+    polly::createAnalyzeScopPass();
     polly::createSimplifyPass();
     polly::createPruneUnprofitablePass();
   }
