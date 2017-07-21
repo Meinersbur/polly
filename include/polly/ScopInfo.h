@@ -365,8 +365,10 @@ public:
   /// of pre-existing. If false, it is allocated using alloca instead malloca.
   bool isOnHeap() const { return IsOnHeap; }
 
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
   /// Dump a readable representation to stderr.
   void dump() const;
+#endif
 
   /// Print a readable representation to @p OS.
   ///
@@ -1120,8 +1122,10 @@ public:
   /// @param Oneline Print a more dense representation without line-breaks.
   void print(raw_ostream &OS, bool Oneline = false) const;
 
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
   /// Print the MemoryAccess to stderr.
   void dump() const;
+#endif
 
   /// Is the memory access affine?
   bool isAffine() const { return IsAffine; }
@@ -1656,23 +1660,24 @@ public:
 
   /// Print the ScopStmt.
   ///
-  /// @param OS The output stream the ScopStmt is printed to.
-  void print(raw_ostream &OS, bool ForceStatementPrinting = false,
+  /// @param OS                The output stream the ScopStmt is printed to.
+  /// @param PrintInstructions Whether to print the statement's instructions as
+  ///                          well.
+  void print(raw_ostream &OS, bool PrintInstructions,
              bool Reproducible = true) const;
 
   /// Print the instructions in ScopStmt.
   ///
   void printInstructions(raw_ostream &OS) const;
 
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
   /// Print the ScopStmt to stderr.
   void dump() const;
+#endif
 };
 
 /// Print ScopStmt S to raw_ostream O.
-static inline raw_ostream &operator<<(raw_ostream &O, const ScopStmt &S) {
-  S.print(O, false, true);
-  return O;
-}
+raw_ostream &operator<<(raw_ostream &O, const ScopStmt &S);
 
 /// Static Control Part
 ///
@@ -2368,7 +2373,7 @@ private:
   //@{
   void printContext(raw_ostream &OS) const;
   void printArrayInfo(raw_ostream &OS) const;
-  void printStatements(raw_ostream &OS, bool ForceStatementPrinting,
+  void printStatements(raw_ostream &OS, bool PrintInstructions,
                        bool Reproducible = true) const;
   void printAliasAssumptions(raw_ostream &OS) const;
   //@}
@@ -2875,11 +2880,14 @@ public:
   /// Print the static control part.
   ///
   /// @param OS The output stream the static control part is printed to.
-  void print(raw_ostream &OS, bool ForceStatementPrinting = false,
-             bool Reproducible = true) const;
+  /// @param PrintInstructions Whether to print the statement's instructions as
+  ///                          well.
+  void print(raw_ostream &OS, bool PrintInstructions,bool Reproducible = true) const;
 
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
   /// Print the ScopStmt to stderr.
   void dump() const;
+#endif
 
   /// Get the isl context of this static control part.
   ///
@@ -3021,10 +3029,7 @@ public:
 };
 
 /// Print Scop scop to raw_ostream O.
-static inline raw_ostream &operator<<(raw_ostream &O, const Scop &scop) {
-  scop.print(O);
-  return O;
-}
+raw_ostream &operator<<(raw_ostream &O, const Scop &scop);
 
 /// The legacy pass manager's analysis pass to compute scop information
 ///        for a region.

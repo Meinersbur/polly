@@ -1,4 +1,4 @@
-; RUN: opt %loadPolly -polly-simplify -analyze < %s | FileCheck %s -match-full-lines
+; RUN: opt %loadPolly -polly-simplify -polly-analyze-scop -analyze < %s | FileCheck %s -match-full-lines
 ;
 ; Remove redundant store (a store that writes the same value already
 ; at the destination)

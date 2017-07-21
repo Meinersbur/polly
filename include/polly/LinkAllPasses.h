@@ -21,8 +21,9 @@
 #include "polly/PruneUnprofitable.h"
 #include "polly/Simplify.h"
 #include "polly/Support/DumpModulePass.h"
-#include "polly/Support/DumpScopPass.h"
+#include "polly/Support/PrintScopPass.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Support/raw_ostream.h"
 #include <cstdlib>
 
 namespace llvm {
@@ -72,6 +73,7 @@ struct PollyForcePassLinking {
     if (std::getenv("bar") != (char *)-1)
       return;
 
+    llvm::raw_null_ostream dummy;
     polly::createCodePreparationPass();
     polly::createDeadCodeElimPass();
     polly::createDependenceInfoPass();
@@ -97,6 +99,8 @@ struct PollyForcePassLinking {
     polly::createDumpModulePass("", true);
     polly::createDumpScopPass();
     polly::createDumpDebugPass();
+    polly::createPrintScopPass(dummy);
+	polly::createAnalyzeScopPass();
     polly::createSimplifyPass();
     polly::createPruneUnprofitablePass();
   }

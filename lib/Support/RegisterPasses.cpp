@@ -125,7 +125,11 @@ static cl::opt<GPURuntime> GPURuntimeChoice(
 static cl::opt<GPUArch>
     GPUArchChoice("polly-gpu-arch", cl::desc("The GPU Architecture to target"),
                   cl::values(clEnumValN(GPUArch::NVPTX64, "nvptx64",
-                                        "target NVIDIA 64-bit architecture")),
+                                        "target NVIDIA 64-bit architecture"),
+                             clEnumValN(GPUArch::SPIR32, "spir32",
+                                        "target SPIR 32-bit architecture"),
+                             clEnumValN(GPUArch::SPIR64, "spir64",
+                                        "target SPIR 64-bit architecture")),
                   cl::init(GPUArch::NVPTX64), cl::ZeroOrMore,
                   cl::cat(PollyCategory));
 #endif
@@ -280,8 +284,9 @@ void initializePollyPasses(PassRegistry &Registry) {
   initializeSimplifyPass(Registry);
   initializePruneUnprofitablePass(Registry);
   initializeDumpModulePass(Registry);
-  initializeDumpScopPass(Registry);
   initializeDumpDebugPass(Registry);
+  initializePrintScopPass(Registry);
+  initializeAnalyzeScopPass(Registry);
   initializePruneUnprofitablePass(Registry);
 }
 
@@ -498,7 +503,7 @@ registerPollyScalarOptimizerLatePasses(const llvm::PassManagerBuilder &Builder,
 ///   be optimized away.
 ///
 /// We are currently evaluating the benefit or running Polly at position b) or
-/// c). b) is likely to early as it interacts with the inliner. c) is nice
+/// c). b) is likely too early as it interacts with the inliner. c) is nice
 /// as everything is fully inlined and canonicalized, but we need to be able
 /// to handle LICMed code to make it useful.
 static llvm::RegisterStandardPasses RegisterPollyOptimizerEarly(
