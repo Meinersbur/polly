@@ -40,6 +40,8 @@ STATISTIC(InBetweenStore, "Number of Load-Store pairs NOT removed because "
 STATISTIC(TotalOverwritesRemoved, "Number of removed overwritten writes");
 STATISTIC(TotalRedundantWritesRemoved,
           "Number of writes of same value removed in any SCoP");
+STATISTIC(TotalEmptyPartialAccessesRemoved,
+          "Number of empty partial accesses removed");
 
 STATISTIC(TotalWritesCoalesced, "Number of writes coalesced with another");
 
@@ -122,6 +124,9 @@ private:
 
   /// Number of redundant writes removed from this SCoP.
   int RedundantWritesRemoved = 0;
+
+  /// Number of writes with empty access domain removed.
+  int EmptyPartialAccessesRemoved = 0;
 
   int WritesCoalesced = 0;
 
@@ -423,18 +428,29 @@ private:
     TotalStmtsRemoved += StmtsRemoved;
   }
 
+  /// Remove accesses that have an empty domain.
   void removeEmptyPartialAccesses() {
-    for (auto &Stmt : *S) {
-      SmallVector<MemoryAccess *, 8> Accs{Stmt.begin(), Stmt.end()};
-      for (auto *MA : Accs) {
-        auto AccRel = give(MA->getAccessRelation());
-        if (isl_map_is_empty(AccRel.keep()) == isl_bool_true) {
-          DEBUG(dbgs() << "Removing " << MA
-                       << " because it's a partial access that never occurs\n");
-          Stmt.removeSingleMemoryAccess(MA);
-          EmptyPartialAccessesRemoved++;
-          TotalEmptyPartialAccessesRemoved++;
-        }
+    for (ScopStmt &Stmt : *S) {
+      // Defer the actual removal to not invalidate iterators.
+      SmallVector<MemoryAccess *, 8> DeferredRemove;
+
+      for (MemoryAccess *MA : Stmt) {
+        if (!MA->isWrite())
+          continue;
+
+        isl::map AccRel = give(MA->getAccessRelation());
+        if (!AccRel.is_empty().is_true())
+          continue;
+
+        DEBUG(dbgs() << "Removing " << MA
+                     << " because it's a partial access that never occurs\n");
+        DeferredRemove.push_back(MA);
+      }
+
+      for (MemoryAccess *MA : DeferredRemove) {
+        Stmt.removeSingleMemoryAccess(MA);
+        EmptyPartialAccessesRemoved++;
+        TotalEmptyPartialAccessesRemoved++;
       }
     }
   }
@@ -532,6 +548,8 @@ private:
                           << '\n';
     OS.indent(Indent + 4) << "Redundant writes removed: "
                           << RedundantWritesRemoved << "\n";
+    OS.indent(Indent + 4) << "Access with empty domains removed: "
+                          << EmptyPartialAccessesRemoved << "\n";
     OS.indent(Indent + 4) << "Dead accesses removed: " << DeadAccessesRemoved
                           << '\n';
     OS.indent(Indent + 4) << "Dead instructions removed: "
@@ -610,6 +628,7 @@ public:
 
     OverwritesRemoved = 0;
     RedundantWritesRemoved = 0;
+    EmptyPartialAccessesRemoved = 0;
     DeadAccessesRemoved = 0;
     DeadInstructionsRemoved = 0;
     WritesCoalesced = 0;

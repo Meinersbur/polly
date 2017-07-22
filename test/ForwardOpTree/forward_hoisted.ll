@@ -1,16 +1,16 @@
-; RUN: opt %loadPolly -polly-optree -analyze < %s | FileCheck %s -match-full-lines
+; RUN: opt %loadPolly -polly-invariant-load-hoisting=true -polly-optree -analyze < %s | FileCheck %s -match-full-lines
 ;
 ; Move %val to %bodyB, so %bodyA can be removed (by -polly-simplify)
 ;
 ; for (int j = 0; j < n; j += 1) {
 ; bodyA:
-;   double val = 21.0 + 21.0;
+;   double val = B[0] + 21.0;
 ;
 ; bodyB:
 ;   A[0] = val;
 ; }
 ;
-define void @func(i32 %n, double* noalias nonnull %A) {
+define void @func(i32 %n, double* noalias nonnull %A, double* noalias nonnull %B) {
 entry:
   br label %for
 
@@ -20,11 +20,12 @@ for:
   br i1 %j.cmp, label %bodyA, label %exit
 
     bodyA:
-      %val = fadd double 21.0, 21.0
+      %val1 = load double, double* %B
+      %val2 = fadd double %val1, 21.0
       br label %bodyB
 
     bodyB:
-      store double %val, double* %A
+      store double %val2, double* %A
       br label %inc
 
 inc:
@@ -48,15 +49,16 @@ return:
 ; CHECK:      After statements {
 ; CHECK-NEXT:     Stmt_bodyA
 ; CHECK-NEXT:             MustWriteAccess :=  [Reduction Type: NONE] [Scalar: 1]
-; CHECK-NEXT:                 [n] -> { Stmt_bodyA[i0] -> MemRef_val[] };
+; CHECK-NEXT:                 [n] -> { Stmt_bodyA[i0] -> MemRef_val2[] };
 ; CHECK-NEXT:             Instructions {
-; CHECK-NEXT:                   %val = fadd double 2.100000e+01, 2.100000e+01
-; CHECK-NEXT:             }
+; CHECK-NEXT:                   %val1 = load double, double* %B
+; CHECK-NEXT:                   %val2 = fadd double %val1, 2.100000e+01
+; CHECK-NEXT:                 }
 ; CHECK-NEXT:     Stmt_bodyB
 ; CHECK-NEXT:             MustWriteAccess :=  [Reduction Type: NONE] [Scalar: 0]
 ; CHECK-NEXT:                 [n] -> { Stmt_bodyB[i0] -> MemRef_A[0] };
 ; CHECK-NEXT:             Instructions {
-; CHECK-NEXT:                   %val = fadd double 2.100000e+01, 2.100000e+01
-; CHECK-NEXT:                   store double %val, double* %A
-; CHECK-NEXT:             }
+; CHECK-NEXT:                   %val2 = fadd double %val1, 2.100000e+01
+; CHECK-NEXT:                   store double %val2, double* %A
+; CHECK-NEXT:                 }
 ; CHECK-NEXT: }

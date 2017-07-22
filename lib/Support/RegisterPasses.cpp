@@ -28,6 +28,7 @@
 #include "polly/DependenceInfo.h"
 #include "polly/DumpDebugPass.h"
 #include "polly/FlattenSchedule.h"
+#include "polly/ForwardOpTree.h"
 #include "polly/LinkAllPasses.h"
 #include "polly/Options.h"
 #include "polly/PolyhedralInfo.h"
@@ -199,6 +200,11 @@ static cl::opt<bool> EnableForwardOpTree(
     "polly-enable-optree",
     cl::desc("Use scalar-to-array access conversion using known array content"),
     cl::Hidden, cl::init(false), cl::cat(PollyCategory));
+
+static cl::opt<bool>
+    EnableForwardOpTree("polly-enable-optree",
+                        cl::desc("Enable operand tree forwarding"), cl::Hidden,
+                        cl::init(false), cl::cat(PollyCategory));
 
 static cl::opt<bool>
     DumpBefore("polly-dump-before",
