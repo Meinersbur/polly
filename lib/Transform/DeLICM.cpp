@@ -4258,15 +4258,6 @@ public:
 char ForwardOpTree::ID;
 } // anonymous namespace
 
-Pass *polly::createForwardOpTreePass() { return new ForwardOpTree(); }
-
-// TODO: use llvm::RegisterPass
-INITIALIZE_PASS_BEGIN(ForwardOpTree, "polly-optree",
-                      "Polly - Scalar accesses to explicit", false, false)
-INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
-INITIALIZE_PASS_END(ForwardOpTree, "polly-optree",
-                    "Polly - Scalar accesses to explicit", false, false)
-
 isl::union_map
 polly::computeArrayLifetime(isl::union_map Schedule, isl::union_map Writes,
                             isl::union_map Reads, bool ReadEltInSameInst,

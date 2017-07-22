@@ -31,8 +31,6 @@ class Scop;
 /// Create a new DeLICM pass instance.
 llvm::Pass *createDeLICMPass();
 
-llvm::Pass *createForwardOpTreePass();
-
 /// Compute the timepoints from a write to its (last) use.
 ///
 /// Example:

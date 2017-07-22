@@ -40,8 +40,6 @@ STATISTIC(InBetweenStore, "Number of Load-Store pairs NOT removed because "
 STATISTIC(TotalOverwritesRemoved, "Number of removed overwritten writes");
 STATISTIC(TotalRedundantWritesRemoved,
           "Number of writes of same value removed in any SCoP");
-STATISTIC(TotalEmptyPartialAccessesRemoved,
-          "Number of empty partial accesses removed");
 
 STATISTIC(TotalWritesCoalesced, "Number of writes coalesced with another");
 
@@ -129,8 +127,6 @@ private:
   int EmptyPartialAccessesRemoved = 0;
 
   int WritesCoalesced = 0;
-
-  int EmptyPartialAccessesRemoved = 0;
 
   /// Number of unused accesses removed from this SCoP.
   int DeadAccessesRemoved = 0;

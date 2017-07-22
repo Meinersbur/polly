@@ -196,11 +196,6 @@ static cl::opt<bool>
                          cl::desc("Enable polyhedral interface of Polly"),
                          cl::Hidden, cl::init(false), cl::cat(PollyCategory));
 
-static cl::opt<bool> EnableForwardOpTree(
-    "polly-enable-optree",
-    cl::desc("Use scalar-to-array access conversion using known array content"),
-    cl::Hidden, cl::init(false), cl::cat(PollyCategory));
-
 static cl::opt<bool>
     EnableForwardOpTree("polly-enable-optree",
                         cl::desc("Enable operand tree forwarding"), cl::Hidden,

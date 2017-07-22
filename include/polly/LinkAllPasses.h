@@ -18,6 +18,7 @@
 #include "polly/CodeGen/PPCGCodeGeneration.h"
 #include "polly/Config/config.h"
 #include "polly/DumpDebugPass.h"
+#include "polly/ForwardOpTree.h"
 #include "polly/PruneUnprofitable.h"
 #include "polly/Simplify.h"
 #include "polly/Support/DumpModulePass.h"
@@ -57,7 +58,6 @@ llvm::Pass *createPPCGCodeGenerationPass(GPUArch Arch = GPUArch::NVPTX64,
 #endif
 llvm::Pass *createIslScheduleOptimizerPass();
 llvm::Pass *createFlattenSchedulePass();
-llvm::Pass *createForwardOpTreePass();
 llvm::Pass *createDeLICMPass();
 
 extern char &CodePreparationID;

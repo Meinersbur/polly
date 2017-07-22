@@ -1626,19 +1626,15 @@ public:
 
   /// Insert an instruction before all other instructions in this statement.
   void prependInstrunction(Instruction *Inst) {
-    assert(isBlockStmt() && "Only block statements support instruction lists");
-    Instructions.insert(Instructions.begin(), Inst);
-  }
-
-  void prependInstrunction(Instruction *Inst) {
 #if 0
-    //assert(!contains(Inst->getParent()));
-	auto InsertIt =  InstructionSet.insert(Inst);
-	if (InsertIt.second) {
-		auto VecIt = std::find(Instructions.begin(), Instructions.end(), Inst);
-		Instructions.erase(VecIt);
-	}
+	  //assert(!contains(Inst->getParent()));
+	  auto InsertIt = InstructionSet.insert(Inst);
+	  if (InsertIt.second) {
+		  auto VecIt = std::find(Instructions.begin(), Instructions.end(), Inst);
+		  Instructions.erase(VecIt);
+	  }
 #endif
+    assert(isBlockStmt() && "Only block statements support instruction lists");
     Instructions.insert(Instructions.begin(), Inst);
   }
 
