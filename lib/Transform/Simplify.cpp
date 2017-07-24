@@ -381,8 +381,8 @@ private:
               MAList[j]->getLatestScopArrayInfo())
             continue;
 
-          auto IAccRel = isl::manage(MAList[i]->getAccessRelation());
-          auto JAccRel = isl::manage(MAList[j]->getAccessRelation());
+          auto IAccRel = MAList[i]->getAccessRelation();
+          auto JAccRel = MAList[j]->getAccessRelation();
           auto CommonDomain = isl::manage(isl_set_intersect(
               isl_set_intersect(isl_map_domain(IAccRel.copy()),
                                 isl_map_domain(JAccRel.copy())),

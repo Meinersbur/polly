@@ -655,10 +655,10 @@ private:
   /// into a Fortran array. FAD for "Fortran Array Descriptor"
   AssertingVH<Value> FAD;
   // @}
- 
+
   bool IsImplicit;
 
-  __isl_give isl_basic_map *createBasicAccessMap(ScopStmt *Statement);
+  isl::basic_map createBasicAccessMap(ScopStmt *Statement);
 
   void assumeNoOutOfBound();
 

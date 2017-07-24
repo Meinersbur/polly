@@ -1161,12 +1161,12 @@ void MemoryAccess::print(raw_ostream &OS, bool Oneline) const {
       break;
     case MemoryKind::Array:
       if (isWrite()) {
-        OS << "Store " << give(getAccessRelation()) << " := ";
+        OS << "Store " << getAccessRelation() << " := ";
         getAccessValue()->printAsOperand(OS, false);
       } else {
         OS << "Load ";
         getAccessInstruction()->printAsOperand(OS, false);
-        OS << " := " << give(getAccessRelation());
+        OS << " := " << getAccessRelation();
       }
       break;
     }
@@ -1174,9 +1174,9 @@ void MemoryAccess::print(raw_ostream &OS, bool Oneline) const {
     if (hasNewAccessRelation()) {
       assert(isLatestArrayKind());
       if (isWrite())
-        OS << " [new: " << give(getAccessRelation()) << "]";
+        OS << " [new: " << getAccessRelation() << "]";
       else
-        OS << " [new: " << give(getAccessRelation()) << "]";
+        OS << " [new: " << getAccessRelation() << "]";
     }
     return;
   }
@@ -2189,7 +2189,7 @@ MemoryAccess *ScopStmt::ensureValueRead(Value *V) {
   ScopArrayInfo *SAI =
       Parent.getOrCreateScopArrayInfo(V, V->getType(), {}, MemoryKind::Value);
   Access = new MemoryAccess(this, nullptr, MemoryAccess::READ, V, V->getType(),
-                            true, {}, {}, V, MemoryKind::Value);
+                            true, {}, {}, V, MemoryKind::Value, true);
   Parent.addAccessFunction(Access);
   Access->buildAccessRelation(SAI);
   addAccess(Access);

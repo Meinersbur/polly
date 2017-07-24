@@ -2608,7 +2608,7 @@ private:
 
     ReadStmt->removeSingleMemoryAccess(PHIRead);
     ReadStmt->ComputedPHIs[PHI] = IncomingValues;
-    ReadStmt->prependInstrunction(PHI);
+    ReadStmt->prependInstruction(PHI);
     ComputedPHIScalars++;
     applyComputedPHI(ComputedPHITranslator);
     return true;
@@ -3259,7 +3259,7 @@ private:
       return FD_NotApplicable;
 
     if (DoIt)
-      TargetStmt->prependInstrunction(Inst);
+      TargetStmt->prependInstruction(Inst);
 
     auto PHIRead = DefStmt->lookupPHIReadOf(PHI);
     assert(PHIRead);
@@ -3441,7 +3441,7 @@ private:
 
     ReadStmt->removeSingleMemoryAccess(PHIRead);
     ReadStmt->ComputedPHIs[PHI] = IncomingValues;
-    ReadStmt->prependInstrunction(PHI);
+    ReadStmt->prependInstruction(PHI);
     ComputedPHIScalars++;
 
     return FD_DidForward;
@@ -3463,7 +3463,7 @@ private:
       return FD_NotApplicable;
 
     if (DoIt)
-      TargetStmt->prependInstrunction(Inst);
+      TargetStmt->prependInstruction(Inst);
 
     MemoryAccess *Dummy;
     if (!canForwardTree(LI->getPointerOperand(), DefStmt, UseLoop, DefScatter,
@@ -3631,7 +3631,7 @@ private:
       }
 
       if (DoIt) {
-        TargetStmt->prependInstrunction(Inst);
+        TargetStmt->prependInstruction(Inst);
         NumInstructionsCopied++;
         TotalInstructionsCopied++;
       }
