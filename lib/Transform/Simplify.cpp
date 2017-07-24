@@ -199,7 +199,7 @@ private:
       if (!Acc->isWrite())
         continue;
 
-      auto AccRel = give(Acc->getAccessRelation());
+      isl::map AccRel = Acc->getAccessRelation();
       auto AccRelSpace = AccRel.get_space();
 
       // Spaces being different means that they access different arrays.
@@ -240,7 +240,7 @@ private:
         if (Stmt.isRegionStmt() && isExplicitAccess(MA))
           break;
 
-        auto AccRel = give(MA->getAccessRelation());
+        auto AccRel = MA->getAccessRelation();
         AccRel = AccRel.intersect_domain(Domain);
         AccRel = AccRel.intersect_params(give(S->getContext()));
 
@@ -294,10 +294,10 @@ private:
         if (!RA->isLatestArrayKind())
           continue;
 
-        auto WARel = give(WA->getLatestAccessRelation());
+        auto WARel = WA->getLatestAccessRelation();
         WARel = WARel.intersect_domain(give(WA->getStatement()->getDomain()));
         WARel = WARel.intersect_params(give(S->getContext()));
-        auto RARel = give(RA->getLatestAccessRelation());
+        auto RARel = RA->getLatestAccessRelation();
         RARel = RARel.intersect_domain(give(RA->getStatement()->getDomain()));
         RARel = RARel.intersect_params(give(S->getContext()));
 
@@ -326,7 +326,7 @@ private:
 
     for (auto *WA : StoresToRemove) {
       auto Stmt = WA->getStatement();
-      auto AccRel = give(WA->getAccessRelation());
+      auto AccRel = WA->getAccessRelation();
       auto AccVal = WA->getAccessValue();
 
       DEBUG(dbgs() << "Cleanup of " << WA << ":\n");
@@ -434,7 +434,7 @@ private:
         if (!MA->isWrite())
           continue;
 
-        isl::map AccRel = give(MA->getAccessRelation());
+        isl::map AccRel = MA->getAccessRelation();
         if (!AccRel.is_empty().is_true())
           continue;
 

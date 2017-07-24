@@ -23,6 +23,8 @@ namespace polly {
 
 extern bool ModelReadOnlyScalars;
 extern bool UnprofitableScalarAccs;
+/// Command line switch whether to model read-only accesses.
+extern bool ModelReadOnlyScalars;
 
 /// Build the Polly IR (Scop and ScopStmt) on a Region.
 class ScopBuilder {
