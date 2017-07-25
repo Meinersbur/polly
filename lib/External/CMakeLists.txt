@@ -257,6 +257,7 @@ if (POLLY_BUNDLED_ISL)
     isl/imath/gmp_compat.c
     isl/imath/imath.c
     isl/imath/imrat.c
+    LeakFinder.cpp
     )
 
   add_polly_library(PollyISL

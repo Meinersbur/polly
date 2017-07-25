@@ -5891,6 +5891,9 @@ __isl_give isl_map *isl_map_from_domain_and_range(__isl_take isl_set *domain,
 	return isl_map_apply_range(isl_map_reverse(domain), range);
 }
 
+void isl_allocated(void *p, const char *ty);
+void isl_released(void *p);
+
 /* Return a newly allocated isl_map with given space and flags and
  * room for "n" basic maps.
  * Make sure that all cached information is cleared.
@@ -5918,6 +5921,9 @@ __isl_give isl_map *isl_map_alloc_space(__isl_take isl_space *space, int n,
 	map->n = 0;
 	map->dim = space;
 	map->flags = flags;
+
+	isl_allocated(map, "isl_map");
+
 	return map;
 error:
 	isl_space_free(space);
@@ -6066,6 +6072,8 @@ __isl_null isl_map *isl_map_free(__isl_take isl_map *map)
 
 	if (--map->ref > 0)
 		return NULL;
+
+	isl_released(map);
 
 	clear_caches(map);
 	isl_ctx_deref(map->ctx);
