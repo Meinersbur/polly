@@ -1857,7 +1857,7 @@ void RegionGenerator::addOperandToPHI(ScopStmt &Stmt, PHINode *PHI,
   BasicBlock *BBCopyEnd = EndBlockMap[IncomingBB];
   if (!BBCopyStart) {
     assert(!BBCopyEnd);
-    assert(Stmt.contains(IncomingBB) &&
+    assert(Stmt.represents(IncomingBB) &&
            "Bad incoming block for PHI in non-affine region");
     IncompletePHINodeMap[IncomingBB].push_back(std::make_pair(PHI, PHICopy));
     return;
@@ -1869,7 +1869,7 @@ void RegionGenerator::addOperandToPHI(ScopStmt &Stmt, PHINode *PHI,
 
   Value *OpCopy = nullptr;
 
-  if (Stmt.contains(IncomingBB)) {
+  if (Stmt.represents(IncomingBB)) {
     Value *Op = PHI->getIncomingValueForBlock(IncomingBB);
 
     // If the current insert block is different from the PHIs incoming block

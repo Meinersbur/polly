@@ -71,8 +71,8 @@ static void addRoots(ScopStmt *Stmt, BasicBlock *BB,
 
 static bool isEscaping(Scop *S, Instruction *ComputingInst) {
   for (auto &Use : ComputingInst->uses()) {
-    auto User = cast<Instruction>(Use.getUser());
-    if (!S->contains(User))
+      BasicBlock *UserBB = getUseBlock(Use);
+    if (!S->contains(UserBB))
       return true;
   }
   return false;
@@ -550,7 +550,7 @@ VirtualUse VirtualUse::create(Scop *S, ScopStmt *UserStmt, Loop *UserScope,
   // A use is inter-statement if either it is defined in another statement, or
   // there is a MemoryAccess that reads its value that has been written by
   // another statement.
-  if (InputMA || (!Virtual && !UserStmt->contains(Inst->getParent())))
+  if (InputMA || (!Virtual && !UserStmt->represents(Inst->getParent())))
     return VirtualUse(UserStmt, Val, Inter, nullptr, InputMA);
 
   return VirtualUse(UserStmt, Val, Intra, nullptr, nullptr);
