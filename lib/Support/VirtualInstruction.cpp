@@ -71,7 +71,7 @@ static void addRoots(ScopStmt *Stmt, BasicBlock *BB,
 
 static bool isEscaping(Scop *S, Instruction *ComputingInst) {
   for (auto &Use : ComputingInst->uses()) {
-      BasicBlock *UserBB = getUseBlock(Use);
+    BasicBlock *UserBB = getUseBlock(Use);
     if (!S->contains(UserBB))
       return true;
   }

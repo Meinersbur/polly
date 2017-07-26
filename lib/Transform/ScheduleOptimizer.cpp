@@ -1281,7 +1281,7 @@ ScheduleTreeOptimizer::optimizeBand(__isl_take isl_schedule_node *Node,
       isMatrMultPattern(isl::manage(isl_schedule_node_copy(Node)), OAI->D,
                         MMI)) {
     DEBUG(dbgs() << "The matrix multiplication pattern was detected\n");
-     MatMuls++;
+    MatMuls++;
     return optimizeMatMulPattern(isl::manage(Node), OAI->TTI, MMI).release();
   }
 
