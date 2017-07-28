@@ -217,55 +217,150 @@ private:
     return nullptr;
   }
 
+  void backwardScan(ScopStmt &Stmt) {
+	  auto Domain = give(Stmt.getDomain());
+	  isl::union_map WillBeOverwritten = isl::union_map::empty(give(S->getParamSpace()));
+	  isl::union_map MayBeOverwritten = WillBeOverwritten;
+
+	  // { [Domain[] -> Element[]] -> Val[] }
+	  isl::union_map WillBeOverwrittenVal = WillBeOverwritten;
+	  isl::union_map MayBeOverwrittenVal = WillBeOverwritten;
+
+	  SmallVector<MemoryAccess *, 32> Accesses(getAccessesInOrder(Stmt));
+
+	  // Iterate in reverse order, so the overwrite comes before the write that
+	  // is to be removed.
+	  for (auto *MA : reverse(Accesses)) {
+		  // In region statements, the explicit accesses can be in blocks that are
+		  // can be executed in any order. We therefore process only the implicit
+		  // writes and stop after that.
+		  if (Stmt.isRegionStmt() && isExplicitAccess(MA))
+			  break;
+
+		  auto AccRel = MA->getAccessRelation();
+		  AccRel = AccRel.intersect_domain(Domain);
+		  AccRel = AccRel.intersect_params(give(S->getContext()));
+		  auto AccRelWrapped = 
+
+		  // If a value is read in-between, do not consider it as overwritten.
+		  if (MA->isRead()) {
+			  WillBeOverwritten = WillBeOverwritten.subtract(AccRel);
+			  WillBeOverwrittenVal = WillBeOverwrittenVal.subtract_domain();
+			  MayBeOverwritten = MayBeOverwritten.subtract(AccRel);
+			  continue;
+		  }
+
+		  // If all of a write's elements are overwritten, remove it.
+		  isl::union_map AccRelUnion = AccRel;
+		  if (AccRelUnion.is_subset(WillBeOverwritten)) {
+			  DEBUG(dbgs() << "Removing " << MA	<< " which will be overwritten anyway\n");
+
+			  Stmt.removeSingleMemoryAccess(MA);
+			  OverwritesRemoved++;
+			  TotalOverwritesRemoved++;
+		  }
+
+		  // Unconditional writes overwrite other values.
+		  if (MA->isMustWrite())
+			  WillBeOverwritten = WillBeOverwritten.add_map(AccRel);
+		  if (MA->isMustWrite() || MA->isMayWrite())
+			  MayBeOverwritten = MayBeOverwritten.add_map(AccRel);
+	  }
+  }
+
+  DenseMap<Value *, isl::id> ValueIds;
+
+  /// Create an isl_id that represents @p V.
+  isl::id makeValueId(Value *V) {
+	  // TODO: Refactor with DeLICM::makeValueId()
+	  if (!V)
+		  return nullptr;
+
+	  auto &Id = ValueIds[V];
+	  if (Id.is_null()) {
+		  std::string Name = getIslCompatibleName("Val_", V, ValueIds.size() - 1, std::string(), UseInstructionNames);
+		  Id = give(isl_id_alloc(S->getIslCtx(), Name.c_str(), V));
+	  }
+	  return Id;
+  }
+
+  /// Create the space for an llvm::Value that is available everywhere.
+  isl::space makeValueSpace(Value *V) {
+	  auto Result = isl::space(S->getIslCtx(), 0,0);
+	  return give(isl_space_set_tuple_id(Result.take(), isl_dim_set, makeValueId(V).take()));
+  }
+
+  /// Create a set with the llvm::Value @p V which is available everywhere.
+  isl::set makeValueSet(Value *V) {
+	  auto Space = makeValueSpace(V);
+	  return give(isl_set_universe(Space.take()));
+  }
+
+
+  void forwardScan(ScopStmt &Stmt) {
+	  if (Stmt.isRegionStmt())
+		  return;
+
+	  isl::set Domain = give(Stmt.getDomain());
+
+	  // { [Domain[] -> Element[]] -> Val[] }
+	  isl::union_map GuaranteedReads = isl::union_map::empty(give(S->getParamSpace()));
+	  isl::union_map PossibleReads = GuaranteedReads;
+
+
+	  SmallVector<MemoryAccess *, 32> Accesses(getAccessesInOrder(Stmt));
+	  for (MemoryAccess *MA : Accesses) {
+		  isl::map AccRel = MA->getAccessRelation();
+		  AccRel = AccRel.intersect_domain(Domain);
+		  AccRel = AccRel.intersect_params(give(S->getContext()));
+		  isl::set AccRelWrapped = AccRel.wrap();
+
+		  if (MA->isRead()) {
+			  Value* LoadedVal =  MA->getAccessValue();
+			  isl::map AccRelVal = isl::map::from_domain_and_range(AccRelWrapped, makeValueSet(LoadedVal) );
+			 
+			  GuaranteedReads = GuaranteedReads.add_map(AccRelVal);
+			  PossibleReads = PossibleReads.add_map(AccRelVal);
+		  }
+
+		  if (MA->isWrite()) {
+			  GuaranteedReads = GuaranteedReads.subtract_domain(AccRelWrapped);
+			  if (MA->isMustWrite())
+				  PossibleReads= PossibleReads.subtract_domain(AccRelWrapped);
+		  }
+
+		  if (!MA->isMustWrite())
+			  continue;
+
+		 auto *StoredVal = MA->tryGetValueStored();
+		 if (StoredVal) {
+			 isl::map AccRelStoredVal = isl::map::from_domain_and_range(AccRelWrapped, makeValueSet(StoredVal));
+			 if (isl::union_map(AccRelStoredVal).is_subset(GuaranteedReads)) {
+				 DEBUG(dbgs() << "Cleanup of " << MA << ":\n");
+				 DEBUG(dbgs() << "      Scalar: " << *StoredVal << "\n");
+				 DEBUG(dbgs() << "      AccRel: " << AccRel << "\n");
+				 (void)StoredVal;
+				 (void)AccRel;
+
+				 Stmt.removeSingleMemoryAccess(MA);
+
+				 RedundantWritesRemoved++;
+				 TotalRedundantWritesRemoved++;
+			 }
+		 }
+	  }
+  }
+
   /// Remove writes that are overwritten unconditionally later in the same
   /// statement.
   ///
   /// There must be no read of the same value between the write (that is to be
   /// removed) and the overwrite.
   void removeOverwrites() {
-    for (auto &Stmt : *S) {
-      auto Domain = give(Stmt.getDomain());
-      isl::union_map WillBeOverwritten =
-          isl::union_map::empty(give(S->getParamSpace()));
-
-      SmallVector<MemoryAccess *, 32> Accesses(getAccessesInOrder(Stmt));
-
-      // Iterate in reverse order, so the overwrite comes before the write that
-      // is to be removed.
-      for (auto *MA : reverse(Accesses)) {
-
-        // In region statements, the explicit accesses can be in blocks that are
-        // can be executed in any order. We therefore process only the implicit
-        // writes and stop after that.
-        if (Stmt.isRegionStmt() && isExplicitAccess(MA))
-          break;
-
-        auto AccRel = MA->getAccessRelation();
-        AccRel = AccRel.intersect_domain(Domain);
-        AccRel = AccRel.intersect_params(give(S->getContext()));
-
-        // If a value is read in-between, do not consider it as overwritten.
-        if (MA->isRead()) {
-          WillBeOverwritten = WillBeOverwritten.subtract(AccRel);
-          continue;
-        }
-
-        // If all of a write's elements are overwritten, remove it.
-        isl::union_map AccRelUnion = AccRel;
-        if (AccRelUnion.is_subset(WillBeOverwritten)) {
-          DEBUG(dbgs() << "Removing " << MA
-                       << " which will be overwritten anyway\n");
-
-          Stmt.removeSingleMemoryAccess(MA);
-          OverwritesRemoved++;
-          TotalOverwritesRemoved++;
-        }
-
-        // Unconditional writes overwrite other values.
-        if (MA->isMustWrite())
-          WillBeOverwritten = WillBeOverwritten.add_map(AccRel);
-      }
-    }
+    for (auto &Stmt : *S) 	{ 
+		backwardScan(Stmt);
+		forwardScan(Stmt);
+	}
   }
 
   /// Remove writes that just write the same value already stored in the
