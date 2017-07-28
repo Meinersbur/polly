@@ -482,6 +482,7 @@ private:
     for (ScopStmt &Stmt : *S) {
       if (!Stmt.isBlockStmt())
         continue;
+
       SmallVector<Instruction *, 32> AllInsts(Stmt.insts_begin(),
                                               Stmt.insts_end());
       SmallVector<Instruction *, 32> RemainInsts;
