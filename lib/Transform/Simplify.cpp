@@ -17,6 +17,7 @@
 #include "polly/ScopPass.h"
 #include "polly/Support/GICHelper.h"
 #include "polly/Support/ISLOStream.h"
+#include "polly/Support/ISLTools.h"
 #include "polly/Support/VirtualInstruction.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Statistic.h"
@@ -245,7 +246,7 @@ private:
       if (Stmt.isRegionStmt() && isExplicitAccess(MA))
         break;
 
-      auto AccRel = MA->getAccessRelation();
+      auto AccRel = MA->getLatestAccessRelation();
       AccRel = AccRel.intersect_domain(Domain);
 
       auto AccRelWrapped = AccRel.wrap();
@@ -266,7 +267,7 @@ private:
                 .unwrap()
                 .range();
         WillBeOverwrittenValAcc = WillBeOverwrittenValAcc.uncurry()
-                                      .intersect_range(TouchedAccesses)
+                                      .subtract_range(TouchedAccesses)
                                       .curry();
 
         MayBeOverwritten = MayBeOverwritten.subtract(AccRel);
@@ -321,22 +322,33 @@ private:
       auto Filtered =
           WillBeOverwrittenValAcc.uncurry().intersect_domain(Filter.wrap());
 
-      if (Filtered.foreach_map(
-              [&AccRel, &Stmt, MA, this](isl::map Map) -> isl::stat {
-                auto OtherMA = (MemoryAccess *)Map.get_space()
-                                   .get_tuple_id(isl::dim::out)
-                                   .get_user();
-                auto NewAccRel =
-                    Map.domain().unwrap().domain().unwrap().unite(AccRel);
+      if (Filtered.foreach_map([&AccRel, &Stmt, MA, &Domain, &AllowedAccesses,
+                                this](isl::map Map) -> isl::stat {
+            auto OtherMA = (MemoryAccess *)Map.get_space()
+                               .get_tuple_id(isl::dim::out)
+                               .get_user();
+            // auto NewAccRel =
+            // Map.domain().unwrap().domain().unwrap().unite(AccRel);
+            assert(MA->getAccessValue() == OtherMA->getAccessValue());
 
-                OtherMA->setNewAccessRelation(NewAccRel.copy());
-                Stmt.removeSingleMemoryAccess(MA);
+            auto OtherAccRel =
+                OtherMA->getLatestAccessRelation().intersect_domain(Domain);
+            if (!OtherAccRel.is_subset(AllowedAccesses).is_true())
+              return isl::stat::ok;
 
-                TotalWritesCoalesced++;
-                WritesCoalesced++;
+            auto NewAccRel = AccRel.unite(OtherAccRel);
+            simplify(NewAccRel);
 
-                return isl::stat::error;
-              }) == isl::stat::error)
+            auto CommonDomain = AccRel.domain().intersect(OtherAccRel.domain());
+
+            OtherMA->setNewAccessRelation(NewAccRel.copy());
+            Stmt.removeSingleMemoryAccess(MA);
+
+            TotalWritesCoalesced++;
+            WritesCoalesced++;
+
+            return isl::stat::error;
+          }) == isl::stat::error)
         continue;
 
       MayBeOverwritten = MayBeOverwritten.add_map(AccRel);
