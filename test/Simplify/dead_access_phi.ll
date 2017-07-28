@@ -1,4 +1,4 @@
-; RUN: opt %loadPolly -polly-simplify -polly-analyze-scop -analyze < %s | FileCheck %s -match-full-lines
+; RUN: opt %loadPolly -polly-simplify -analyze < %s | FileCheck %s -match-full-lines
 ;
 ; Remove a dead PHI write/read pair
 ; (accesses that are effectively not used)
@@ -42,7 +42,7 @@ return:
 
 ; CHECK: Statistics {
 ; CHECK:     Dead accesses removed: 2
-; CHECK:     Dead instructions removed: 1
+; CHECK:     Dead instructions removed: 0
 ; CHECK:     Stmts removed: 1
 ; CHECK: }
 

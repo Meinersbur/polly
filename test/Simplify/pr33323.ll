@@ -1,9 +1,9 @@
-; RUN: opt %loadPolly -polly-import-jscop -polly-import-jscop-postfix=transformed -polly-simplify -polly-analyze-scop -analyze < %s | FileCheck %s
+; RUN: opt %loadPolly -polly-import-jscop -polly-import-jscop-postfix=transformed -polly-simplify -analyze < %s | FileCheck %s
 ;
 ; llvm.org/PR33323
 ;
 ; Do not remove the pair (store double %add119, read %add119) as redundant
-; because the are in the wrong order.
+; because they are in the wrong order.
 
 target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
 
