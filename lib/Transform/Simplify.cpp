@@ -43,8 +43,6 @@ STATISTIC(TotalWritesCoalesced, "Number of writes coalesced with another");
 STATISTIC(TotalRedundantWritesRemoved,
           "Number of writes of same value removed in any SCoP");
 
-STATISTIC(TotalWritesCoalesced, "Number of writes coalesced with another");
-
 STATISTIC(TotalEmptyPartialAccessesRemoved,
           "Number of empty partial accesses removed");
 
@@ -130,8 +128,6 @@ private:
 
   /// Number of writes with empty access domain removed.
   int EmptyPartialAccessesRemoved = 0;
-
-  int WritesCoalesced = 0;
 
   /// Number of unused accesses removed from this SCoP.
   int DeadAccessesRemoved = 0;
