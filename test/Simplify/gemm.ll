@@ -1,7 +1,6 @@
 ; RUN: opt %loadPolly -polly-import-jscop \
-; RUN:   -polly-import-jscop-postfix=transformed -polly-simplify \
-; RUN:   -polly-analyze-scop -analyze < %s | FileCheck %s
-; XFAIL: *
+; RUN:   -polly-import-jscop-postfix=transformed -polly-simplify -analyze < %s \
+; RUN:   | FileCheck %s
 ;
 ;    void gemm(float A[][1024], float B[][1024], float C[][1024]) {
 ;      for (long i = 0; i < 1024; i++)
@@ -13,60 +12,25 @@
 ;        }
 ;    }
 
-; CHECK:     Statements {
-; CHECK-NEXT:     Stmt_bb10
-; CHECK-NEXT:             Domain :=
-; CHECK-NEXT:                 { Stmt_bb10[i0, i1, i2] : 0 <= i0 <= 1023 and 0 <= i1 <= 1023 and 0 <= i2 <= 1024 };
-; CHECK-NEXT:             Schedule :=
-; CHECK-NEXT:                 { Stmt_bb10[i0, i1, i2] -> [i0, i1, 1, i2, 0] };
-; CHECK-NEXT:             ReadAccess :=       [Reduction Type: NONE] [Scalar: 1]
-; CHECK-NEXT:                 { Stmt_bb10[i0, i1, i2] -> MemRef_tmp_0__phi[] };
-; CHECK-NEXT:            new: { Stmt_bb10[i0, i1, i2] -> MemRef_C[i0, i1] };
-; CHECK-NEXT:             MustWriteAccess :=  [Reduction Type: NONE] [Scalar: 1]
-; CHECK-NEXT:                 { Stmt_bb10[i0, i1, i2] -> MemRef_tmp_0[] };
-; CHECK-NEXT:            new: { Stmt_bb10[i0, i1, i2] -> MemRef_C[i0, i1] };
-; CHECK-NEXT:             MustWriteAccess :=  [Reduction Type: NONE] [Scalar: 1]
-; CHECK-NEXT:                 { Stmt_bb10[i0, i1, i2] -> MemRef_tmp_0_lcssa__phi[] };
-; CHECK-NEXT:            new: { Stmt_bb10[i0, i1, 1024] -> MemRef_C[i0, i1] };
-; CHECK-NEXT:             Instructions {
-; CHECK-NEXT:                   %tmp.0 = phi float [ %tmp9, %bb8 ], [ %tmp19, %bb13 ]
-; CHECK-NEXT:                 }
-; CHECK-NEXT:         Stmt_bb13
-; CHECK-NEXT:             Domain :=
-; CHECK-NEXT:                 { Stmt_bb13[i0, i1, i2] : 0 <= i0 <= 1023 and 0 <= i1 <= 1023 and 0 <= i2 <= 1023 };
-; CHECK-NEXT:             Schedule :=
-; CHECK-NEXT:                 { Stmt_bb13[i0, i1, i2] -> [i0, i1, 1, i2, 1] };
-; CHECK-NEXT:             MustWriteAccess :=  [Reduction Type: NONE] [Scalar: 1]
+; CHECK:      After accesses {
+; CHECK-NEXT:     Stmt_bb13
+; CHECK-NEXT:             MustWriteAccess :=	[Reduction Type: NONE] [Scalar: 1]
 ; CHECK-NEXT:                 { Stmt_bb13[i0, i1, i2] -> MemRef_tmp_0__phi[] };
 ; CHECK-NEXT:            new: { Stmt_bb13[i0, i1, i2] -> MemRef_C[i0, i1] };
-; CHECK-NEXT:             ReadAccess :=       [Reduction Type: NONE] [Scalar: 0]
+; CHECK-NEXT:             ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
 ; CHECK-NEXT:                 { Stmt_bb13[i0, i1, i2] -> MemRef_A[i0, i2] };
-; CHECK-NEXT:             ReadAccess :=       [Reduction Type: NONE] [Scalar: 0]
+; CHECK-NEXT:             ReadAccess :=	[Reduction Type: NONE] [Scalar: 0]
 ; CHECK-NEXT:                 { Stmt_bb13[i0, i1, i2] -> MemRef_B[i2, i1] };
-; CHECK-NEXT:             ReadAccess :=       [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:             ReadAccess :=	[Reduction Type: NONE] [Scalar: 1]
 ; CHECK-NEXT:                 { Stmt_bb13[i0, i1, i2] -> MemRef_tmp_0[] };
 ; CHECK-NEXT:            new: { Stmt_bb13[i0, i1, i2] -> MemRef_C[i0, i1] };
-; CHECK-NEXT:             Instructions {
-; CHECK-NEXT:                   %tmp15 = load float, float* %tmp14, align 4, !tbaa !1
-; CHECK-NEXT:                   %tmp17 = load float, float* %tmp16, align 4, !tbaa !1
-; CHECK-NEXT:                   %tmp18 = fmul float %tmp15, %tmp17
-; CHECK-NEXT:                   %tmp19 = fadd float %tmp.0, %tmp18
-; CHECK-NEXT:                 }
-; CHECK-NEXT:         Stmt_bb11
-; CHECK-NEXT:             Domain :=
-; CHECK-NEXT:                 { Stmt_bb11[i0, i1] : 0 <= i0 <= 1023 and 0 <= i1 <= 1023 };
-; CHECK-NEXT:             Schedule :=
-; CHECK-NEXT:                 { Stmt_bb11[i0, i1] -> [i0, i1, 2, 0, 0] };
-; CHECK-NEXT:             ReadAccess :=       [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:     Stmt_bb11
+; CHECK-NEXT:             ReadAccess :=	[Reduction Type: NONE] [Scalar: 1]
 ; CHECK-NEXT:                 { Stmt_bb11[i0, i1] -> MemRef_tmp_0_lcssa__phi[] };
 ; CHECK-NEXT:            new: { Stmt_bb11[i0, i1] -> MemRef_C[i0, i1] };
-; CHECK-NEXT:             MustWriteAccess :=  [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:             MustWriteAccess :=	[Reduction Type: NONE] [Scalar: 1]
 ; CHECK-NEXT:                 { Stmt_bb11[i0, i1] -> MemRef_tmp_0_lcssa[] };
 ; CHECK-NEXT:            new: { Stmt_bb11[i0, i1] -> MemRef_C[i0, i1] };
-; CHECK-NEXT:             Instructions {
-; CHECK-NEXT:                   %tmp.0.lcssa = phi float [ %tmp.0, %bb10 ]
-; CHECK-NEXT:                 }
-; CHECK-NEXT:     }
 
 target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
 target triple = "x86_64-pc-linux-gnu"
