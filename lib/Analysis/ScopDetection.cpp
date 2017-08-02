@@ -1799,6 +1799,11 @@ ScopDetectionWrapperPass::ScopDetectionWrapperPass() : FunctionPass(ID) {
   if (IgnoreAliasing)
     PollyUseRuntimeAliasChecks = false;
 }
+ScopAnalysis::ScopAnalysis() {
+  // Disable runtime alias checks if we ignore aliasing all together.
+  if (IgnoreAliasing)
+    PollyUseRuntimeAliasChecks = false;
+}
 
 void ScopDetectionWrapperPass::releaseMemory() { Result.reset(); }
 

@@ -2224,7 +2224,6 @@ private:
 
     auto *WA = S->getValueDef(SAI);
 
-    WA->setNewAccessRelation(DefTarget.copy());
     applyLifetime(Proposed);
 
     MappedValueScalars++;
@@ -2694,7 +2693,7 @@ private:
 
     // Redirect the PHI read.
     auto *PHIRead = S->getPHIRead(SAI);
-    PHIRead->setNewAccessRelation(ReadTarget.copy());
+    PHIRead->setNewAccessRelation(ReadTarget);
     applyLifetime(Proposed);
 
     MappedPHIScalars++;
