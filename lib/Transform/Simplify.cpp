@@ -312,7 +312,7 @@ private:
 
             auto CommonDomain = AccRel.domain().intersect(OtherAccRel.domain());
 
-            OtherMA->setNewAccessRelation(NewAccRel.copy());
+            OtherMA->setNewAccessRelation(NewAccRel);
             Stmt.removeSingleMemoryAccess(MA);
 
             TotalWritesCoalesced++;
@@ -763,7 +763,7 @@ private:
 
           // Coalesce: Combine both accesses into a single.
           auto NewAccRel = IAccRel.unite(JAccRel);
-          MAList[i]->setNewAccessRelation(NewAccRel.take());
+          MAList[i]->setNewAccessRelation(NewAccRel);
 
           Stmt->removeSingleMemoryAccess(MAList[j]);
           MAList[j] = nullptr;

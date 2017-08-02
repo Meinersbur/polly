@@ -2212,7 +2212,7 @@ private:
         continue;
 
       simplify(NewAccRelMap);
-      MA->setNewAccessRelation(NewAccRelMap.take());
+      MA->setNewAccessRelation(NewAccRelMap);
       SecondaryAccs.push_back(MA);
     }
 
@@ -2687,7 +2687,7 @@ private:
       auto NewAccRelMap = singleton(NewAccRel, ExpectedSpace);
 
       simplify(NewAccRelMap);
-      MA->setNewAccessRelation(NewAccRelMap.take());
+      MA->setNewAccessRelation(NewAccRelMap);
       SecondaryAccs.push_back(MA);
     }
 
@@ -3226,7 +3226,7 @@ private:
     assert(RA->isLatestScalarKind());
     assert(isl_map_is_single_valued(Target.keep()));
 
-    RA->setNewAccessRelation(Target.copy());
+    RA->setNewAccessRelation(Target);
 
     MappedKnown++;
     KnownReports.emplace_back(RA, std::move(Candidates), std::move(Target),
@@ -3523,7 +3523,7 @@ private:
           SameVal.gist_domain(give(TargetStmt->getDomain())
                                   .intersect_params(give(S->getContext())));
 
-      Access->setNewAccessRelation(SameVal.copy());
+      Access->setNewAccessRelation(SameVal);
     }
 
     MappedKnown++;

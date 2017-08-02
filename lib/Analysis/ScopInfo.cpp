@@ -1317,7 +1317,7 @@ void MemoryAccess::setNewAccessRelation(isl::map NewAccess) {
     assert(StmtDomain.is_subset(NewDomain) &&
            "Partial READ accesses not supported");
   }
-  if (isl_map_is_empty(NewAccess) == isl_bool_false)
+  if (NewAccess.is_empty().is_false())
     DEBUG(dbgs() << "WARNING: effectively removing access\n");
 
   isl::space NewAccessSpace = NewAccess.get_space();
