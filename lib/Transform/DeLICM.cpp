@@ -155,6 +155,7 @@
 
 #include "polly/DeLICM.h"
 #include "polly/CodeGen/BlockGenerators.h"
+#include "polly/ForwardOpTree.h"
 #include "polly/Options.h"
 #include "polly/ScopBuilder.h"
 #include "polly/ScopInfo.h"
@@ -3179,7 +3180,9 @@ struct KnownReport {
 /// - Find MemoryAccesses that could read from an array element instead from a
 ///   scalar.
 /// - Change the MemoryAccess to read from the found element instead.
-class KnownImpl : public ZoneAlgorithm {
+class KnownImpl : ZoneAlgorithm, public TryForward {
+  friend class ForwardOpTree;
+
 private:
   /// Contains the zones where array elements are known to contain a specific
   /// value.
@@ -3232,15 +3235,6 @@ private:
     KnownReports.emplace_back(RA, std::move(Candidates), std::move(Target),
                               std::move(RequiredValue));
   }
-
-  enum ForwardingDecision {
-    FD_NotApplicable,
-    FD_CannotForward,
-    FD_CanForward,
-    FD_CanForwardPartially,
-    FD_DidForward,
-    FD_DidForwardPartially
-  };
 
   ForwardingDecision
   canForwardPHI(Instruction *Inst, ScopStmt *DefStmt, isl::map DefScatter,
@@ -3430,7 +3424,7 @@ private:
     });
 
     if (!DoIt)
-      return FD_CanForward;
+      return FD_CanForwardLeaf;
 
     // Remove ExitPHI accesses
     for (auto PHIWrite : S->getPHIIncomings(SAI)) {
@@ -3487,7 +3481,7 @@ private:
       return FD_CannotForward;
 
     if (!DoIt)
-      return FD_CanForward;
+      return FD_CanForwardLeaf;
 
     MemoryAccess *Access = TargetStmt->getArrayAccessOrNULLFor(LI);
     if (!Access) {
@@ -3565,7 +3559,7 @@ private:
     case VirtualUse::Constant:
     case VirtualUse::Synthesizable:
     case VirtualUse::Block:
-      return DoIt ? FD_DidForward : FD_CanForward;
+      return DoIt ? FD_DidForward : FD_CanForwardLeaf;
 
     case VirtualUse::Hoisted:
       // FIXME: This should be not hard to support
@@ -3573,7 +3567,7 @@ private:
 
     case VirtualUse::ReadOnly:
       if (!DoIt)
-        return FD_CanForward;
+        return FD_CanForwardLeaf;
 
       if (ModelReadOnlyScalars) {
         auto Access = TargetStmt->lookupInputAccessOf(UseVal);
@@ -3669,7 +3663,7 @@ private:
         case FD_CanForwardPartially:
           Partial = true;
           LLVM_FALLTHROUGH;
-        case FD_CanForward:
+        case FD_CanForwardLeaf:
           assert(!DoIt);
           break;
         case FD_DidForwardPartially:
@@ -3680,12 +3674,16 @@ private:
           break;
         case FD_NotApplicable:
           llvm_unreachable("Must be applicable");
+          break;
+        default:
+          llvm_unreachable("Have to handle");
+          break;
         }
       }
 
       if (DoIt)
         return Partial ? FD_DidForwardPartially : FD_DidForward;
-      return Partial ? FD_CanForwardPartially : FD_CanForward;
+      return Partial ? FD_CanForwardPartially : FD_CanForwardLeaf;
     }
 
     llvm_unreachable("Case unhandled");
@@ -4163,7 +4161,26 @@ public:
     printAccesses(OS, Indent);
 #endif
   }
+
+  virtual ForwardingDecision forward(ScopStmt *TargetStmt, llvm::Value *UseVal,
+                                     ScopStmt *UseStmt, llvm::Loop *UseLoop,
+                                     bool DoIt) override {
+    return FD_NotApplicable;
+  }
+
+  virtual ForwardingDecision canForward(ScopStmt *TargetStmt,
+                                        llvm::Value *UseVal, ScopStmt *UseStmt,
+                                        llvm::Loop *UseLoop) override {
+    return FD_NotApplicable;
+  };
+
+  virtual void doForward(ScopStmt *TargetStmt, llvm::Value *UseVal,
+                         ScopStmt *UseStmt, llvm::Loop *UseLoop) override{};
 };
+
+std::unique_ptr<TryForward> createTryForwardKnown(Scop *S, LoopInfo *LI) {
+  return std::make_unique<KnownImpl>(S, LI);
+}
 
 /// Pass that redirects scalar reads to array elements that are known to contain
 /// the same value.

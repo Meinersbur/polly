@@ -85,6 +85,7 @@ bool isConflicting(isl::union_set ExistingOccupied,
                    isl::union_set ProposedUnused, isl::union_map ProposedKnown,
                    isl::union_map ProposedWrites,
                    llvm::raw_ostream *OS = nullptr, unsigned Indent = 0);
+
 } // namespace polly
 
 namespace llvm {
