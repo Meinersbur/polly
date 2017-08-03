@@ -203,7 +203,7 @@ static cl::opt<bool>
 static cl::opt<bool>
     EnableForwardOpTree("polly-enable-optree",
                         cl::desc("Enable operand tree forwarding"), cl::Hidden,
-                        cl::init(false), cl::cat(PollyCategory));
+                        cl::init(true), cl::cat(PollyCategory));
 
 static cl::opt<bool>
     DumpBefore("polly-dump-before",
@@ -246,7 +246,7 @@ static cl::opt<bool>
 static cl::opt<bool>
     EnableSimplify("polly-enable-simplify",
                    cl::desc("Simplify SCoP after optimizations"),
-                   cl::init(false), cl::cat(PollyCategory));
+                   cl::init(true), cl::cat(PollyCategory));
 
 static cl::opt<bool> EnablePruneUnprofitable(
     "polly-enable-prune-unprofitable",
