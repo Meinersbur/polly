@@ -42,7 +42,7 @@ namespace {
 /// the MemoryAccess is removed and the all the operand tree instructions are
 /// moved into the statement. All original instructions are left in the source
 /// statements. The simplification pass can clean these up.
-class ForwardOpTreeImpl {
+class ForwardOpTreeImpl : TryForward {
 private:
   /// The SCoP we are currently processing.
   Scop *S;
@@ -50,6 +50,7 @@ private:
   /// LoopInfo is required for VirtualUse.
   LoopInfo *LI;
 
+  TryForward *KnownTryForward = nullptr;
   SmallVector<std::unique_ptr<TryForward>, 1> Forwarders;
 
   /// How many instructions have been copied to other statements.
@@ -108,8 +109,11 @@ private:
   ///
   /// @return If DoIt==false, return whether the operand tree can be forwarded.
   ///         If DoIt==true, return FD_DidForward.
-  ForwardingDecision forwardTree(ScopStmt *TargetStmt, Value *UseVal,
-                                 ScopStmt *UseStmt, Loop *UseLoop, bool DoIt) {
+  ForwardingDecision forwardTree(ScopStmt *TargetStmt, isl::map TargetSchedule,
+	  llvm::Value *UseVal,
+	  ScopStmt *UseStmt, llvm::Loop *UseLoop, isl::map UseSchedule, isl::map UseToTargetMapping,
+	  ScopStmt *DefStmt, llvm::Loop *DefLoop, isl::map DefSchedule, isl::map DefToTargetMapping,
+	  int Depth, bool DoIt) {
     VirtualUse VUse = VirtualUse::create(UseStmt, UseLoop, UseVal, true);
     switch (VUse.getKind()) {
     case VirtualUse::Constant:
@@ -166,6 +170,10 @@ private:
       return FD_DidForward;
 
     case VirtualUse::Intra:
+		DefStmt = UseStmt;
+		DefSchedule = give( UseStmt->getSchedule());
+		DefToTargetMapping = UseToTargetMapping;
+
     case VirtualUse::Inter:
       auto Inst = cast<Instruction>(UseVal);
 
@@ -175,25 +183,36 @@ private:
         return FD_CannotForward;
       }
 
-      for (auto &Forwarder : Forwarders) {
+	  
+	  if (!DefStmt) {
+		  DefStmt = S->getStmtFor(Inst);
+	  }
+	  assert(DefStmt && "Value must be defined somewhere");
+	  if (!DefSchedule) {
+		  DefSchedule = give(DefStmt->getSchedule());
+	  }
+	  DefLoop = LI->getLoopFor(Inst->getParent());
 
-        auto ForwardingResult =
-            Forwarder->forward(TargetStmt, UseVal, UseStmt, UseLoop, DoIt);
-        switch (ForwardingResult) {
-        case FD_CannotForward:
-        case FD_CanForwardLeaf:
-        case FD_CanForwardTree:
-          assert(!DoIt);
-          return ForwardingResult;
-        case FD_DidForward:
-          assert(DoIt);
-          return ForwardingResult;
-        case FD_NotApplicable:
-          continue;
-        default:
-          llvm_unreachable("Unexecepted forward decision");
-        }
-      }
+
+	  if (DefToTargetMapping.is_null()) {
+		  auto  DefScatter = DefSchedule;
+		  auto UseScatter = UseSchedule;
+
+		  // { Scatter[] -> DomainDef[] }
+		  auto ReachDef = KnownTryForward -> getScalarReachingDefinition(DefStmt);
+
+		  // { DomainUse[] -> DomainDef[] }
+		  auto DefToUseMapping = give(isl_map_apply_range(UseScatter.copy(), ReachDef.copy()));
+
+		  // { DomainDef[] -> DomainTarget[] }
+		  DefToTargetMapping =  give(isl_map_apply_range(isl_map_reverse(DefToUseMapping.copy()),  UseToTargetMapping.copy()));
+	  }
+	  
+	  
+	
+	 
+
+	
 
       // Compatible instructions must satisfy the following conditions:
       // 1. Idempotent (instruction will be copied, not moved; although its
@@ -211,12 +230,35 @@ private:
       if (mayBeMemoryDependent(*Inst)) {
         DEBUG(dbgs() << "    Cannot forward side-effect instruction: " << *Inst
                      << "\n");
-        return FD_CannotForward;
+       
+
+		for (auto &Forwarder : Forwarders) {
+			auto ForwardingResult =
+				Forwarder->forwardTree(TargetStmt, TargetSchedule,
+					UseVal, 
+					UseStmt, UseLoop,  UseSchedule, UseToTargetMapping,
+					
+					DefStmt,   DefLoop, DefSchedule, DefToTargetMapping,
+					Depth,	DoIt);
+			switch (ForwardingResult) {
+			case FD_CannotForward:
+			case FD_CanForwardLeaf:
+			case FD_CanForwardTree:
+				assert(!DoIt);
+				return ForwardingResult;
+			case FD_DidForward:
+				assert(DoIt);
+				return ForwardingResult;
+			case FD_NotApplicable:
+				continue;
+			default:
+				llvm_unreachable("Unexecepted forward decision");
+			}
+		}
+
       }
 
-      Loop *DefLoop = LI->getLoopFor(Inst->getParent());
-      ScopStmt *DefStmt = S->getStmtFor(Inst);
-      assert(DefStmt && "Value must be defined somewhere");
+
 
       if (DoIt) {
         // To ensure the right order, prepend this instruction before its
@@ -230,8 +272,11 @@ private:
       }
 
       for (Value *OpVal : Inst->operand_values()) {
-        ForwardingDecision OpDecision =
-            forwardTree(TargetStmt, OpVal, DefStmt, DefLoop, DoIt);
+        ForwardingDecision OpDecision =   forwardTree(TargetStmt, TargetSchedule,
+			OpVal, 
+			DefStmt,  DefLoop,  DefSchedule, DefToTargetMapping, 
+			nullptr, nullptr, nullptr, nullptr,
+			Depth+1, DoIt);
         switch (OpDecision) {
         case FD_CannotForward:
           assert(!DoIt);
@@ -267,14 +312,27 @@ private:
     ScopStmt *Stmt = RA->getStatement();
     Loop *InLoop = Stmt->getSurroundingLoop();
 
-    ForwardingDecision Assessment =
-        forwardTree(Stmt, RA->getAccessValue(), Stmt, InLoop, false);
+	auto Schedule = give( Stmt->getSchedule());
+	auto DomSpace = give( Stmt->getDomainSpace());
+	auto TargetToUseMapping = give(isl_map_identity(	isl_space_map_from_domain_and_range(DomSpace.copy(), DomSpace.copy())));
+
+    ForwardingDecision Assessment =  forwardTree(
+		Stmt, Schedule,
+		RA->getAccessValue(),
+		Stmt, InLoop, Schedule, TargetToUseMapping,
+		nullptr, nullptr, nullptr, nullptr,
+		0, false);
     assert(Assessment != FD_DidForward);
     if (Assessment != FD_CanForwardTree)
       return false;
 
     ForwardingDecision Execution =
-        forwardTree(Stmt, RA->getAccessValue(), Stmt, InLoop, true);
+        forwardTree(
+			Stmt, Schedule,
+			RA->getAccessValue(),
+			Stmt, InLoop, Schedule, TargetToUseMapping,
+			nullptr, nullptr, nullptr, nullptr,
+			0, true);
     assert(Execution == FD_DidForward &&
            "A previous positive assessment must also be executable");
     (void)Execution;
@@ -289,9 +347,15 @@ public:
   /// Return which SCoP this instance is processing.
   Scop *getScop() const { return S; }
 
+  virtual  isl::map getScalarReachingDefinition(ScopStmt *Stmt) override { llvm_unreachable("Don't call this"); }
+
   void prepareForwarders() {
     Forwarders.clear();
-    Forwarders.emplace_back(createTryForwardKnown(S, LI));
+
+	auto KnownTryForward = createTryForwardKnown(S, LI, this);
+	this->KnownTryForward = KnownTryForward.get();
+	if (KnownTryForward)
+		Forwarders.push_back(std::move( KnownTryForward));
   }
 
   /// Run the algorithm: Use value read accesses as operand tree roots and try

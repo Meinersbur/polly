@@ -14,6 +14,7 @@
 #ifndef POLLY_FORWARDOPTREE_H
 #define POLLY_FORWARDOPTREE_H
 
+#include "isl-noexceptions.h"
 #include <memory>
 
 namespace llvm {
@@ -68,20 +69,27 @@ class TryForward {
 public:
   virtual ~TryForward(){};
 
-  virtual ForwardingDecision forward(ScopStmt *TargetStmt, llvm::Value *UseVal,
-                                     ScopStmt *UseStmt, llvm::Loop *UseLoop,
-                                     bool DoIt) = 0;
+  virtual  isl::map getScalarReachingDefinition(ScopStmt *Stmt) =0;
+
+  virtual ForwardingDecision forwardTree(ScopStmt *TargetStmt, isl::map TargetSchedule,
+										 llvm::Value *UseVal,
+                                         ScopStmt *UseStmt, llvm::Loop *UseLoop, isl::map UseSchedule, isl::map UseToTargetMapping,
+								         ScopStmt *DefStmt, llvm::Loop *DefLoop, isl::map DefSchedule, isl::map DefToTargetMapping,
+                                         int Depth, bool DoIt) = 0;
 
   virtual ForwardingDecision canForward(ScopStmt *TargetStmt,
-                                        llvm::Value *UseVal, ScopStmt *UseStmt,
-                                        llvm::Loop *UseLoop) = 0;
+	  llvm::Value *UseVal, ScopStmt *UseStmt,
+	  llvm::Loop *UseLoop) {
+	  return FD_NotApplicable;
+  };
 
   virtual void doForward(ScopStmt *TargetStmt, llvm::Value *UseVal,
-                         ScopStmt *UseStmt, llvm::Loop *UseLoop) = 0;
+	  ScopStmt *UseStmt, llvm::Loop *UseLoop) {
+  };
 };
 
 // Defined in DeLICM.cpp.
-std::unique_ptr<TryForward> createTryForwardKnown(Scop *S, llvm::LoopInfo *LI);
+std::unique_ptr<TryForward> createTryForwardKnown(Scop *S, llvm::LoopInfo *LI, TryForward *TryForwardSubtree );
 
 ScopPass *createForwardOpTreePass();
 } // namespace polly

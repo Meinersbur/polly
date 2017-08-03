@@ -3608,7 +3608,8 @@ private:
         DefScatter = getScatterFor(DefStmt);
 
         // { Scatter[] -> DomainDef[] }
-        auto ReachDef = getScalarReachingDefinition(DefStmt);
+        auto ReachDef  = ZoneAlgorithm
+			::  getScalarReachingDefinition(DefStmt);
 
         // { DomainUse[] -> DomainDef[] }
         auto DefToUseMapping =
@@ -4162,10 +4163,101 @@ public:
 #endif
   }
 
-  virtual ForwardingDecision forward(ScopStmt *TargetStmt, llvm::Value *UseVal,
-                                     ScopStmt *UseStmt, llvm::Loop *UseLoop,
-                                     bool DoIt) override {
-    return FD_NotApplicable;
+  TryForward *TryForwardSubtree = nullptr;
+
+  virtual ForwardingDecision forwardTree(ScopStmt *TargetStmt, isl::map TargetSchedule,
+	  llvm::Value *UseVal,
+	  ScopStmt *UseStmt, llvm::Loop *UseLoop, isl::map UseSchedule, isl::map UseToTargetMapping,
+	  ScopStmt *DefStmt, llvm::Loop *DefLoop, isl::map DefSchedule, isl::map DefToTargetMapping,
+	  int Depth, bool DoIt) override {
+
+	  auto LI = dyn_cast<LoadInst>(UseVal);
+	  auto Inst = LI;
+	  if (!LI)
+		  return FD_NotApplicable;
+
+	  if (DoIt)
+		  TargetStmt->prependInstruction(LI);
+
+	  
+	   ForwardingDecision OpDecision = TryForwardSubtree->forwardTree(TargetStmt, TargetSchedule,
+		   LI->getPointerOperand(),
+			DefStmt,  DefLoop,  DefSchedule, DefToTargetMapping, 
+			nullptr, nullptr, nullptr, nullptr,
+			Depth+1, DoIt);
+	   switch (OpDecision) {
+	   case FD_CannotForward:
+		   return OpDecision;
+
+	   case FD_CanForwardLeaf:
+	   case FD_CanForwardTree:
+	   case FD_DidForward:
+		   break;
+
+	   default:
+		   llvm_unreachable("Shouldn't return this");
+	   }
+
+
+
+	 
+
+
+	  auto *RA = &DefStmt->getArrayAccessFor(LI);
+
+	  // { DomainDef[] -> ValInst[] }
+	  auto ExpectedVal = makeValInst(UseVal, DefStmt, UseLoop);
+
+	  // { DomainTarget[] -> ValInst[] }
+	  auto ToExpectedVal = give(isl_map_apply_domain(ExpectedVal.copy(), DefToTargetMapping.copy()));
+
+	  isl::union_map Candidates;
+	  // { DomainTo[] -> Element[] }
+	  auto SameVal =  containsSameValue(ToExpectedVal, getScatterFor(TargetStmt), Candidates);
+	  if (!SameVal)
+		  return FD_CannotForward;
+
+	  if (!DoIt)
+		  return FD_CanForwardLeaf;
+
+	  MemoryAccess *Access = TargetStmt->getArrayAccessOrNULLFor(LI);
+	  if (!Access) {
+		   
+			  auto ArrayId = give(isl_map_get_tuple_id(SameVal.keep(), isl_dim_out));
+			  auto SAI =
+				  reinterpret_cast<ScopArrayInfo *>(isl_id_get_user(ArrayId.keep()));
+			  SmallVector<const SCEV *, 4> Sizes;
+			  Sizes.reserve(SAI->getNumberOfDimensions());
+			  SmallVector<const SCEV *, 4> Subscripts;
+			  Subscripts.reserve(SAI->getNumberOfDimensions());
+			  for (unsigned i = 0; i < SAI->getNumberOfDimensions(); i += 1) {
+				  auto DimSize = SAI->getDimensionSize(i);
+				  Sizes.push_back(DimSize);
+
+				  // Dummy access, to be replaced anyway.
+				  Subscripts.push_back(nullptr);
+			  }
+			  Access = new MemoryAccess(TargetStmt, LI, MemoryAccess::READ,
+				  SAI->getBasePtr(), Inst->getType(), true, {},
+				  Sizes, Inst, MemoryKind::Array, false);
+			  S->addAccessFunction(Access);
+			  TargetStmt->addAccess(Access, true);
+		  
+
+		  // Necessary so matmul pattern detection recognizes this access. It
+		  // expects the map to have exactly 2 constrains (i0=o0 and i1=o1, for the
+		  // two surrounding loops)
+		  SameVal =
+			  SameVal.gist_domain(give(TargetStmt->getDomain())
+				  .intersect_params(give(S->getContext())));
+
+		  Access->setNewAccessRelation(SameVal);
+	  }
+
+	  MappedKnown++;
+	  KnownReports.emplace_back(RA, std::move(Candidates), std::move(SameVal),
+		  std::move(ToExpectedVal));
+	  return FD_DidForward;
   }
 
   virtual ForwardingDecision canForward(ScopStmt *TargetStmt,
@@ -4176,11 +4268,14 @@ public:
 
   virtual void doForward(ScopStmt *TargetStmt, llvm::Value *UseVal,
                          ScopStmt *UseStmt, llvm::Loop *UseLoop) override{};
+
+  virtual  isl::map TryForward::getScalarReachingDefinition(ScopStmt *Stmt) override {
+	  return ZoneAlgorithm::getScalarReachingDefinition(Stmt);
+  }
+
 };
 
-std::unique_ptr<TryForward> createTryForwardKnown(Scop *S, LoopInfo *LI) {
-  return std::make_unique<KnownImpl>(S, LI);
-}
+
 
 /// Pass that redirects scalar reads to array elements that are known to contain
 /// the same value.
@@ -4202,6 +4297,10 @@ private:
   /// The pass implementation, also holding per-scop data.
   std::unique_ptr<KnownImpl> Impl;
 
+
+
+
+
   void collapseToKnown(Scop &S) {
 #if 0
     if (!UseVirtualStmts) {
@@ -4211,8 +4310,8 @@ private:
     }
 #endif
 
-    Impl = make_unique<KnownImpl>(
-        &S, &getAnalysis<LoopInfoWrapperPass>().getLoopInfo());
+
+    Impl = make_unique<KnownImpl>(  &S, &getAnalysis<LoopInfoWrapperPass>().getLoopInfo());
 
     if (!Impl->computeKnown())
       return;
@@ -4333,4 +4432,12 @@ polly::computeArrayLifetime(isl::union_map Schedule, isl::union_map Writes,
     Result = give(isl_union_map_union(Result.take(), ExitRays.take()));
 
   return Result;
+}
+
+std::unique_ptr<TryForward> polly::createTryForwardKnown(Scop *S, LoopInfo *LI, TryForward *TryForwardSubtree) {
+	auto Result= std::make_unique<KnownImpl>(S, LI);
+	Result->TryForwardSubtree= TryForwardSubtree;
+	if (!Result->computeKnown())
+		return nullptr;
+	return Result;
 }
