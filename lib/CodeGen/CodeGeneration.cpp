@@ -62,6 +62,20 @@ STATISTIC(ScopsCodegenFails, "Number of failed codegens");
 STATISTIC(ScopsCodegenned, "Number of generated SCoPs");
 STATISTIC(LoopsCodegened, "Number of loops of generated SCoPs");
 
+namespace polly {
+/// Mark a basic block unreachable.
+///
+/// Marks the basic block @p Block unreachable by equipping it with an
+/// UnreachableInst.
+void markBlockUnreachable(BasicBlock &Block, PollyIRBuilder &Builder) {
+  auto *OrigTerminator = Block.getTerminator();
+  Builder.SetInsertPoint(OrigTerminator);
+  Builder.CreateUnreachable();
+  OrigTerminator->eraseFromParent();
+}
+
+} // namespace polly
+
 namespace {
 
 static void verifyGeneratedFunction(Scop &S, Function &F, IslAstInfo &AI) {
@@ -92,17 +106,6 @@ static void fixRegionInfo(Function &F, Region &ParentRegion, RegionInfo &RI) {
 
     RI.setRegionFor(&BB, &ParentRegion);
   }
-}
-
-/// Mark a basic block unreachable.
-///
-/// Marks the basic block @p Block unreachable by equipping it with an
-/// UnreachableInst.
-static void markBlockUnreachable(BasicBlock &Block, PollyIRBuilder &Builder) {
-  auto *OrigTerminator = Block.getTerminator();
-  Builder.SetInsertPoint(OrigTerminator);
-  Builder.CreateUnreachable();
-  OrigTerminator->eraseFromParent();
 }
 
 /// Remove all lifetime markers (llvm.lifetime.start, llvm.lifetime.end) from
@@ -243,7 +246,7 @@ static bool CodeGen(Scop &S, IslAstInfo &AI, LoopInfo &LI, DominatorTree &DT,
 
     ScopsCodegenFails++;
   } else {
-    NodeBuilder.addParameters(S.getContext());
+    NodeBuilder.addParameters(S.getContext().release());
     Value *RTC = NodeBuilder.createRTC(AI.getRunCondition());
 
     Builder.GetInsertBlock()->getTerminator()->setOperand(0, RTC);

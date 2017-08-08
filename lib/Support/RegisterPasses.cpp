@@ -86,7 +86,7 @@ static cl::opt<PassPositionChoice> PassPosition(
                    "After the loop optimizer (but within the inline cycle)"),
         clEnumValN(POSITION_BEFORE_VECTORIZER, "before-vectorizer",
                    "Right before the vectorizer")),
-    cl::Hidden, cl::init(POSITION_EARLY), cl::ZeroOrMore,
+    cl::Hidden, cl::init(POSITION_BEFORE_VECTORIZER), cl::ZeroOrMore,
     cl::cat(PollyCategory));
 
 static cl::opt<OptimizerChoice>
@@ -155,6 +155,11 @@ static cl::opt<polly::VectorizerChoice, true> Vectorizer(
 static cl::opt<bool> ImportJScop(
     "polly-import",
     cl::desc("Import the polyhedral description of the detected Scops"),
+    cl::Hidden, cl::init(false), cl::ZeroOrMore, cl::cat(PollyCategory));
+
+static cl::opt<bool> FullyIndexedStaticExpansion(
+    "polly-enable-mse",
+    cl::desc("Fully expand the memory accesses of the detected Scops"),
     cl::Hidden, cl::init(false), cl::ZeroOrMore, cl::cat(PollyCategory));
 
 static cl::opt<bool> ExportJScop(
@@ -241,7 +246,7 @@ static cl::list<std::string>
 static cl::opt<bool>
     EnableDeLICM("polly-enable-delicm",
                  cl::desc("Eliminate scalar loop carried dependences"),
-                 cl::Hidden, cl::init(false), cl::cat(PollyCategory));
+                 cl::Hidden, cl::init(true), cl::cat(PollyCategory));
 
 static cl::opt<bool>
     EnableSimplify("polly-enable-simplify",
@@ -275,6 +280,7 @@ void initializePollyPasses(PassRegistry &Registry) {
   initializeDependenceInfoWrapperPassPass(Registry);
   initializeJSONExporterPass(Registry);
   initializeJSONImporterPass(Registry);
+  initializeMaximalStaticExpanderPass(Registry);
   initializeIslAstInfoWrapperPassPass(Registry);
   initializeIslScheduleOptimizerPass(Registry);
   initializePollyCanonicalizePass(Registry);
@@ -348,6 +354,8 @@ void registerPollyPasses(llvm::legacy::PassManagerBase &PM) {
   if (EnablePolyhedralInfo)
     PM.add(polly::createPolyhedralInfoPass());
 
+  if (EnableSimplify)
+    PM.add(polly::createSimplifyPass());
   if (EnableForwardOpTree)
     PM.add(polly::createForwardOpTreePass());
   if (EnableDeLICM)
@@ -360,6 +368,9 @@ void registerPollyPasses(llvm::legacy::PassManagerBase &PM) {
 
   if (DeadCodeElim)
     PM.add(polly::createDeadCodeElimPass());
+
+  if (FullyIndexedStaticExpansion)
+    PM.add(polly::createMaximalStaticExpansionPass());
 
   if (EnablePruneUnprofitable)
     PM.add(polly::createPruneUnprofitablePass());
