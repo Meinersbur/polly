@@ -56,6 +56,7 @@ static cl::opt<bool, true>
                     cl::desc("Add run-time performance monitoring"), cl::Hidden,
                     cl::location(polly::PerfMonitoring), cl::init(false),
                     cl::ZeroOrMore, cl::cat(PollyCategory));
+
 STATISTIC(NumGenerationSkips, "Number of skipped SCoPs");
 STATISTIC(NumGeneratedScops, "Number of successfully generated SCoPs");
 STATISTIC(NumGeneratedFails, "Number of unsuccessfully generated SCoPs");

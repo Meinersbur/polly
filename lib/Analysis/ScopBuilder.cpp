@@ -32,21 +32,17 @@ STATISTIC(RichScopFound, "Number of Scops containing a loop");
 STATISTIC(InfeasibleScops,
           "Number of SCoPs with statically infeasible context.");
 
-namespace polly {
-bool ModelReadOnlyScalars;
-} // namespace polly
+bool polly::ModelReadOnlyScalars;
 static cl::opt<bool, true> XModelReadOnlyScalars(
     "polly-analyze-read-only-scalars",
     cl::desc("Model read-only scalar values in the scop description"),
     cl::location(ModelReadOnlyScalars), cl::Hidden, cl::ZeroOrMore,
     cl::init(true), cl::cat(PollyCategory));
 
-bool polly::UnprofitableScalarAccs;
-static cl::opt<bool, true> XUnprofitableScalarAccs(
+static cl::opt<bool> UnprofitableScalarAccs(
     "polly-unprofitable-scalar-accs",
     cl::desc("Count statements with scalar accesses as not optimizable"),
-    cl::Hidden, cl::location(UnprofitableScalarAccs), cl::init(false),
-    cl::cat(PollyCategory));
+    cl::Hidden, cl::init(false), cl::cat(PollyCategory));
 
 static cl::opt<bool> DetectFortranArrays(
     "polly-detect-fortran-arrays",

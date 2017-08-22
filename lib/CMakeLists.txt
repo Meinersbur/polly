@@ -25,6 +25,7 @@ endif ()
 # the sources them to be recompiled for each of them.
 add_library(PollyCore OBJECT
   Support/DumpDebugPass.cpp
+  Support/PrintScopPass.cpp
   Analysis/DependenceInfo.cpp
   Analysis/PolyhedralInfo.cpp
   Analysis/ScopDetection.cpp
@@ -52,7 +53,6 @@ add_library(PollyCore OBJECT
   Support/ScopLocation.cpp
   Support/ISLTools.cpp
   Support/DumpModulePass.cpp 
-  Support/PrintScopPass.cpp
   Support/VirtualInstruction.cpp
   ${POLLY_JSON_FILES}
   Transform/Canonicalization.cpp

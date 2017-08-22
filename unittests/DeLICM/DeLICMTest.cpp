@@ -8,8 +8,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "polly/DeLICM.h"
-#include "llvm/IR/Constants.h"
-#include "llvm/IR/LLVMContext.h"
 #include "gtest/gtest.h"
 #include <isl/map.h>
 #include <isl/set.h>
@@ -44,105 +42,6 @@ using namespace polly;
 #define indef (-1)
 
 namespace {
-
-bool checkComputeArrayLifetime(const char *ScheduleStr, const char *WritesStr,
-                               const char *ReadsStr, int ReadEltInSameInst,
-                               int InclWrite, int InclLastRead, int ExitReads,
-                               const char *ExpectedStr) {
-  BOOL_FOR(ReadEltInSameInst)
-  BOOL_FOR(InclWrite) BOOL_FOR(InclLastRead) BOOL_FOR(ExitReads) {
-    std::unique_ptr<isl_ctx, decltype(&isl_ctx_free)> Ctx(isl_ctx_alloc(),
-                                                          &isl_ctx_free);
-
-    auto Schedule = give(isl_union_map_read_from_str(Ctx.get(), ScheduleStr));
-    auto Writes = give(isl_union_map_read_from_str(Ctx.get(), WritesStr));
-    auto Reads = give(isl_union_map_read_from_str(Ctx.get(), ReadsStr));
-    auto Expected = give(isl_union_map_read_from_str(Ctx.get(), ExpectedStr));
-
-    auto Result =
-        computeArrayLifetime(Schedule, Writes, Reads, ReadEltInSameInst,
-                             InclWrite, InclLastRead, ExitReads);
-    auto Success = isl_union_map_is_equal(Result.keep(), Expected.keep());
-    if (Success != isl_bool_true)
-      return false;
-  }
-
-  return true;
-}
-
-TEST(DeLICM, ArrayPerWriteLifetimeZone) {
-  EXPECT_TRUE(checkComputeArrayLifetime("{ }", "{ }", "{ }", indef, indef,
-                                        indef, indef, "{ }"));
-  EXPECT_TRUE(checkComputeArrayLifetime("{ Read[] -> [10] }",
-                                        "{ Read[] -> A[] }", "{ }", indef,
-                                        indef, indef, false, "{ }"));
-
-  EXPECT_TRUE(checkComputeArrayLifetime("{ Def[] -> [10] }", "{ Def[] -> A[] }",
-                                        "{ }", indef, indef, indef, false,
-                                        "{ }"));
-  EXPECT_TRUE(checkComputeArrayLifetime("{ Def[] -> [10] }", "{ Def[] -> A[] }",
-                                        "{ }", indef, false, indef, true,
-                                        "{ [A[] -> Def[]] -> [i] : 10 < i }"));
-  EXPECT_TRUE(checkComputeArrayLifetime("{ Def[] -> [10] }", "{ Def[] -> A[] }",
-                                        "{ }", indef, true, indef, true,
-                                        "{ [A[] -> Def[]] -> [i] : 10 <= i }"));
-
-  EXPECT_TRUE(checkComputeArrayLifetime(
-      "{ Def[] -> [10]; Read[] -> [20] }", "{ Def[] -> A[] }",
-      "{ Read[] -> A[] }", indef, false, false, false,
-      "{ [A[] -> Def[]] -> [i] : 10 < i < 20 }"));
-  EXPECT_TRUE(checkComputeArrayLifetime(
-      "{ Def[] -> [10]; Read[] -> [20] }", "{ Def[] -> A[] }",
-      "{ Read[] -> A[] }", indef, true, false, false,
-      "{ [A[] -> Def[]] -> [i] : 10 <= i < 20 }"));
-  EXPECT_TRUE(checkComputeArrayLifetime(
-      "{ Def[] -> [10]; Read[] -> [20] }", "{ Def[] -> A[] }",
-      "{ Read[] -> A[] }", indef, false, true, false,
-      "{ [A[] -> Def[]] -> [i] : 10 < i <= 20 }"));
-  EXPECT_TRUE(checkComputeArrayLifetime(
-      "{ Def[] -> [10]; Read[] -> [20] }", "{ Def[] -> A[] }",
-      "{ Read[] -> A[] }", indef, true, true, false,
-      "{ [A[] -> Def[]] -> [i] : 10 <= i <= 20 }"));
-  EXPECT_TRUE(checkComputeArrayLifetime("{ Def[] -> [10]; Read[] -> [20] }",
-                                        "{ Def[] -> A[] }", "{ Read[] -> A[] }",
-                                        indef, false, indef, true,
-                                        "{ [A[] -> Def[]] -> [i] : 10 < i }"));
-  EXPECT_TRUE(checkComputeArrayLifetime("{ Def[] -> [10]; Read[] -> [20] }",
-                                        "{ Def[] -> A[] }", "{ Read[] -> A[] }",
-                                        indef, true, indef, true,
-                                        "{ [A[] -> Def[]] -> [i] : 10 <= i }"));
-
-  EXPECT_TRUE(checkComputeArrayLifetime(
-      "{ Def[] -> [10]; Read1[] -> [20]; Read2[] -> [30] }", "{ Def[] -> A[] }",
-      "{ Read1[] -> A[]; Read2[] -> A[] }", indef, true, indef, true,
-      "{ [A[] -> Def[]] -> [i] : 10 <= i }"));
-  EXPECT_TRUE(checkComputeArrayLifetime(
-      "{ Def[] -> [10]; Read1[] -> [20]; Read2[] -> [30] }", "{ Def[] -> A[] }",
-      "{ Read1[] -> A[]; Read2[] -> A[] }", indef, true, true, false,
-      "{ [A[] -> Def[]] -> [i] : 10 <= i <= 30 }"));
-
-  EXPECT_TRUE(checkComputeArrayLifetime(
-      "{ Def1[] -> [0]; Read[] -> [10]; Def2[] -> [20] }",
-      "{ Def1[] -> A[]; Def2[] -> A[] }", "{ Read[] -> A[] }", indef, true,
-      true, false, "{ [A[] -> Def1[]] -> [i] : 0 <= i <= 10 }"));
-  EXPECT_TRUE(checkComputeArrayLifetime(
-      "{ Def1[] -> [0]; Read[] -> [10]; Def2[] -> [20] }",
-      "{ Def1[] -> A[]; Def2[] -> A[] }", "{ Read[] -> A[] }", indef, true,
-      true, true,
-      "{ [A[] -> Def1[]] -> [i] : 0 <= i <= 10; [A[] -> "
-      "Def2[]] -> [i] : 20 <= i }"));
-
-  EXPECT_TRUE(checkComputeArrayLifetime(
-      "{ Def1[] -> [0]; Def2[] -> [10]; Read[] -> [10] }",
-      "{ Def1[] -> A[]; Def2[] -> A[] }", "{ Read[] -> A[] }", false, true,
-      true, true,
-      "{ [A[] -> Def1[]] -> [i] : 0 <= i <= 10; [A[] -> "
-      "Def2[]] -> [i] : 10 <= i }"));
-  EXPECT_TRUE(checkComputeArrayLifetime(
-      "{ Def1[] -> [0]; Def2[] -> [10]; Read[] -> [10] }",
-      "{ Def1[] -> A[]; Def2[] -> A[] }", "{ Read[] -> A[] }", true, true, true,
-      true, "{ [A[] -> Def2[]] -> [i] : 10 <= i }"));
-}
 
 /// Get the universes of all spaces in @p USet.
 isl::union_set unionSpace(const isl::union_set &USet) {

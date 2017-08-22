@@ -86,7 +86,7 @@ STATISTIC(NumScopsDepthLarger,
           "Number of scops with maximal loop depth 6 and larger");
 STATISTIC(MaxNumLoopsInScop, "Maximal number of loops in scops");
 
-STATISTIC(ScalarAccesses, "Number of remaining scalar accesses");
+
 
 // The maximal number of basic sets we allow during domain construction to
 // be created. More complex scops will result in very high compile time and
@@ -3971,6 +3971,7 @@ void Scop::simplifySCoP(bool AfterHoisting) {
     }
     return RemoveStmt;
   };
+
   removeStmts(ShouldDelete);
 }
 

@@ -64,15 +64,6 @@ static cl::opt<bool>
                  cl::cat(PollyCategory));
 #endif
 
-#if 0
-bool polly::UseVirtualStmts;
-static cl::opt<bool, true>
-    UseVirtualStmtsOpt("polly-codegen-virtual-statements",
-                       cl::desc("Use virtual statements"), cl::Hidden,
-                       cl::location(UseVirtualStmts), cl::init(false),
-                       cl::ZeroOrMore, cl::cat(PollyCategory));
-#endif
-
 BlockGenerator::BlockGenerator(
     PollyIRBuilder &B, LoopInfo &LI, ScalarEvolution &SE, DominatorTree &DT,
     AllocaMapTy &ScalarMap, EscapeUsersAllocaMapTy &EscapeMap,
@@ -475,29 +466,6 @@ BasicBlock *BlockGenerator::copyBB(ScopStmt &Stmt, BasicBlock *BB,
   generateBeginStmtTrace(Stmt, LTS, BBMap);
 #endif // Debug tracing
 
-#if 0
-  if (UseVirtualStmts) {
-    std::vector<VirtualInstruction> InstList;
-    markReachableLocal(&Stmt, InstList, &LI);
-    // TODO: Now unnecessary due to markReachableLocal() doing this itself now.
-    DenseSet<Instruction *> InstSet;
-    for (auto VInst : InstList) {
-      assert(VInst.getStmt() == &Stmt);
-      InstSet.insert(VInst.getInstruction());
-    }
-
-    for (VirtualInstruction &VInst : InstList) {
-      assert(VInst.getStmt() == &Stmt);
-      if (VInst.getInstruction()->getParent() != BB)
-        copyInstruction(Stmt, VInst.getInstruction(), BBMap, LTS, NewAccesses);
-    }
-
-    for (auto &Inst : *BB) {
-      if (InstSet.count(&Inst))
-        copyInstruction(Stmt, &Inst, BBMap, LTS, NewAccesses);
-    }
-  } else {
-#endif
   copyBB(Stmt, BB, CopyBB, BBMap, LTS, NewAccesses);
 
   // After a basic block was copied store all scalars that escape this block in
@@ -720,8 +688,8 @@ void BlockGenerator::generateBeginStmtTrace(ScopStmt &Stmt, LoopToScevMapT &LTS,
   auto S = Stmt.getParent();
   auto BaseName = Stmt.getBaseName();
 
-  auto AstBuild = give(isl_ast_build_copy(Stmt.getAstBuild()));
-  auto Domain = give(Stmt.getDomain());
+  auto AstBuild = Stmt.getAstBuild();
+  auto Domain = Stmt.getDomain();
   auto UDomain = give(isl_union_set_from_set(Domain.copy()));
 
   auto USchedule = give(isl_ast_build_get_schedule(AstBuild.keep()));
@@ -759,11 +727,10 @@ void BlockGenerator::generateBeginStmtTrace(ScopStmt &Stmt, LoopToScevMapT &LTS,
     Values.push_back(RuntimeDebugBuilder::getPrintableString(Builder, ") "));
 
     std::vector<VirtualInstruction> VInsts;
-    markReachableLocal(&Stmt, VInsts, &LI);
+    //markReachableLocal(&Stmt, VInsts, &LI);
     DenseSet<Instruction *> Encountered;
-
-    for (auto &VInst : VInsts) {
-      auto *Inst = VInst.getInstruction();
+	
+    for (auto Inst : Stmt.insts()) {
       if (isa<PHINode>(Inst)) {
         Values.push_back(RuntimeDebugBuilder::getPrintableString(Builder, " "));
         Values.push_back(RuntimeDebugBuilder::getPrintableString(
@@ -810,12 +777,12 @@ void BlockGenerator::generateComputedPHIs(ScopStmt &Stmt, LoopToScevMapT &LTS,
   auto &IncomingValues = Stmt.ComputedPHIs[PHI];
   assert(IncomingValues);
 
-  auto Build = give(isl_ast_build_copy(Stmt.getAstBuild()));
+  auto Build = Stmt.getAstBuild();
   // auto Build = give(isl_ast_build_copy( Stmt.getAstBuild()));
   auto USchedule = give(isl_ast_build_get_schedule(Build.keep()));
-  auto UDomain = give(isl_union_set_from_set(Stmt.getDomain()));
+  auto UDomain = Stmt.getDomain();
   auto USchedule2 =
-      give(isl_union_map_intersect_domain(USchedule.copy(), UDomain.copy()));
+      give(isl_union_map_intersect_domain(USchedule.copy(), isl_union_set_from_set( UDomain.copy())));
 
   auto ScheduleValues = give(
       isl_union_map_apply_domain(IncomingValues.copy(), USchedule2.copy()));
@@ -918,6 +885,7 @@ void BlockGenerator::generateScalarStores(
                                Builder.GetInsertBlock())) &&
                  "Domination violation");
           Builder.CreateStore(Val, Address);
+
         });
   }
 }
@@ -1611,25 +1579,6 @@ void RegionGenerator::copyStmt(ScopStmt &Stmt, LoopToScevMapT &LTS,
   Blocks.push_back(EntryBB);
   SeenBlocks.insert(EntryBB);
 
-#if 0
-  DenseSet<Instruction *> InstSet;
-  if (UseVirtualStmts) {
-    std::vector<VirtualInstruction> InstList;
-    markReachableLocal(&Stmt, InstList, &LI);
-    for (auto VInst : InstList) {
-      assert(VInst.getStmt() == &Stmt);
-      InstSet.insert(VInst.getInstruction());
-    }
-
-    for (auto VInst : InstList) {
-      auto *Inst = VInst.getInstruction();
-      if (R->contains(Inst->getParent()))
-        continue;
-      copyInstruction(Stmt, Inst, EntryBBMap, LTS, IdToAstExp);
-    }
-  }
-#endif
-
   while (!Blocks.empty()) {
     BasicBlock *BB = Blocks.front();
     Blocks.pop_front();
@@ -1653,10 +1602,7 @@ void RegionGenerator::copyStmt(ScopStmt &Stmt, LoopToScevMapT &LTS,
 
     // Copy the block with the BlockGenerator.
     Builder.SetInsertPoint(&BBCopy->front());
-
-    for (auto &Inst : *BB) {
-      copyInstruction(Stmt, &Inst, RegionMap, LTS, IdToAstExp);
-    }
+    copyBB(Stmt, BB, BBCopy, RegionMap, LTS, IdToAstExp);
 
     // In order to remap PHI nodes we store also basic block mappings.
     StartBlockMap[BB] = BBCopy;

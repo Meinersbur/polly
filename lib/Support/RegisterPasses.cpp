@@ -49,6 +49,7 @@
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Vectorize.h"
+#include "polly/Support/PrintScopPass.h"
 
 using namespace llvm;
 using namespace polly;

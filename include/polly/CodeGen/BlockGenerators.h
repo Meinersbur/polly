@@ -39,10 +39,6 @@ class MemoryAccess;
 class ScopArrayInfo;
 class IslExprBuilder;
 
-#if 0
-extern bool UseVirtualStmts;
-#endif
-
 /// Generate a new basic block for a polyhedral statement.
 class BlockGenerator {
 public:
@@ -315,10 +311,9 @@ protected:
   /// block.
   /// @param LTS         A map from old loops to new induction variables as
   ///                    SCEVs.
-  /// @param NewAccesses A map from memory access ids to new ast
-  /// expressions,
-  ///                    which may contain new access expressions for
-  ///                    certain memory accesses.
+  /// @param NewAccesses A map from memory access ids to new ast expressions,
+  ///                    which may contain new access expressions for certain
+  ///                    memory accesses.
   void copyBB(ScopStmt &Stmt, BasicBlock *BB, BasicBlock *BBCopy,
               ValueMapT &BBMap, LoopToScevMapT &LTS,
               isl_id_to_ast_expr *NewAccesses);

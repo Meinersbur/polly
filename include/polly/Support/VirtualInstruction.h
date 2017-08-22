@@ -120,12 +120,11 @@ public:
   /// @return A VirtualUse object that gives information about @p Val's use in
   ///         @p UserStmt.
   static VirtualUse create(Scop *S, ScopStmt *UserStmt, Loop *UserScope,
-                           Value *Val, bool Virtual = true);
+                           Value *Val, bool Virtual);
 
   static VirtualUse create(ScopStmt *UserStmt, Loop *UserScope, Value *Val,
-                           bool Virtual = true) {
-    return create(UserStmt->getParent(), UserStmt, UserScope, Val,
-                  Virtual = true);
+                           bool Virtual) {
+    return create(UserStmt->getParent(), UserStmt, UserScope, Val, Virtual);
   }
 
   bool isConstant() const { return Kind == Constant; }
@@ -169,8 +168,6 @@ public:
   void dump() const;
 #endif
 };
-
-MemoryAccess *getOutputAccessFor(Value *OutputVal, ScopStmt *Stmt);
 
 /// An iterator for virtual operands.
 class VirtualOperandIterator
@@ -243,11 +240,6 @@ private:
 
   /// The instruction of a statement.
   Instruction *Inst = nullptr;
-
-private:
-  MemoryAccess *findOutputAccess(Value *Val) const {
-    return getOutputAccessFor(Val, Stmt);
-  }
 
 public:
   VirtualInstruction() {}
@@ -339,12 +331,6 @@ void markReachable(Scop *S, LoopInfo *LI,
                    DenseSet<VirtualInstruction> &UsedInsts,
                    DenseSet<MemoryAccess *> &UsedAccs,
                    ScopStmt *OnlyLocal = nullptr);
-
-void markReachableGlobal(Scop *S, std::vector<VirtualInstruction> &InstList,
-                         DenseSet<MemoryAccess *> &UsedMA, LoopInfo *LI);
-void markReachableLocal(ScopStmt *Stmt,
-                        std::vector<VirtualInstruction> &InstList,
-                        LoopInfo *LI);
 
 } // namespace polly
 

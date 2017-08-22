@@ -48,15 +48,13 @@ STATISTIC(TotalRedundantWritesRemoved,
 STATISTIC(TotalEmptyPartialAccessesRemoved,
           "Number of empty partial accesses removed");
 
-STATISTIC(TotalDeadComputedPHIs, "Number of dead computed PHIs removed");
 
 STATISTIC(TotalDeadAccessesRemoved, "Number of dead accesses removed");
 STATISTIC(TotalDeadInstructionsRemoved,
           "Number of unused instructions removed");
 STATISTIC(TotalStmtsRemoved, "Number of statements removed in any SCoP");
 
-STATISTIC(UnusedAccs, "Number of unused accesses");
-STATISTIC(UnusedInsts, "Number of unused instructions");
+
 
 static bool isImplicitRead(MemoryAccess *MA) {
   return MA->isRead() && MA->isOriginalScalarKind();
@@ -157,10 +155,10 @@ private:
   }
 
   void backwardScan(ScopStmt &Stmt) {
-    auto Domain = give(Stmt.getDomain());
-    Domain = Domain.intersect_params(give(S->getContext()));
+    auto Domain = Stmt.getDomain();
+    Domain = Domain.intersect_params(S->getContext());
     isl::union_map WillBeOverwritten =
-        isl::union_map::empty(give(S->getParamSpace()));
+        isl::union_map::empty(S->getParamSpace());
     isl::union_map MayBeOverwritten = WillBeOverwritten;
 
     // { [Domain[] -> Element[]] -> Val[] }
@@ -334,12 +332,12 @@ private:
     if (Stmt.isRegionStmt())
       return;
 
-    isl::set Domain = give(Stmt.getDomain());
-    Domain = Domain.intersect_params(give(S->getContext()));
+    isl::set Domain = Stmt.getDomain();
+    Domain = Domain.intersect_params(S->getContext());
 
     // { [Domain[] -> Element[]] -> Val[] }
     isl::union_map GuaranteedReads =
-        isl::union_map::empty(give(S->getParamSpace()));
+        isl::union_map::empty(S->getParamSpace());
     isl::union_map PossibleReads = GuaranteedReads;
 
     SmallVector<MemoryAccess *, 32> Accesses(getAccessesInOrder(Stmt));
@@ -674,76 +672,6 @@ private:
     }
   }
 
-  // TODO: Merge with removeDoubleWrites()
-  void coalescePartialWrites(ScopStmt *Stmt) {
-    auto Domain = isl::manage(Stmt->getDomain());
-    SmallVector<MemoryAccess *, 8> StoresToRemove;
-    DenseMap<llvm::Value *, SmallVector<MemoryAccess *, 2>> WrittenBy;
-    // DenseMap<llvm::Value*, isl::union_map > WrittenTo;
-
-    for (auto *MA : *Stmt) {
-      // We currently only handle implicit writes so we don't have to look reads
-      // between them. All implicit writes take place at the end of a statement.
-      if (!(MA->isImplicit() && MA->isMustWrite()))
-        continue;
-
-      // TODO: The same value can have multiple names if used in a PHINode. Try
-      // to find all alternative names.
-      WrittenBy[MA->getAccessValue()].push_back(MA);
-    }
-
-    for (auto &Pair : WrittenBy) {
-      auto &MAList = Pair.second;
-      auto Count = MAList.size();
-
-      // Nothing to coalesce if there is just a single access.
-      if (Count <= 1)
-        continue;
-
-      for (size_t i = 0; i < Count; i += 1) {
-        if (!MAList[i])
-          continue;
-
-        for (size_t j = i; j < Count; j += 1) {
-          if (!MAList[j])
-            continue;
-
-          // Cannot coalesce if they access two different arrays.
-          if (MAList[i]->getLatestScopArrayInfo() !=
-              MAList[j]->getLatestScopArrayInfo())
-            continue;
-
-          auto IAccRel = MAList[i]->getAccessRelation();
-          auto JAccRel = MAList[j]->getAccessRelation();
-          auto CommonDomain = isl::manage(isl_set_intersect(
-              isl_set_intersect(isl_map_domain(IAccRel.copy()),
-                                isl_map_domain(JAccRel.copy())),
-              Domain.copy()));
-
-          // Cannot coalesce if the common parts access different elements.
-          if (!IAccRel.intersect_domain(CommonDomain)
-                   .is_equal(JAccRel.intersect_domain(CommonDomain))
-                   .is_true())
-            continue;
-
-          // Coalesce: Combine both accesses into a single.
-          auto NewAccRel = IAccRel.unite(JAccRel);
-          MAList[i]->setNewAccessRelation(NewAccRel);
-
-          Stmt->removeSingleMemoryAccess(MAList[j]);
-          MAList[j] = nullptr;
-
-          WritesCoalesced++;
-          TotalWritesCoalesced++;
-        }
-      }
-    }
-  }
-
-  void coalescePartialWrites() {
-    for (auto &Stmt : *S)
-      coalescePartialWrites(&Stmt);
-  }
 
   /// Remove statements without side effects.
   void removeUnnecessaryStmts() {
@@ -887,7 +815,7 @@ private:
     OS.indent(Indent + 4) << "Partial writes coalesced: " << WritesCoalesced
                           << "\n";
     OS.indent(Indent + 4) << "Dead accesses removed: " << DeadAccessesRemoved
-                          << "\n";
+                          << '\n';
     OS.indent(Indent + 4) << "Dead instructions removed: "
                           << DeadInstructionsRemoved << '\n';
     OS.indent(Indent + 4) << "Dead computed PHIs removed: " << DeadComputedPHIs

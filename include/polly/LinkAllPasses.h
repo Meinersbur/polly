@@ -17,14 +17,10 @@
 
 #include "polly/CodeGen/PPCGCodeGeneration.h"
 #include "polly/Config/config.h"
-#include "polly/DumpDebugPass.h"
-#include "polly/ForwardOpTree.h"
 #include "polly/PruneUnprofitable.h"
 #include "polly/Simplify.h"
 #include "polly/Support/DumpModulePass.h"
-#include "polly/Support/PrintScopPass.h"
 #include "llvm/ADT/StringRef.h"
-#include "llvm/Support/raw_ostream.h"
 #include <cstdlib>
 
 namespace llvm {
@@ -80,7 +76,6 @@ struct PollyForcePassLinking {
     if (std::getenv("bar") != (char *)-1)
       return;
 
-    llvm::raw_null_ostream dummy;
     polly::createCodePreparationPass();
     polly::createDeadCodeElimPass();
     polly::createDependenceInfoPass();
@@ -103,12 +98,8 @@ struct PollyForcePassLinking {
     polly::createIslScheduleOptimizerPass();
     polly::createMaximalStaticExpansionPass();
     polly::createFlattenSchedulePass();
-    polly::createForwardOpTreePass();
     polly::createDeLICMPass();
     polly::createDumpModulePass("", true);
-    polly::createDumpDebugPass();
-    polly::createPrintScopPass(dummy);
-    polly::createAnalyzeScopPass();
     polly::createSimplifyPass();
     polly::createPruneUnprofitablePass();
   }
@@ -133,7 +124,6 @@ void initializeIslScheduleOptimizerPass(llvm::PassRegistry &);
 void initializeMaximalStaticExpanderPass(llvm::PassRegistry &);
 void initializePollyCanonicalizePass(llvm::PassRegistry &);
 void initializeFlattenSchedulePass(llvm::PassRegistry &);
-void initializeForwardOpTreePass(llvm::PassRegistry &);
 void initializeDeLICMPass(llvm::PassRegistry &);
 } // namespace llvm
 
