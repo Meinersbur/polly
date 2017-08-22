@@ -182,17 +182,15 @@ static isl::union_map computeScalarReachingDefinition(isl::union_map Schedule,
                                                       isl::union_set Writes,
                                                       bool InclDef,
                                                       bool InclRedef) {
-
   // { DomainWrite[] -> Element[] }
-  auto Defs = give(isl_union_map_from_domain(Writes.take()));
+  isl::union_map Defs = isl::union_map::from_domain(Writes);
 
   // { [Element[] -> Scatter[]] -> DomainWrite[] }
   auto ReachDefs =
       computeReachingDefinition(Schedule, Defs, InclDef, InclRedef);
 
   // { Scatter[] -> DomainWrite[] }
-  return give(isl_union_set_unwrap(
-      isl_union_map_range(isl_union_map_curry(ReachDefs.take()))));
+  return ReachDefs.curry().range().unwrap();
 }
 
 /// Compute the reaching definition of a scalar.
@@ -209,16 +207,14 @@ static isl::union_map computeScalarReachingDefinition(isl::union_map Schedule,
 static isl::map computeScalarReachingDefinition(isl::union_map Schedule,
                                                 isl::set Writes, bool InclDef,
                                                 bool InclRedef) {
-  auto DomainSpace = give(isl_set_get_space(Writes.keep()));
-  auto ScatterSpace = getScatterSpace(Schedule);
+  isl::space DomainSpace = Writes.get_space();
+  isl::space ScatterSpace = getScatterSpace(Schedule);
 
   //  { Scatter[] -> DomainWrite[] }
-  auto UMap = computeScalarReachingDefinition(
-      Schedule, give(isl_union_set_from_set(Writes.take())), InclDef,
-      InclRedef);
+  isl::union_map UMap = computeScalarReachingDefinition(
+      Schedule, isl::union_set(Writes), InclDef, InclRedef);
 
-  auto ResultSpace = give(isl_space_map_from_domain_and_range(
-      ScatterSpace.take(), DomainSpace.take()));
+  isl::space ResultSpace = ScatterSpace.map_from_domain_and_range(DomainSpace);
   return singleton(UMap, ResultSpace);
 }
 
@@ -248,11 +244,13 @@ static bool isMapToUnknown(const isl::map &Map) {
 
 isl::union_map polly::filterKnownValInst(const isl::union_map &UMap) {
   isl::union_map Result = isl::union_map::empty(UMap.get_space());
-  UMap.foreach_map([=, &Result](isl::map Map) -> isl::stat {
+  isl::stat Success = UMap.foreach_map([=, &Result](isl::map Map) -> isl::stat {
     if (!isMapToUnknown(Map))
       Result = Result.add_map(Map);
     return isl::stat::ok;
   });
+  if (Success != isl::stat::ok)
+    return {};
   return Result;
 }
 
@@ -280,6 +278,26 @@ ZoneAlgorithm::ZoneAlgorithm(const char *PassName, Scop *S, LoopInfo *LI)
 }
 
 /// Check if all stores in @p Stmt store the very same value.
+///
+/// This covers a special situation occurring in Polybench's
+/// covariance/correlation (which is typical for algorithms that cover symmetric
+/// matrices):
+///
+/// for (int i = 0; i < n; i += 1)
+/// 	for (int j = 0; j <= i; j += 1) {
+/// 		double x = ...;
+/// 		C[i][j] = x;
+/// 		C[j][i] = x;
+/// 	}
+///
+/// For i == j, the same value is written twice to the same element.Double
+/// writes to the same element are not allowed in DeLICM because its algorithm
+/// does not see which of the writes is effective.But if its the same value
+/// anyway, it doesn't matter.
+///
+/// LLVM passes, however, cannot simplify this because the write is necessary
+/// for i != j (unless it would add a condition for one of the writes to occur
+/// only if i != j).
 ///
 /// TODO: In the future we may want to extent this to make the checks
 ///       specific to different memory locations.
@@ -353,16 +371,15 @@ bool ZoneAlgorithm::isCompatibleStmt(ScopStmt *Stmt) {
     }
 
     // Do not allow more than one store to the same location.
-    if (!isl_union_map_is_disjoint(Stores.keep(), AccRel.keep())) {
+    if (!isl_union_map_is_disjoint(Stores.keep(), AccRel.keep()) &&
+        !onlySameValueWrites(Stmt)) {
       OptimizationRemarkMissed R(PassName, "StoreAfterStore",
                                  MA->getAccessInstruction());
-      if (!onlySameValueWrites(Stmt)) {
-        R << "store after store of same element in same statement";
-        R << " (previous stores: " << Stores;
-        R << ", storing: " << AccRel << ")";
-        S->getFunction().getContext().diagnose(R);
-        return false;
-      }
+      R << "store after store of same element in same statement";
+      R << " (previous stores: " << Stores;
+      R << ", storing: " << AccRel << ")";
+      S->getFunction().getContext().diagnose(R);
+      return false;
     }
 
     Stores = give(isl_union_map_union(Stores.take(), AccRel.take()));

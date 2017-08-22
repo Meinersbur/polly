@@ -31,6 +31,7 @@
 #include "polly/DumpDebugPass.h"
 #include "polly/FlattenSchedule.h"
 #include "polly/ForwardOpTree.h"
+#include "polly/JSONExporter.h"
 #include "polly/LinkAllPasses.h"
 #include "polly/Options.h"
 #include "polly/PolyhedralInfo.h"
@@ -269,6 +270,7 @@ void initializePollyPasses(PassRegistry &Registry) {
 
 #ifdef GPU_CODEGEN
   initializePPCGCodeGenerationPass(Registry);
+  initializeManagedMemoryRewritePassPass(Registry);
   LLVMInitializeNVPTXTarget();
   LLVMInitializeNVPTXTargetInfo();
   LLVMInitializeNVPTXTargetMC();
@@ -286,8 +288,10 @@ void initializePollyPasses(PassRegistry &Registry) {
   initializePollyCanonicalizePass(Registry);
   initializePolyhedralInfoPass(Registry);
   initializeScopDetectionWrapperPassPass(Registry);
+  initializeScopInlinerPass(Registry);
   initializeScopInfoRegionPassPass(Registry);
   initializeScopInfoWrapperPassPass(Registry);
+  initializeRewriteByrefParamsPass(Registry);
   initializeCodegenCleanupPass(Registry);
   initializeFlattenSchedulePass(Registry);
   initializeForwardOpTreePass(Registry);
@@ -376,9 +380,12 @@ void registerPollyPasses(llvm::legacy::PassManagerBase &PM) {
     PM.add(polly::createPruneUnprofitablePass());
 
 #ifdef GPU_CODEGEN
-  if (Target == TARGET_HYBRID)
+  if (Target == TARGET_HYBRID) {
     PM.add(
         polly::createPPCGCodeGenerationPass(GPUArchChoice, GPURuntimeChoice));
+    PM.add(polly::createManagedMemoryRewritePassPass(GPUArchChoice,
+                                                     GPURuntimeChoice));
+  }
 #endif
   if (Target == TARGET_CPU || Target == TARGET_HYBRID)
     switch (Optimizer) {
@@ -405,9 +412,11 @@ void registerPollyPasses(llvm::legacy::PassManagerBase &PM) {
       break;
     }
 #ifdef GPU_CODEGEN
-  else
+  else {
     PM.add(
         polly::createPPCGCodeGenerationPass(GPUArchChoice, GPURuntimeChoice));
+    PM.add(polly::createManagedMemoryRewritePassPass());
+  }
 #endif
 
   // FIXME: This dummy ModulePass keeps some programs from miscompiling,
@@ -507,7 +516,8 @@ static void buildDefaultPollyPipeline(FunctionPassManager &PM,
   assert(!EnablePolyhedralInfo && "This option is not implemented");
   assert(!EnableDeLICM && "This option is not implemented");
   assert(!EnableSimplify && "This option is not implemented");
-  assert(!ImportJScop && "This option is not implemented");
+  if (ImportJScop)
+    SPM.addPass(JSONImportPass());
   assert(!DeadCodeElim && "This option is not implemented");
   assert(!EnablePruneUnprofitable && "This option is not implemented");
   if (Target == TARGET_CPU || Target == TARGET_HYBRID)

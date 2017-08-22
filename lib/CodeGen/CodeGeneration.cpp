@@ -50,10 +50,12 @@ static cl::opt<bool> Verify("polly-codegen-verify",
                             cl::Hidden, cl::init(false), cl::ZeroOrMore,
                             cl::cat(PollyCategory));
 
-static cl::opt<bool>
-    PerfMonitoring("polly-codegen-perf-monitoring",
-                   cl::desc("Add run-time performance monitoring"), cl::Hidden,
-                   cl::init(false), cl::ZeroOrMore, cl::cat(PollyCategory));
+bool polly::PerfMonitoring;
+static cl::opt<bool, true>
+    XPerfMonitoring("polly-codegen-perf-monitoring",
+                    cl::desc("Add run-time performance monitoring"), cl::Hidden,
+                    cl::location(polly::PerfMonitoring), cl::init(false),
+                    cl::ZeroOrMore, cl::cat(PollyCategory));
 STATISTIC(NumGenerationSkips, "Number of skipped SCoPs");
 STATISTIC(NumGeneratedScops, "Number of successfully generated SCoPs");
 STATISTIC(NumGeneratedFails, "Number of unsuccessfully generated SCoPs");
@@ -347,8 +349,10 @@ PreservedAnalyses
 polly::CodeGenerationPass::run(Scop &S, ScopAnalysisManager &SAM,
                                ScopStandardAnalysisResults &AR, SPMUpdater &U) {
   auto &AI = SAM.getResult<IslAstAnalysis>(S, AR);
-  if (CodeGen(S, AI, AR.LI, AR.DT, AR.SE, AR.RI))
+  if (CodeGen(S, AI, AR.LI, AR.DT, AR.SE, AR.RI)) {
+    U.invalidateScop(S);
     return PreservedAnalyses::none();
+  }
 
   return PreservedAnalyses::all();
 }

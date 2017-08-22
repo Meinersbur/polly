@@ -35,6 +35,7 @@
 
 static int DebugMode;
 static int CacheMode;
+#define max(x, y) ((x) > (y) ? (x) : (y))
 
 static PollyGPURuntime Runtime = RUNTIME_NONE;
 
@@ -940,6 +941,10 @@ static void *HandleCudaRT;
 typedef CUresult CUDAAPI CuMemAllocFcnTy(CUdeviceptr *, size_t);
 static CuMemAllocFcnTy *CuMemAllocFcnPtr;
 
+typedef CUresult CUDAAPI CuMemAllocManagedFcnTy(CUdeviceptr *, size_t,
+                                                unsigned int);
+static CuMemAllocManagedFcnTy *CuMemAllocManagedFcnPtr;
+
 typedef CUresult CUDAAPI CuLaunchKernelFcnTy(
     CUfunction F, unsigned int GridDimX, unsigned int GridDimY,
     unsigned int gridDimZ, unsigned int blockDimX, unsigned int BlockDimY,
@@ -1079,6 +1084,9 @@ static int initialDeviceAPIsCUDA() {
 
   CuMemAllocFcnPtr =
       (CuMemAllocFcnTy *)getAPIHandleCUDA(HandleCuda, "cuMemAlloc_v2");
+
+  CuMemAllocManagedFcnPtr = (CuMemAllocManagedFcnTy *)getAPIHandleCUDA(
+      HandleCuda, "cuMemAllocManaged");
 
   CuMemFreeFcnPtr =
       (CuMemFreeFcnTy *)getAPIHandleCUDA(HandleCuda, "cuMemFree_v2");
@@ -1444,7 +1452,7 @@ void polly_freeManaged(void *mem) {
   // If not, we pass it along to the underlying allocator.
   // This is a hack, and can be removed if the underlying issue is fixed.
   if (isManagedPtr(mem)) {
-    if (cudaFree(mem) != cudaSuccess) {
+    if (CuMemFreeFcnPtr((size_t)mem) != CUDA_SUCCESS) {
       fprintf(stderr, "cudaFree failed.\n");
       exit(-1);
     }
@@ -1455,14 +1463,27 @@ void polly_freeManaged(void *mem) {
 }
 
 void *polly_mallocManaged(size_t size) {
-  dump_function();
-  void *a;
-  if (cudaMallocManaged(&a, size, cudaMemAttachGlobal) != cudaSuccess) {
+  // Note: [Size 0 allocations]
+  // Sometimes, some runtime computation of size could create a size of 0
+  // for an allocation. In these cases, we do not wish to fail.
+  // The CUDA API fails on size 0 allocations.
+  // So, we allocate size a minimum of size 1.
+  if (!size && DebugMode)
+    fprintf(stderr, "cudaMallocManaged called with size 0. "
+                    "Promoting to size 1");
+  size = max(size, 1);
+  PollyGPUContext *_ = polly_initContextCUDA();
+  assert(_ && "polly_initContextCUDA failed");
+
+  void *newMemPtr;
+  const CUresult Res = CuMemAllocManagedFcnPtr((CUdeviceptr *)&newMemPtr, size,
+                                               CU_MEM_ATTACH_GLOBAL);
+  if (Res != CUDA_SUCCESS) {
     fprintf(stderr, "cudaMallocManaged failed for size: %zu\n", size);
     exit(-1);
   }
-  addManagedPtr(a);
-  return a;
+  addManagedPtr(newMemPtr);
+  return newMemPtr;
 }
 
 static void freeDeviceMemoryCUDA(PollyGPUDevicePtr *Allocation) {
@@ -1474,6 +1495,11 @@ static void freeDeviceMemoryCUDA(PollyGPUDevicePtr *Allocation) {
 }
 
 static PollyGPUDevicePtr *allocateMemoryForDeviceCUDA(long MemSize) {
+  if (!MemSize && DebugMode)
+    fprintf(stderr, "allocateMemoryForDeviceCUDA called with size 0. "
+                    "Promoting to size 1");
+  // see: [Size 0 allocations]
+  MemSize = max(MemSize, 1);
   dump_function();
 
   PollyGPUDevicePtr *DevData = malloc(sizeof(PollyGPUDevicePtr));

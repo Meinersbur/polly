@@ -366,13 +366,6 @@ polly::computeArrayUnused(isl::union_map Schedule, isl::union_map Writes,
   auto WriteActions =
       give(isl_union_map_apply_domain(Schedule.copy(), Writes.copy()));
 
-  // { [Element[] -> Scatter[] }
-  auto AfterReads = afterScatter(ReadActions, ReadEltInSameInst);
-  auto WritesBeforeAnyReads =
-      give(isl_union_map_subtract(WriteActions.take(), AfterReads.take()));
-  auto BeforeWritesBeforeAnyReads =
-      beforeScatter(WritesBeforeAnyReads, !IncludeWrite);
-
   // { [Element[] -> DomainWrite[]] -> Scatter[] }
   auto EltDomWrites = give(isl_union_map_apply_range(
       isl_union_map_range_map(isl_union_map_reverse(Writes.copy())),
@@ -390,15 +383,26 @@ polly::computeArrayUnused(isl::union_map Schedule, isl::union_map Writes,
   auto ReadsOverwrittenRotated = give(isl_union_map_reverse(
       isl_union_map_curry(reverseDomain(ReadsOverwritten).take())));
   auto LastOverwrittenRead =
-      give(isl_union_map_lexmax(ReadsOverwrittenRotated.take()));
+      give(isl_union_map_lexmax(ReadsOverwrittenRotated.copy()));
 
   // { [Element[] -> DomainWrite[]] -> Scatter[] }
   auto BetweenLastReadOverwrite = betweenScatter(
       LastOverwrittenRead, EltDomWrites, IncludeLastRead, IncludeWrite);
 
-  return give(isl_union_map_union(
-      BeforeWritesBeforeAnyReads.take(),
-      isl_union_map_domain_factor_domain(BetweenLastReadOverwrite.take())));
+  // { [Element[] -> Scatter[]] -> DomainWrite[] }
+  isl::union_map ReachingOverwriteZone = computeReachingWrite(
+      Schedule, Writes, true, IncludeLastRead, IncludeWrite);
+
+  // { [Element[] -> DomainWrite[]] -> Scatter[] }
+  isl::union_map ReachingOverwriteRotated =
+      reverseDomain(ReachingOverwriteZone).curry().reverse();
+
+  // { [Element[] -> DomainWrite[]] -> Scatter[] }
+  isl::union_map WritesWithoutReads = ReachingOverwriteRotated.subtract_domain(
+      ReadsOverwrittenRotated.domain());
+
+  return BetweenLastReadOverwrite.unite(WritesWithoutReads)
+      .domain_factor_domain();
 }
 
 isl::union_set polly::convertZoneToTimepoints(isl::union_set Zone,
@@ -453,14 +457,11 @@ isl::map polly::distributeDomain(isl::map Map) {
 
   auto Space = give(isl_map_get_space(Map.keep()));
   auto DomainSpace = give(isl_space_domain(Space.copy()));
-  assert(DomainSpace);
   auto DomainDims = isl_space_dim(DomainSpace.keep(), isl_dim_set);
   auto RangeSpace = give(isl_space_unwrap(isl_space_range(Space.copy())));
   auto Range1Space = give(isl_space_domain(RangeSpace.copy()));
-  assert(Range1Space);
   auto Range1Dims = isl_space_dim(Range1Space.keep(), isl_dim_set);
   auto Range2Space = give(isl_space_range(RangeSpace.copy()));
-  assert(Range2Space);
   auto Range2Dims = isl_space_dim(Range2Space.keep(), isl_dim_set);
 
   auto OutputSpace = give(isl_space_map_from_domain_and_range(
@@ -497,11 +498,13 @@ isl::map polly::distributeDomain(isl::map Map) {
 
 isl::union_map polly::distributeDomain(isl::union_map UMap) {
   auto Result = give(isl_union_map_empty(isl_union_map_get_space(UMap.keep())));
-  UMap.foreach_map([=, &Result](isl::map Map) {
+  isl::stat Success = UMap.foreach_map([=, &Result](isl::map Map) {
     auto Distributed = distributeDomain(Map);
     Result = give(isl_union_map_add_map(Result.take(), Distributed.copy()));
     return isl::stat::ok;
   });
+  if (Success != isl::stat::ok)
+    return {};
   return Result;
 }
 

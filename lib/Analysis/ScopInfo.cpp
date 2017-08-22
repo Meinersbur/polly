@@ -171,6 +171,16 @@ static cl::opt<bool> PollyIgnoreParamBounds(
         "Do not add parameter bounds and do no gist simplify sets accordingly"),
     cl::Hidden, cl::init(false), cl::cat(PollyCategory));
 
+static cl::opt<bool> PollyAllowDereferenceOfAllFunctionParams(
+    "polly-allow-dereference-of-all-function-parameters",
+    cl::desc(
+        "Treat all parameters to functions that are pointers as dereferencible."
+        " This is useful for invariant load hoisting, since we can generate"
+        " less runtime checks. This is only valid if all pointers to functions"
+        " are always initialized, so that Polly can choose to hoist"
+        " their loads. "),
+    cl::Hidden, cl::init(false), cl::cat(PollyCategory));
+
 static cl::opt<bool> PollyPreciseFoldAccesses(
     "polly-precise-fold-accesses",
     cl::desc("Fold memory accesses to model more possible delinearizations "
@@ -1353,30 +1363,20 @@ bool MemoryAccess::isLatestPartialAccess() const {
 //===----------------------------------------------------------------------===//
 
 isl::map ScopStmt::getSchedule() const {
-  isl_set *Domain = getDomain().release();
-  if (isl_set_is_empty(Domain)) {
-    isl_set_free(Domain);
-    return isl::manage(isl_map_from_aff(isl_aff_zero_on_domain(
-        isl_local_space_from_space(getDomainSpace().release()))));
-  }
-  auto *Schedule = getParent()->getSchedule().release();
-  if (!Schedule) {
-    isl_set_free(Domain);
+  isl::set Domain = getDomain();
+  if (Domain.is_empty())
+    return isl::map::from_aff(isl::aff(isl::local_space(getDomainSpace())));
+  auto Schedule = getParent()->getSchedule();
+  if (!Schedule)
     return nullptr;
-  }
-  Schedule = isl_union_map_intersect_domain(
-      Schedule, isl_union_set_from_set(isl_set_copy(Domain)));
-  if (isl_union_map_is_empty(Schedule)) {
-    isl_set_free(Domain);
-    isl_union_map_free(Schedule);
-    return isl::manage(isl_map_from_aff(isl_aff_zero_on_domain(
-        isl_local_space_from_space(getDomainSpace().release()))));
-  }
-  auto *M = isl_map_from_union_map(Schedule);
-  M = isl_map_coalesce(M);
-  M = isl_map_gist_domain(M, Domain);
-  M = isl_map_coalesce(M);
-  return isl::manage(M);
+  Schedule = Schedule.intersect_domain(isl::union_set(Domain));
+  if (Schedule.is_empty())
+    return isl::map::from_aff(isl::aff(isl::local_space(getDomainSpace())));
+  isl::map M = M.from_union_map(Schedule);
+  M = M.coalesce();
+  M = M.gist_domain(Domain);
+  M = M.coalesce();
+  return M;
 }
 
 void ScopStmt::restrictDomain(isl::set NewDomain) {
@@ -1415,7 +1415,6 @@ void ScopStmt::addAccess(MemoryAccess *Access, bool Prepend) {
     MAL.emplace_front(Access);
   } else if (Access->isValueKind() && Access->isWrite()) {
     Instruction *AccessVal = cast<Instruction>(Access->getAccessValue());
-    assert(Parent.getStmtFor(AccessVal) == this);
     assert(!ValueWrites.lookup(AccessVal));
 
     ValueWrites[AccessVal] = Access;
@@ -1968,39 +1967,32 @@ void ScopStmt::checkForReductions() {
   // Then check each possible candidate pair.
   for (const auto &CandidatePair : Candidates) {
     bool Valid = true;
-    isl_map *LoadAccs = CandidatePair.first->getAccessRelation().release();
-    isl_map *StoreAccs = CandidatePair.second->getAccessRelation().release();
+    isl::map LoadAccs = CandidatePair.first->getAccessRelation();
+    isl::map StoreAccs = CandidatePair.second->getAccessRelation();
 
     // Skip those with obviously unequal base addresses.
-    if (!isl_map_has_equal_space(LoadAccs, StoreAccs)) {
-      isl_map_free(LoadAccs);
-      isl_map_free(StoreAccs);
+    if (!LoadAccs.has_equal_space(StoreAccs)) {
       continue;
     }
 
     // And check if the remaining for overlap with other memory accesses.
-    isl_map *AllAccsRel = isl_map_union(LoadAccs, StoreAccs);
-    AllAccsRel = isl_map_intersect_domain(AllAccsRel, getDomain().release());
-    isl_set *AllAccs = isl_map_range(AllAccsRel);
+    isl::map AllAccsRel = LoadAccs.unite(StoreAccs);
+    AllAccsRel = AllAccsRel.intersect_domain(getDomain());
+    isl::set AllAccs = AllAccsRel.range();
 
     for (MemoryAccess *MA : MemAccs) {
       if (MA == CandidatePair.first || MA == CandidatePair.second)
         continue;
 
-      isl_map *AccRel = isl_map_intersect_domain(
-          MA->getAccessRelation().release(), getDomain().release());
-      isl_set *Accs = isl_map_range(AccRel);
+      isl::map AccRel = MA->getAccessRelation().intersect_domain(getDomain());
+      isl::set Accs = AccRel.range();
 
-      if (isl_set_has_equal_space(AllAccs, Accs)) {
-        isl_set *OverlapAccs = isl_set_intersect(Accs, isl_set_copy(AllAccs));
-        Valid = Valid && isl_set_is_empty(OverlapAccs);
-        isl_set_free(OverlapAccs);
-      } else {
-        isl_set_free(Accs);
+      if (AllAccs.has_equal_space(Accs)) {
+        isl::set OverlapAccs = Accs.intersect(AllAccs);
+        Valid = Valid && OverlapAccs.is_empty();
       }
     }
 
-    isl_set_free(AllAccs);
     if (!Valid)
       continue;
 
@@ -2316,8 +2308,8 @@ void Scop::createParameterId(const SCEV *Parameter) {
     ParameterName = getIslCompatibleName("", ParameterName, "");
   }
 
-  auto *Id = isl_id_alloc(getIslCtx(), ParameterName.c_str(),
-                          const_cast<void *>((const void *)Parameter));
+  isl::id Id = isl::id::alloc(getIslCtx(), ParameterName.c_str(),
+                              const_cast<void *>((const void *)Parameter));
   ParameterIds[Parameter] = Id;
 }
 
@@ -2335,7 +2327,7 @@ void Scop::addParams(const ParameterSetTy &NewParameters) {
 isl::id Scop::getIdForParam(const SCEV *Parameter) const {
   // Normalize the SCEV to get the representing element for an invariant load.
   Parameter = getRepresentingInvariantLoadSCEV(Parameter);
-  return isl::manage(isl_id_copy(ParameterIds.lookup(Parameter)));
+  return ParameterIds.lookup(Parameter);
 }
 
 isl::set Scop::addNonEmptyDomainConstraints(isl::set C) const {
@@ -3834,8 +3826,7 @@ Scop::~Scop() {
   isl_set_free(InvalidContext);
   isl_schedule_free(Schedule);
 
-  for (auto &It : ParameterIds)
-    isl_id_free(It.second);
+  ParameterIds.clear();
 
   for (auto &AS : RecordedAssumptions)
     isl_set_free(AS.Set);
@@ -3929,10 +3920,16 @@ static bool hasDbgCall(ScopStmt *Stmt) {
 
 void Scop::removeFromStmtMap(ScopStmt &Stmt) {
   if (Stmt.isRegionStmt())
-    for (BasicBlock *BB : Stmt.getRegion()->blocks())
+    for (BasicBlock *BB : Stmt.getRegion()->blocks()) {
       StmtMap.erase(BB);
-  else
+      for (Instruction &Inst : *BB)
+        InstStmtMap.erase(&Inst);
+    }
+  else {
     StmtMap.erase(Stmt.getBasicBlock());
+    for (Instruction *Inst : Stmt.getInstructions())
+      InstStmtMap.erase(Inst);
+  }
 }
 
 void Scop::removeStmts(std::function<bool(ScopStmt &)> ShouldDelete) {
@@ -4000,11 +3997,23 @@ InvariantEquivClassTy *Scop::lookupInvariantEquivClass(Value *Val) {
   return nullptr;
 }
 
+bool isAParameter(llvm::Value *maybeParam, const Function &F) {
+  for (const llvm::Argument &Arg : F.args())
+    if (&Arg == maybeParam)
+      return true;
+
+  return false;
+};
+
 bool Scop::canAlwaysBeHoisted(MemoryAccess *MA, bool StmtInvalidCtxIsEmpty,
                               bool MAInvalidCtxIsEmpty,
                               bool NonHoistableCtxIsEmpty) {
   LoadInst *LInst = cast<LoadInst>(MA->getAccessInstruction());
   const DataLayout &DL = LInst->getParent()->getModule()->getDataLayout();
+  if (PollyAllowDereferenceOfAllFunctionParams &&
+      isAParameter(LInst->getPointerOperand(), getFunction()))
+    return true;
+
   // TODO: We can provide more information for better but more expensive
   //       results.
   if (!isDereferenceableAndAlignedPointer(LInst->getPointerOperand(),
@@ -4250,11 +4259,13 @@ void Scop::verifyInvariantLoads() {
   auto &RIL = getRequiredInvariantLoads();
   for (LoadInst *LI : RIL) {
     assert(LI && contains(LI));
-    ScopStmt *Stmt = getStmtFor(LI);
-    if (Stmt && Stmt->getArrayAccessOrNULLFor(LI)) {
-      invalidate(INVARIANTLOAD, LI->getDebugLoc(), LI->getParent());
-      return;
-    }
+    // If there exists a statement in the scop which has a memory access for
+    // @p LI, then mark this scop as infeasible for optimization.
+    for (ScopStmt &Stmt : Stmts)
+      if (Stmt.getArrayAccessOrNULLFor(LI)) {
+        invalidate(INVARIANTLOAD, LI->getDebugLoc(), LI->getParent());
+        return;
+      }
   }
 }
 
@@ -4878,6 +4889,11 @@ isl::union_map Scop::getAccesses() {
   return getAccessesOfType([](MemoryAccess &MA) { return true; });
 }
 
+isl::union_map Scop::getAccesses(ScopArrayInfo *Array) {
+  return getAccessesOfType(
+      [Array](MemoryAccess &MA) { return MA.getScopArrayInfo() == Array; });
+}
+
 // Check whether @p Node is an extension node.
 //
 // @return true if @p Node is an extension node.
@@ -4922,32 +4938,24 @@ void Scop::setScheduleTree(__isl_take isl_schedule *NewSchedule) {
   Schedule = NewSchedule;
 }
 
-bool Scop::restrictDomains(__isl_take isl_union_set *Domain) {
+bool Scop::restrictDomains(isl::union_set Domain) {
   bool Changed = false;
   for (ScopStmt &Stmt : *this) {
-    isl_union_set *StmtDomain =
-        isl_union_set_from_set(Stmt.getDomain().release());
-    isl_union_set *NewStmtDomain = isl_union_set_intersect(
-        isl_union_set_copy(StmtDomain), isl_union_set_copy(Domain));
+    isl::union_set StmtDomain = isl::union_set(Stmt.getDomain());
+    isl::union_set NewStmtDomain = StmtDomain.intersect(Domain);
 
-    if (isl_union_set_is_subset(StmtDomain, NewStmtDomain)) {
-      isl_union_set_free(StmtDomain);
-      isl_union_set_free(NewStmtDomain);
+    if (StmtDomain.is_subset(NewStmtDomain))
       continue;
-    }
 
     Changed = true;
 
-    isl_union_set_free(StmtDomain);
-    NewStmtDomain = isl_union_set_coalesce(NewStmtDomain);
+    NewStmtDomain = NewStmtDomain.coalesce();
 
-    if (isl_union_set_is_empty(NewStmtDomain)) {
+    if (NewStmtDomain.is_empty())
       Stmt.restrictDomain(isl::set::empty(Stmt.getDomainSpace()));
-      isl_union_set_free(NewStmtDomain);
-    } else
-      Stmt.restrictDomain(isl::manage(isl_set_from_union_set(NewStmtDomain)));
+    else
+      Stmt.restrictDomain(isl::set(NewStmtDomain));
   }
-  isl_union_set_free(Domain);
   return Changed;
 }
 
@@ -4999,14 +5007,25 @@ void Scop::addScopStmt(BasicBlock *BB, Loop *SurroundingLoop,
   Stmts.emplace_back(*this, *BB, SurroundingLoop, Instructions);
   auto *Stmt = &Stmts.back();
   StmtMap[BB].push_back(Stmt);
+  for (Instruction *Inst : Instructions) {
+    assert(!InstStmtMap.count(Inst) &&
+           "Unexpected statement corresponding to the instruction.");
+    InstStmtMap[Inst] = Stmt;
+  }
 }
 
 void Scop::addScopStmt(Region *R, Loop *SurroundingLoop) {
   assert(R && "Unexpected nullptr!");
   Stmts.emplace_back(*this, *R, SurroundingLoop);
   auto *Stmt = &Stmts.back();
-  for (BasicBlock *BB : R->blocks())
+  for (BasicBlock *BB : R->blocks()) {
     StmtMap[BB].push_back(Stmt);
+    for (Instruction &Inst : *BB) {
+      assert(!InstStmtMap.count(&Inst) &&
+             "Unexpected statement corresponding to the instruction.");
+      InstStmtMap[&Inst] = Stmt;
+    }
+  }
 }
 
 static int countLoops(Loop *L, const Region &IfContainedBy) {
@@ -5254,14 +5273,6 @@ void Scop::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack, LoopInfo &LI) {
   }
 }
 
-ScopStmt *Scop::getStmtFor(BasicBlock *BB) const {
-  auto StmtMapIt = StmtMap.find(BB);
-  if (StmtMapIt == StmtMap.end())
-    return nullptr;
-  assert(StmtMapIt->second.size() == 1);
-  return StmtMapIt->second.front();
-}
-
 ArrayRef<ScopStmt *> Scop::getStmtListFor(BasicBlock *BB) const {
   auto StmtMapIt = StmtMap.find(BB);
   if (StmtMapIt == StmtMap.end())
@@ -5482,7 +5493,13 @@ INITIALIZE_PASS_END(ScopInfoRegionPass, "polly-scops",
 //===----------------------------------------------------------------------===//
 ScopInfo::ScopInfo(const DataLayout &DL, ScopDetection &SD, ScalarEvolution &SE,
                    LoopInfo &LI, AliasAnalysis &AA, DominatorTree &DT,
-                   AssumptionCache &AC) {
+                   AssumptionCache &AC)
+    : DL(DL), SD(SD), SE(SE), LI(LI), AA(AA), DT(DT), AC(AC) {
+  recompute();
+}
+
+void ScopInfo::recompute() {
+  RegionToScopMap.clear();
   /// Create polyhedral description of scops for all the valid regions of a
   /// function.
   for (auto &It : SD) {
@@ -5501,6 +5518,20 @@ ScopInfo::ScopInfo(const DataLayout &DL, ScopDetection &SD, ScalarEvolution &SE,
     assert(Inserted && "Building Scop for the same region twice!");
     (void)Inserted;
   }
+}
+
+bool ScopInfo::invalidate(Function &F, const PreservedAnalyses &PA,
+                          FunctionAnalysisManager::Invalidator &Inv) {
+  // Check whether the analysis, all analyses on functions have been preserved
+  // or anything we're holding references to is being invalidated
+  auto PAC = PA.getChecker<ScopInfoAnalysis>();
+  return !(PAC.preserved() || PAC.preservedSet<AllAnalysesOn<Function>>()) ||
+         Inv.invalidate<ScopAnalysis>(F, PA) ||
+         Inv.invalidate<ScalarEvolutionAnalysis>(F, PA) ||
+         Inv.invalidate<LoopAnalysis>(F, PA) ||
+         Inv.invalidate<AAManager>(F, PA) ||
+         Inv.invalidate<DominatorTreeAnalysis>(F, PA) ||
+         Inv.invalidate<AssumptionAnalysis>(F, PA);
 }
 
 AnalysisKey ScopInfoAnalysis::Key;
