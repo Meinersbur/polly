@@ -240,7 +240,7 @@ private:
 
         Stmt.removeSingleMemoryAccess(MA);
         OverwritesRemoved++;
-        TotalOverwritesRemoved++;
+        TotalOverwritesRemoved[CallNo]++;
         continue;
       }
 
@@ -300,7 +300,7 @@ private:
             OtherMA->setNewAccessRelation(NewAccRel);
             Stmt.removeSingleMemoryAccess(MA);
 
-            TotalWritesCoalesced++;
+            TotalWritesCoalesced[CallNo]++;
             WritesCoalesced++;
 
             return isl::stat::error;
@@ -389,7 +389,7 @@ private:
             Stmt.removeSingleMemoryAccess(MA);
 
             RedundantWritesRemoved++;
-            TotalRedundantWritesRemoved++;
+            TotalRedundantWritesRemoved[CallNo]++;
           }
         }
       }
