@@ -19,6 +19,7 @@
 #include "llvm/PassSupport.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/Scalar/GVN.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/Instrumentation.h"
 #include "llvm/Transforms/Scalar/GVN.h"
@@ -81,6 +82,7 @@ public:
     FPM->add(createCFGSimplificationPass());
     FPM->add(createReassociatePass());
     FPM->add(createLoopRotatePass());
+    FPM->add(createGVNPass());
     FPM->add(createLICMPass());
     FPM->add(createLoopUnswitchPass());
     FPM->add(createCFGSimplificationPass());

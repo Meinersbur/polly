@@ -20,14 +20,12 @@
 #include "isl/aff.h"
 #include "isl/ast_build.h"
 #include "isl/ctx.h"
+#include "isl/isl-noexceptions.h"
 #include "isl/map.h"
 #include "isl/options.h"
 #include "isl/set.h"
 #include "isl/union_map.h"
 #include "isl/union_set.h"
-
-#include "isl-noexceptions.h"
-
 #include <functional>
 #include <string>
 

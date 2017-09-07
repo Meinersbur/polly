@@ -31,28 +31,44 @@ using namespace polly;
 
 namespace {
 
+#define TWO_STATISTICS(VARNAME, DESC)                                          \
+  static llvm::Statistic VARNAME[2] = {                                        \
+      {DEBUG_TYPE, #VARNAME "0", DESC " (first)", {0}, false},                 \
+      {DEBUG_TYPE, #VARNAME "1", DESC " (second)", {0}, false}}
+
 /// Number of max disjuncts we allow in removeOverwrites(). This is to avoid
 /// that the analysis of accesses in a statement is becoming too complex. Chosen
 /// to be relatively small because all the common cases should access only few
 /// array elements per statement.
 static int const SimplifyMaxDisjuncts = 4;
 
-STATISTIC(ScopsProcessed, "Number of SCoPs processed");
-STATISTIC(ScopsModified, "Number of SCoPs simplified");
+TWO_STATISTICS(ScopsProcessed, "Number of SCoPs processed");
+TWO_STATISTICS(ScopsModified, "Number of SCoPs simplified");
 
-STATISTIC(TotalOverwritesRemoved, "Number of removed overwritten writes");
-STATISTIC(TotalWritesCoalesced, "Number of writes coalesced with another");
-STATISTIC(TotalRedundantWritesRemoved,
-          "Number of writes of same value removed in any SCoP");
+TWO_STATISTICS(TotalOverwritesRemoved, "Number of removed overwritten writes");
+TWO_STATISTICS(TotalWritesCoalesced, "Number of writes coalesced with another");
+TWO_STATISTICS(TotalRedundantWritesRemoved,
+               "Number of writes of same value removed in any SCoP");
+TWO_STATISTICS(TotalEmptyPartialAccessesRemoved,
+               "Number of empty partial accesses removed");
+TWO_STATISTICS(TotalDeadAccessesRemoved, "Number of dead accesses removed");
+TWO_STATISTICS(TotalDeadInstructionsRemoved,
+               "Number of unused instructions removed");
+TWO_STATISTICS(TotalStmtsRemoved, "Number of statements removed in any SCoP");
 
-STATISTIC(TotalEmptyPartialAccessesRemoved,
-          "Number of empty partial accesses removed");
-
-
-STATISTIC(TotalDeadAccessesRemoved, "Number of dead accesses removed");
-STATISTIC(TotalDeadInstructionsRemoved,
-          "Number of unused instructions removed");
-STATISTIC(TotalStmtsRemoved, "Number of statements removed in any SCoP");
+TWO_STATISTICS(NumValueWrites, "Number of scalar value writes after Simplify");
+TWO_STATISTICS(
+    NumValueWritesInLoops,
+    "Number of scalar value writes nested in affine loops after Simplify");
+TWO_STATISTICS(NumPHIWrites,
+               "Number of scalar phi writes after the first simplification");
+TWO_STATISTICS(
+    NumPHIWritesInLoops,
+    "Number of scalar phi writes nested in affine loops after Simplify");
+TWO_STATISTICS(NumSingletonWrites, "Number of singleton writes after Simplify");
+TWO_STATISTICS(
+    NumSingletonWritesInLoops,
+    "Number of singleton writes nested in affine loops after Simplify");
 
 
 
@@ -120,6 +136,10 @@ static auto accessesInOrder(ScopStmt *Stmt) -> decltype(concat<MemoryAccess *>(
 
 class Simplify : public ScopPass {
 private:
+  /// The invocation id (if there are multiple instances in the pass manager's
+  /// pipeline) to determine which statistics to update.
+  int CallNo;
+
   /// The last/current SCoP that is/has been processed.
   Scop *S;
 
@@ -519,7 +539,7 @@ private:
             // We removed MA, OtherMA takes its role.
             MA = OtherMA;
 
-            TotalWritesCoalesced++;
+            TotalWritesCoalesced[CallNo]++;
             WritesCoalesced++;
 
             // Don't look for more candidates.
@@ -641,7 +661,7 @@ private:
               Stmt.removeSingleMemoryAccess(MA);
 
               RedundantWritesRemoved++;
-              TotalRedundantWritesRemoved++;
+              TotalRedundantWritesRemoved[CallNo]++;
             }
           }
         }
@@ -681,7 +701,7 @@ private:
     StmtsRemoved = NumStmtsBefore - S->getSize();
     DEBUG(dbgs() << "Removed " << StmtsRemoved << " (of " << NumStmtsBefore
                  << ") statements\n");
-    TotalStmtsRemoved += StmtsRemoved;
+    TotalStmtsRemoved[CallNo] += StmtsRemoved;
   }
 
   /// Remove accesses that have an empty domain.
@@ -706,7 +726,7 @@ private:
       for (MemoryAccess *MA : DeferredRemove) {
         Stmt.removeSingleMemoryAccess(MA);
         EmptyPartialAccessesRemoved++;
-        TotalEmptyPartialAccessesRemoved++;
+        TotalEmptyPartialAccessesRemoved[CallNo]++;
       }
     }
   }
@@ -735,13 +755,14 @@ private:
       Stmt->removeSingleMemoryAccess(MA);
 
       DeadAccessesRemoved++;
-      TotalDeadAccessesRemoved++;
+      TotalDeadAccessesRemoved[CallNo]++;
     }
 
     // Remove all non-reachable instructions.
     for (ScopStmt &Stmt : *S) {
-      if (!Stmt.isBlockStmt())
-        continue;
+      // Note that for region statements, we can only remove the non-terminator
+      // instructions of the entry block. All other instructions are not in the
+      // instructions list, but implicitly always part of the statement.
 
       SmallVector<Instruction *, 32> AllInsts(Stmt.insts_begin(),
                                               Stmt.insts_end());
@@ -753,7 +774,7 @@ private:
           DEBUG(dbgs() << "Removing "; Inst->print(dbgs());
                 dbgs() << " because it is not used\n");
           DeadInstructionsRemoved++;
-          TotalDeadInstructionsRemoved++;
+          TotalDeadInstructionsRemoved[CallNo]++;
           continue;
         }
 
@@ -837,7 +858,7 @@ private:
 
 public:
   static char ID;
-  explicit Simplify() : ScopPass(ID) {}
+  explicit Simplify(int CallNo = 0) : ScopPass(ID), CallNo(CallNo) {}
 
   virtual void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequiredTransitive<ScopInfoRegionPass>();
@@ -852,7 +873,7 @@ public:
 
     // Prepare processing of this SCoP.
     this->S = &S;
-    ScopsProcessed++;
+    ScopsProcessed[CallNo]++;
 
     DEBUG(dbgs() << "Removing partial writes that never happen...\n");
     removeEmptyPartialAccesses();
@@ -877,11 +898,19 @@ public:
     removeUnnecessaryStmts();
 
     if (isModified())
-      ScopsModified++;
+      ScopsModified[CallNo]++;
     DEBUG(dbgs() << "\nFinal Scop:\n");
     DEBUG(dbgs() << S);
 
     ValueIds.clear();
+    auto ScopStats = S.getStatistics();
+    NumValueWrites[CallNo] += ScopStats.NumValueWrites;
+    NumValueWritesInLoops[CallNo] += ScopStats.NumValueWritesInLoops;
+    NumPHIWrites[CallNo] += ScopStats.NumPHIWrites;
+    NumPHIWritesInLoops[CallNo] += ScopStats.NumPHIWritesInLoops;
+    NumSingletonWrites[CallNo] += ScopStats.NumSingletonWrites;
+    NumSingletonWritesInLoops[CallNo] += ScopStats.NumSingletonWritesInLoops;
+
     return false;
   }
 
@@ -940,7 +969,7 @@ SmallVector<MemoryAccess *, 32> getAccessesInOrder(ScopStmt &Stmt) {
 }
 } // namespace polly
 
-Pass *polly::createSimplifyPass() { return new Simplify(); }
+Pass *polly::createSimplifyPass(int CallNo) { return new Simplify(CallNo); }
 
 INITIALIZE_PASS_BEGIN(Simplify, "polly-simplify", "Polly - Simplify", false,
                       false)
