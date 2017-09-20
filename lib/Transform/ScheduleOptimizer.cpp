@@ -1471,9 +1471,11 @@ static void walkScheduleTreeForStatistics(isl::schedule Schedule, int Version) {
 }
 
 bool IslScheduleOptimizer::runOnScop(Scop &S) {
-  // Skip SCoPs in case they're already optimised by PPCGCodeGeneration
-  if (S.isToBeSkipped())
-    return false;
+  // Skip SCoPs in case they're already optimised by CodeGeneration or PPCGCodeGeneration
+	if (S.isToBeSkipped()) {
+		DEBUG(dbgs() << "SCoP marked to be skipped\n");
+		return false;
+	}
 
   // Skip empty SCoPs but still allow code generation as it will delete the
   // loops present but not needed.

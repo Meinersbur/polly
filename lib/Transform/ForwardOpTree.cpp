@@ -851,6 +851,11 @@ public:
     // Free resources for previous SCoP's computation, if not yet done.
     releaseMemory();
 
+	if (S.isToBeSkipped()) {
+		DEBUG(dbgs() << "SCoP marked to be skipped\n");
+		return false;
+	}
+
     LoopInfo &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
 
     {

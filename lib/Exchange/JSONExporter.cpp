@@ -779,6 +779,11 @@ void JSONImporter::printScop(raw_ostream &OS, Scop &S) const {
 }
 
 bool JSONImporter::runOnScop(Scop &S) {
+	if (S.isToBeSkipped()) {
+		DEBUG(dbgs() << "SCoP marked to be skipped\n");
+		return false;
+	}
+
   const Dependences &D =
       getAnalysis<DependenceInfo>().getDependences(Dependences::AL_Statement);
   const DataLayout &DL = S.getFunction().getParent()->getDataLayout();

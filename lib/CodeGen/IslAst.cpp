@@ -797,9 +797,11 @@ PreservedAnalyses IslAstPrinterPass::run(Scop &S, ScopAnalysisManager &SAM,
 void IslAstInfoWrapperPass::releaseMemory() { Ast.reset(); }
 
 bool IslAstInfoWrapperPass::runOnScop(Scop &Scop) {
-  // Skip SCoPs in case they're already handled by PPCGCodeGeneration.
-  if (Scop.isToBeSkipped())
-    return false;
+  // Skip SCoPs in case they're already handled by CodeGeneration or PPCGCodeGeneration.
+	if (Scop.isToBeSkipped()) {
+		DEBUG(dbgs() << "SCoP marked to be skipped\n");
+		return false;
+	}
 
   ScopsProcessed++;
 

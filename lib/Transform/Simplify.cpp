@@ -632,6 +632,11 @@ public:
     releaseMemory();
     assert(!isModified());
 
+	if (S.isToBeSkipped()) {
+		DEBUG(dbgs() << "SCoP marked to be skipped\n");
+		return false;
+	}
+
     // Prepare processing of this SCoP.
     this->S = &S;
     ScopsProcessed[CallNo]++;
