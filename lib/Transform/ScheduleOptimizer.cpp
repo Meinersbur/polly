@@ -326,19 +326,20 @@ static isl::union_set getIsolateOptions(isl::set IsolateDomain,
   return isl::union_set(IsolateOption);
 }
 
-/// Create an isl::union_set, which describes the atomic option for the
+namespace {
+/// Create an isl::union_set, which describes the specified option for the
 /// dimension of the current node.
 ///
-/// It may help to reduce the size of generated code.
-///
-/// @param Ctx An isl::ctx, which is used to create the isl::union_set.
-static isl::union_set getAtomicOptions(isl::ctx Ctx) {
+/// @param Ctx    An isl::ctx, which is used to create the isl::union_set.
+/// @param Option The name of the option.
+isl::union_set getDimOptions(isl::ctx Ctx, const char *Option) {
   isl::space Space(Ctx, 0, 1);
-  isl::set AtomicOption = isl::set::universe(Space);
-  isl::id Id = isl::id::alloc(Ctx, "atomic", nullptr);
-  AtomicOption = AtomicOption.set_tuple_id(Id);
-  return isl::union_set(AtomicOption);
+  auto DimOption = isl::set::universe(Space);
+  auto Id = isl::id::alloc(Ctx, Option, nullptr);
+  DimOption = DimOption.set_tuple_id(Id);
+  return isl::union_set(DimOption);
 }
+} // namespace
 
 /// Create an isl::union_set, which describes the option of the form
 /// [isolate[] -> unroll[x]].
@@ -394,7 +395,7 @@ ScheduleTreeOptimizer::isolateFullPartialTiles(isl::schedule_node Node,
   isl::map ScheduleRelation = isl::map::from_union_map(SchedRelUMap);
   isl::set ScheduleRange = ScheduleRelation.range();
   isl::set IsolateDomain = getPartialTilePrefixes(ScheduleRange, VectorWidth);
-  isl::union_set AtomicOption = getAtomicOptions(IsolateDomain.get_ctx());
+  auto AtomicOption = getDimOptions(IsolateDomain.get_ctx(), "atomic");
   isl::union_set IsolateOption = getIsolateOptions(IsolateDomain, 1);
   Node = Node.parent().parent();
   isl::union_set Options = IsolateOption.unite(AtomicOption);
@@ -1210,13 +1211,12 @@ isolateAndUnrollMatMulInnerLoops(isl::schedule_node Node,
   isl::union_set IsolateOption =
       getIsolateOptions(Prefix.add_dims(isl::dim::set, 3), 3);
   isl::ctx Ctx = Node.get_ctx();
-  isl::union_set AtomicOption = getAtomicOptions(Ctx);
-  isl::union_set Options = IsolateOption.unite(AtomicOption);
+  auto Options = IsolateOption.unite(getDimOptions(Ctx, "unroll"));
   Options = Options.unite(getUnrollIsolatedSetOptions(Ctx));
   Node = Node.band_set_ast_build_options(Options);
   Node = Node.parent().parent().parent();
   IsolateOption = getIsolateOptions(Prefix, 3);
-  Options = IsolateOption.unite(AtomicOption);
+  Options = IsolateOption.unite(getDimOptions(Ctx, "separate"));
   Node = Node.band_set_ast_build_options(Options);
   Node = Node.child(0).child(0).child(0);
   return Node;
@@ -1436,37 +1436,43 @@ static void walkScheduleTreeForStatistics(isl::schedule Schedule, int Version) {
   if (!Root)
     return;
 
-  Root.foreach_ancestor_top_down([Version](
-                                     isl::schedule_node Node) -> isl::stat {
-    switch (isl_schedule_node_get_type(Node.get())) {
-    case isl_schedule_node_band: {
-      NumBands[Version]++;
-      if (isl_schedule_node_band_get_permutable(Node.get()) == isl_bool_true)
-        NumPermutable[Version]++;
+  isl_schedule_node_foreach_descendant_top_down(
+      Root.get(),
+      [](__isl_keep isl_schedule_node *nodeptr, void *user) -> isl_bool {
+        isl::schedule_node Node = isl::manage(isl_schedule_node_copy(nodeptr));
+        int Version = *static_cast<int *>(user);
 
-      int CountMembers = isl_schedule_node_band_n_member(Node.get());
-      NumBandMembers[Version] += CountMembers;
-      for (int i = 0; i < CountMembers; i += 1) {
-        if (Node.band_member_get_coincident(i))
-          NumCoincident[Version]++;
-      }
-      break;
-    }
+        switch (isl_schedule_node_get_type(Node.get())) {
+        case isl_schedule_node_band: {
+          NumBands[Version]++;
+          if (isl_schedule_node_band_get_permutable(Node.get()) ==
+              isl_bool_true)
+            NumPermutable[Version]++;
 
-    case isl_schedule_node_filter:
-      NumFilters[Version]++;
-      break;
+          int CountMembers = isl_schedule_node_band_n_member(Node.get());
+          NumBandMembers[Version] += CountMembers;
+          for (int i = 0; i < CountMembers; i += 1) {
+            if (Node.band_member_get_coincident(i))
+              NumCoincident[Version]++;
+          }
+          break;
+        }
 
-    case isl_schedule_node_extension:
-      NumExtension[Version]++;
-      break;
+        case isl_schedule_node_filter:
+          NumFilters[Version]++;
+          break;
 
-    default:
-      break;
-    }
+        case isl_schedule_node_extension:
+          NumExtension[Version]++;
+          break;
 
-    return isl::stat::ok;
-  });
+        default:
+          break;
+        }
+
+        return isl_bool_true;
+      },
+      &Version);
 }
 
 bool IslScheduleOptimizer::runOnScop(Scop &S) {
@@ -1483,6 +1489,11 @@ bool IslScheduleOptimizer::runOnScop(Scop &S) {
 
   const Dependences &D =
       getAnalysis<DependenceInfo>().getDependences(Dependences::AL_Statement);
+
+  if (D.getSharedIslCtx() != S.getSharedIslCtx()) {
+    DEBUG(dbgs() << "DependenceInfo for another SCoP/isl_ctx\n");
+    return false;
+  }
 
   if (!D.hasValidDependences())
     return false;
@@ -1618,7 +1629,7 @@ bool IslScheduleOptimizer::runOnScop(Scop &S) {
   auto *TTI = &getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
   const OptimizerAdditionalInfoTy OAI = {TTI, const_cast<Dependences *>(&D)};
   auto NewSchedule = ScheduleTreeOptimizer::optimizeSchedule(Schedule, &OAI);
-  walkScheduleTreeForStatistics(NewSchedule, 1);
+  walkScheduleTreeForStatistics(NewSchedule, 2);
 
   if (!ScheduleTreeOptimizer::isProfitableSchedule(S, NewSchedule))
     return false;

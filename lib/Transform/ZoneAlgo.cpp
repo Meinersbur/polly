@@ -258,18 +258,6 @@ isl::union_map polly::filterKnownValInst(const isl::union_map &UMap) {
   return Result;
 }
 
-static std::string printInstruction(Instruction *Instr,
-                                    bool IsForDebug = false) {
-  std::string Result;
-  raw_string_ostream OS(Result);
-  Instr->print(OS, IsForDebug);
-  OS.flush();
-  size_t i = 0;
-  while (i < Result.size() && Result[i] == ' ')
-    i += 1;
-  return Result.substr(i);
-}
-
 ZoneAlgorithm::ZoneAlgorithm(const char *PassName, Scop *S, LoopInfo *LI)
     : PassName(PassName), IslCtx(S->getSharedIslCtx()), S(S), LI(LI),
       Schedule(S->getSchedule()) {
@@ -434,7 +422,7 @@ isl::map ZoneAlgorithm::getWrittenValue(MemoryAccess *MA, isl::map AccRel) {
                                      : Stmt->getSurroundingLoop();
   if (AccVal &&
       AccVal->getType() == MA->getLatestScopArrayInfo()->getElementType() &&
-      AccRel.is_single_valued())
+      AccRel.is_single_valued().is_true())
     return makeValInst(AccVal, Stmt, L);
 
   // memset(_, '0', ) is equivalent to writing the null value to all touched
