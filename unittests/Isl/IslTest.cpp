@@ -634,6 +634,13 @@ TEST(DeLICM, computeReachingWrite) {
   std::unique_ptr<isl_ctx, decltype(&isl_ctx_free)> Ctx(isl_ctx_alloc(),
                                                         &isl_ctx_free);
 
+  EXPECT_EQ(
+      UMAP(
+          "{ [Elt[] -> [1]] -> WriteA[];  [Elt[] -> [i]] -> WriteB[] : i>=2 }"),
+      computeReachingWrite(UMAP("{ WriteA[] -> [0]; WriteB[] -> [1] }"),
+                           UMAP("{ WriteA[] -> Elt[]; WriteB[] -> Elt[] }"),
+                           false, false, true));
+
   // Basic usage
   EXPECT_EQ(UMAP("{ [Elt[] -> [i]] -> Dom[] : 0 < i }"),
             computeReachingWrite(UMAP("{ Dom[] -> [0] }"),

@@ -15,6 +15,8 @@
 #define POLLY_ZONEALGO_H
 
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "isl/isl-noexceptions.h"
 #include <memory>
 
@@ -22,12 +24,14 @@ namespace llvm {
 class Value;
 class LoopInfo;
 class Loop;
+class PHINode;
 } // namespace llvm
 
 namespace polly {
 class Scop;
 class ScopStmt;
 class MemoryAccess;
+class ScopArrayInfo;
 
 /// Return only the mappings that map to known values.
 ///
@@ -108,6 +112,26 @@ protected:
   /// { Element[] }
   isl::union_set CompatibleElts;
 
+  /// List of PHIs that may transitively refer to themselves.
+  ///
+  /// Computing them would require a polyhedral transitive closure operation,
+  /// for which isl may only return an approximation. We correctness, we always
+  /// require an exact result. Hence, we exclude such PHIs.
+  llvm::SmallPtrSet<llvm::PHINode *, 4> RecursivePHIs;
+
+  /// PHIs that have been computed.
+  ///
+  /// Computed PHIs are replaced by their incoming values.
+  llvm::DenseSet<llvm::PHINode *> ComputedPHIs;
+
+  /// For computed PHIs, contains the ValInst they stand for.
+  ///
+  /// { PHIValInst[] -> IncomingValInst[] }
+  isl::union_map NormalizedPHI;
+
+  /// Cache for computePerPHI(const ScopArrayInfo *)
+  llvm::SmallDenseMap<llvm::PHINode *, isl::union_map> PerPHIMaps;
+
   /// Prepare the object before computing the zones of @p S.
   ///
   /// @param PassName Name of the pass using this analysis.
@@ -142,7 +166,7 @@ private:
   /// have.
   ///
   /// @return { ValInst[] }
-  isl::map getWrittenValue(MemoryAccess *MA, isl::map AccRel);
+  isl::union_map getWrittenValue(MemoryAccess *MA, isl::map AccRel);
 
   void addArrayWriteAccess(MemoryAccess *MA);
 
@@ -150,6 +174,17 @@ protected:
   isl::union_set makeEmptyUnionSet() const;
 
   isl::union_map makeEmptyUnionMap() const;
+
+  /// For each 'execution' of a PHINode, get the incoming block that was
+  /// executed before.
+  ///
+  /// For each PHI instance we can directly determine which was the incoming
+  /// block, and hence derive which value the PHI has.
+  ///
+  /// @param SAI The ScopArrayInfo representing the PHI's storage.
+  ///
+  /// @return { DomainPHIRead[] -> DomainPHIWrite[] }
+  isl::union_map computePerPHI(const polly::ScopArrayInfo *SAI);
 
   /// Find the array elements that can be used for zone analysis.
   void collectCompatibleElts();
@@ -244,6 +279,14 @@ protected:
   isl::map makeValInst(llvm::Value *Val, ScopStmt *UserStmt, llvm::Loop *Scope,
                        bool IsCertain = true);
 
+  /// Create and normalize a ValInst.
+  ///
+  /// @see makeValInst
+  /// @see normalizeValInst
+  isl::union_map makeNormalizedValInst(llvm::Value *Val, ScopStmt *UserStmt,
+                                       llvm::Loop *Scope,
+                                       bool IsCertain = true);
+
   /// Return whether @p MA can be used for transformations (e.g. OpTree load
   /// forwarding, DeLICM mapping).
   bool isCompatibleAccess(MemoryAccess *MA);
@@ -253,6 +296,19 @@ protected:
 
   /// Print the current state of all MemoryAccesses to @p.
   void printAccesses(llvm::raw_ostream &OS, int Indent = 0) const;
+
+  /// Remove all computed PHIs out of @p Input and replace by their incoming
+  /// value.
+  isl::union_map
+  normalizeValInst(isl::union_map Input, isl::union_map NormalizedPHIs,
+                   llvm::DenseSet<llvm::PHINode *> &TranslatedPHIs);
+
+  /// @{
+  /// Determine whether the argument does not map to any computed PHI. Those
+  /// should have been replaced by their incoming values.
+  bool isNormalized(isl::map Map);
+  bool isNormalized(isl::union_map Map);
+  /// @}
 
 public:
   /// Return the SCoP this object is analyzing.
@@ -274,9 +330,14 @@ public:
   ///
   /// @param FromWrite Use stores as source of information.
   /// @param FromRead  Use loads as source of information.
+  /// @param FromInit  For loads that do read a previously stored value, create
+  /// a dummy value to present itself.
+  /// @param FromReachDef Use reaching definitions as source of information.
   ///
   /// @return { [Element[] -> Zone[]] -> ValInst[] }
-  isl::union_map computeKnown(bool FromWrite, bool FromRead) const;
+  isl::union_map computeKnown(bool FromWrite, bool FromRead,
+                              bool FromInit = false,
+                              bool FromReachDef = false) const;
 };
 
 /// Create a domain-to-unknown value mapping.

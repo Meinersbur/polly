@@ -909,10 +909,10 @@ private:
     // When known knowledge is disabled, just return the unknown value. It will
     // either get filtered out or conflict with itself.
     // { DomainDef[] -> ValInst[] }
-    isl::map ValInst;
+    isl::union_map ValInst;
     if (DelicmComputeKnown)
-      ValInst = makeValInst(V, DefMA->getStatement(),
-                            LI->getLoopFor(DefInst->getParent()));
+      ValInst = makeNormalizedValInst(V, DefMA->getStatement(),
+                                      LI->getLoopFor(DefInst->getParent()));
     else
       ValInst = makeUnknownForDomain(DefMA->getStatement());
 
@@ -930,8 +930,7 @@ private:
         isl_map_range_product(DefTarget.copy(), DefSched.take())));
 
     // { [Element[] -> Scatter[]] -> ValInst[] }
-    auto DefEltSched = give(
-        isl_union_map_apply_domain(isl_union_map_from_map(ValInst.copy()), WrittenTranslator.take()));
+    auto DefEltSched = ValInst.apply_domain(WrittenTranslator);
     simplify(DefEltSched);
 
     // { [Element[] -> Zone[]] -> ValInst[] }
@@ -1041,13 +1040,14 @@ private:
     return true;
   }
 
-  isl::map makeValInst(Value *Val, ScopStmt *UserStmt, Loop *Scope,
-                       bool IsCertain = true) {
+  isl::union_map makeNormalizedValInst(Value *Val, ScopStmt *UserStmt,
+                                       Loop *Scope, bool IsCertain = true) {
     // When known knowledge is disabled, just return the unknown value. It will
     // either get filtered out or conflict with itself.
     if (!DelicmComputeKnown)
       return makeUnknownForDomain(UserStmt);
-    return ZoneAlgorithm::makeValInst(Val, UserStmt, Scope, IsCertain);
+    return ZoneAlgorithm::makeNormalizedValInst(Val, UserStmt, Scope,
+                                                IsCertain);
   }
 
   /// Express the incoming values of a PHI for each incoming statement in an
@@ -1069,7 +1069,7 @@ private:
       assert(!Incoming.empty());
       if (Incoming.size() == 1) {
         ValInst = translateComputedPHI(
-            makeValInst(Incoming[0].second, WriteStmt,
+            makeNormalizedValInst(Incoming[0].second, WriteStmt,
                         LI->getLoopFor(Incoming[0].first), true));
       } else {
         // If the PHI is in a subregion's exit node it can have multiple
@@ -2043,7 +2043,7 @@ public:
     }
     DeLICMAnalyzed++;
 
-    if (!EltUnused || !EltKnown || !EltWritten) {
+    if (!NormalizedPHI || !EltUnused || !EltKnown || !EltWritten) {
       assert(isl_ctx_last_error(IslCtx.get()) == isl_error_quota &&
              "The only reason that these things have not been computed should "
              "be if the max-operations limit hit");
@@ -2128,7 +2128,31 @@ public:
           continue;
         }
 
-        isl::union_set TouchedElts = MA->getLatestAccessRelation().range();
+        // Check for more than one element acces per statement instance.
+        // Currently we expect write accesses to be functional, eg. disallow
+        //
+        //   { Stmt[0] -> [i] : 0 <= i < 2 }
+        //
+        // This may occur when some accesses to the element write/read only
+        // parts of the element, eg. a single byte. Polly then divides each
+        // element into subelements of the smallest access length, normal access
+        // then touch multiple of such subelements. It is very common when the
+        // array is accesses with memset, memcpy or memmove which take i8*
+        // arguments.
+        isl::union_map AccRel = MA->getLatestAccessRelation();
+        if (!AccRel.is_single_valued().is_true()) {
+          DEBUG(dbgs() << "Access " << MA
+                       << " is incompatible because it writes multiple "
+                          "elements per instance\n");
+          OptimizationRemarkMissed R(DEBUG_TYPE, "NonFunctionalAccRel",
+                                     MA->getAccessInstruction());
+          R << "skipped possible mapping target because it writes more than "
+               "one element";
+          S->getFunction().getContext().diagnose(R);
+          continue;
+        }
+
+        isl::union_set TouchedElts = AccRel.range();
         if (!TouchedElts.is_subset(CompatibleElts)) {
           DEBUG(
               dbgs()

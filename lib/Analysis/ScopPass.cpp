@@ -17,7 +17,7 @@
 #include "llvm/Analysis/AssumptionCache.h"
 #include "llvm/Analysis/BasicAliasAnalysis.h"
 #include "llvm/Analysis/GlobalsModRef.h"
-#include "llvm/Analysis/OptimizationDiagnosticInfo.h"
+#include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/Analysis/ScalarEvolutionAliasAnalysis.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 
@@ -106,7 +106,7 @@ bool ScopAnalysisManagerFunctionProxy::Result::invalidate(
     for (auto &S : *SI)
       if (auto *scop = S.second.get())
         if (InnerAM)
-          InnerAM->clear(*scop);
+          InnerAM->clear(*scop, scop->getName());
 
     InnerAM = nullptr;
     return true; // Invalidate the proxy result as well.

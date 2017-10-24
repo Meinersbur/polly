@@ -160,6 +160,9 @@
 
 STATISTIC(NumIncompatibleArrays, "Number of not zone-analyzable arrays");
 STATISTIC(NumCompatibleArrays, "Number of zone-analyzable arrays");
+STATISTIC(NumRecursivePHIs, "Number of recursive PHIs");
+STATISTIC(NumNormalizablePHIs, "Number of normalizable PHIs");
+STATISTIC(NumPHINormialization, "Number of PHI executed normalizations");
 
 using namespace polly;
 using namespace llvm;
@@ -409,7 +412,8 @@ void ZoneAlgorithm::addArrayReadAccess(MemoryAccess *MA) {
   }
 }
 
-isl::map ZoneAlgorithm::getWrittenValue(MemoryAccess *MA, isl::map AccRel) {
+isl::union_map ZoneAlgorithm::getWrittenValue(MemoryAccess *MA,
+                                              isl::map AccRel) {
   if (!MA->isMustWrite())
     return {};
 
@@ -423,7 +427,7 @@ isl::map ZoneAlgorithm::getWrittenValue(MemoryAccess *MA, isl::map AccRel) {
   if (AccVal &&
       AccVal->getType() == MA->getLatestScopArrayInfo()->getElementType() &&
       AccRel.is_single_valued().is_true())
-    return makeValInst(AccVal, Stmt, L);
+    return makeNormalizedValInst(AccVal, Stmt, L);
 
   // memset(_, '0', ) is equivalent to writing the null value to all touched
   // elements. isMustWrite() ensures that all of an element's bytes are
@@ -433,7 +437,7 @@ isl::map ZoneAlgorithm::getWrittenValue(MemoryAccess *MA, isl::map AccRel) {
     Type *Ty = MA->getLatestScopArrayInfo()->getElementType();
     if (WrittenConstant && WrittenConstant->isZeroValue()) {
       Constant *Zero = Constant::getNullValue(Ty);
-      return makeValInst(Zero, Stmt, L);
+      return makeNormalizedValInst(Zero, Stmt, L);
     }
   }
 
@@ -465,11 +469,89 @@ void ZoneAlgorithm::addArrayWriteAccess(MemoryAccess *MA) {
   auto IncludeElement = give(isl_map_curry(isl_map_domain_map(AccRel.copy())));
 
   // { [Element[] -> DomainWrite[]] -> ValInst[] }
-  auto EltWriteValInst = give(
-      isl_map_apply_domain(WriteValInstance.take(), IncludeElement.take()));
+  auto EltWriteValInst = WriteValInstance.apply_domain(IncludeElement);
 
-  AllWriteValInst = give(
-      isl_union_map_add_map(AllWriteValInst.take(), EltWriteValInst.take()));
+  AllWriteValInst = AllWriteValInst.unite(EltWriteValInst);
+}
+
+/// Return whether @p PHI refers (also transitively through other PHIs) to
+/// itself.
+///
+/// loop:
+///   %phi1 = phi [0, %preheader], [%phi1, %loop]
+///   br i1 %c, label %loop, label %exit
+///
+/// exit:
+///   %phi2 = phi [%phi1, %bb]
+///
+/// In this example, %phi1 is recursive, but %phi2 is not.
+static bool isRecursivePHI(PHINode *PHI) {
+  SmallVector<PHINode *, 8> Worklist;
+  SmallPtrSet<PHINode *, 8> Visited;
+  Worklist.push_back(PHI);
+
+  while (!Worklist.empty()) {
+    PHINode *Cur = Worklist.pop_back_val();
+
+    if (Visited.count(Cur))
+      continue;
+    Visited.insert(Cur);
+
+    for (Use &Incoming : Cur->incoming_values()) {
+      Value *IncomingVal = Incoming.get();
+      auto *IncomingPHI = dyn_cast<PHINode>(IncomingVal);
+      if (!IncomingPHI)
+        continue;
+
+      if (IncomingPHI == PHI)
+        return true;
+      Worklist.push_back(IncomingPHI);
+    }
+  }
+  return false;
+}
+
+isl::union_map ZoneAlgorithm::computePerPHI(const ScopArrayInfo *SAI) {
+  // TODO: If the PHI has an incoming block from before the SCoP, it is not
+  // represented int any ScopStmt.
+
+  auto *PHI = cast<PHINode>(SAI->getBasePtr());
+  auto It = PerPHIMaps.find(PHI);
+  if (It != PerPHIMaps.end())
+    return It->second;
+
+  assert(SAI->isPHIKind());
+
+  // { DomainPHIWrite[] -> Scatter[] }
+  isl::union_map PHIWriteScatter = makeEmptyUnionMap();
+
+  // Collect all incoming block timepoint.
+  for (MemoryAccess *MA : S->getPHIIncomings(SAI)) {
+    isl::map Scatter = getScatterFor(MA);
+    PHIWriteScatter = PHIWriteScatter.add_map(Scatter);
+  }
+
+  // { DomainPHIRead[] -> Scatter[] }
+  isl::map PHIReadScatter = getScatterFor(S->getPHIRead(SAI));
+
+  // { DomainPHIRead[] -> Scatter[] }
+  isl::map BeforeRead = beforeScatter(PHIReadScatter, true);
+
+  // { Scatter[] }
+  isl::set WriteTimes = singleton(PHIWriteScatter.range(), ScatterSpace);
+
+  // { DomainPHIRead[] -> Scatter[] }
+  isl::map PHIWriteTimes = BeforeRead.intersect_range(WriteTimes);
+  isl::map LastPerPHIWrites = PHIWriteTimes.lexmax();
+
+  // { DomainPHIRead[] -> DomainPHIWrite[] }
+  isl::union_map Result =
+      isl::union_map(LastPerPHIWrites).apply_range(PHIWriteScatter.reverse());
+  assert(!Result.is_single_valued().is_false());
+  assert(!Result.is_injective().is_false());
+
+  PerPHIMaps.insert({PHI, Result});
+  return Result;
 }
 
 isl::union_set ZoneAlgorithm::makeEmptyUnionSet() const {
@@ -685,6 +767,16 @@ isl::map ZoneAlgorithm::makeValInst(Value *Val, ScopStmt *UserStmt, Loop *Scope,
   llvm_unreachable("Unhandled use type");
 }
 
+isl::union_map ZoneAlgorithm::makeNormalizedValInst(llvm::Value *Val,
+                                                    ScopStmt *UserStmt,
+                                                    llvm::Loop *Scope,
+                                                    bool IsCertain) {
+  auto ValInst = makeValInst(Val, UserStmt, Scope, IsCertain);
+  auto Normalized =
+      normalizeValInst(ValInst, NormalizedPHI, this->ComputedPHIs);
+  return Normalized;
+}
+
 bool ZoneAlgorithm::isCompatibleAccess(MemoryAccess *MA) {
   if (!MA)
     return false;
@@ -694,12 +786,168 @@ bool ZoneAlgorithm::isCompatibleAccess(MemoryAccess *MA) {
   return isa<StoreInst>(AccInst) || isa<LoadInst>(AccInst);
 }
 
+isl::union_map
+ZoneAlgorithm::normalizeValInst(isl::union_map Input,
+                                isl::union_map NormalizedPHIs,
+                                DenseSet<PHINode *> &TranslatedPHIs) {
+  isl::union_map Result = isl::union_map::empty(Input.get_space());
+  Input.foreach_map([this, &Result, &NormalizedPHIs,
+                     &TranslatedPHIs](isl::map Map) -> isl::stat {
+    auto Space = Map.get_space();
+    auto RangeSpace = Space.range();
+
+    if (!RangeSpace.is_wrapping()) {
+      Result = Result.add_map(Map);
+      return isl::stat::ok;
+    }
+
+    auto *PHI = dyn_cast<PHINode>(static_cast<Value *>(
+        RangeSpace.unwrap().get_tuple_id(isl::dim::out).get_user()));
+    if (!TranslatedPHIs.count(PHI)) {
+      Result = Result.add_map(Map);
+      return isl::stat::ok;
+    }
+
+    NumPHINormialization++;
+    auto Mapped = isl::union_map(Map).apply_range(NormalizedPHIs);
+    Result = Result.unite(Mapped);
+    return isl::stat::ok;
+  });
+  return Result;
+}
+
+bool ZoneAlgorithm::isNormalized(isl::map Map) {
+  auto Space = Map.get_space();
+  auto RangeSpace = Space.range();
+
+  if (!RangeSpace.is_wrapping())
+    return true;
+
+  auto *PHI = dyn_cast<PHINode>(static_cast<Value *>(
+      RangeSpace.unwrap().get_tuple_id(isl::dim::out).get_user()));
+  if (!PHI)
+    return true;
+
+  // TODO: Check whether we really use the Incoming RegionStmt to identify the
+  // normalized value.
+  auto IncomingStmt = static_cast<ScopStmt *>(
+      RangeSpace.unwrap().get_tuple_id(isl::dim::in).get_user());
+  if (IncomingStmt->isRegionStmt())
+    return true;
+
+  if (RecursivePHIs.count(PHI))
+    return true;
+
+  return false;
+}
+
+bool ZoneAlgorithm::isNormalized(isl::union_map UMap) {
+  auto Result = UMap.foreach_map([this](isl::map Map) -> isl::stat {
+    if (isNormalized(Map))
+      return isl::stat::ok;
+    return isl::stat::error;
+  });
+  return Result == isl::stat::ok;
+}
+
 void ZoneAlgorithm::computeCommon() {
   AllReads = makeEmptyUnionMap();
   AllMayWrites = makeEmptyUnionMap();
   AllMustWrites = makeEmptyUnionMap();
   AllWriteValInst = makeEmptyUnionMap();
   AllReadValInst = makeEmptyUnionMap();
+
+  for (auto &Stmt : *S) {
+    for (auto *MA : Stmt) {
+      if (MA->isPHIKind() && MA->isRead()) {
+        // TODO: Can be more efficient
+        auto *PHI = cast<PHINode>(MA->getAccessInstruction());
+        if (isRecursivePHI(PHI)) {
+          NumRecursivePHIs++;
+          RecursivePHIs.insert(PHI);
+        }
+      }
+    }
+  }
+
+  // { PHIValInst[] -> IncomingValInst[] }
+  isl::union_map AllPHIMaps = makeEmptyUnionMap();
+
+  DenseSet<PHINode *> AllPHIs;
+  for (ScopStmt &Stmt : *S) {
+    for (auto *MA : Stmt) {
+      if (!MA->isOriginalPHIKind())
+        continue;
+      if (!MA->isRead())
+        continue;
+
+      auto *PHI = cast<PHINode>(MA->getAccessInstruction());
+      if (RecursivePHIs.count(PHI))
+        continue;
+
+      auto SAI = MA->getOriginalScopArrayInfo();
+
+      // { PHIDomain[] -> PHIValInst[] }
+      auto PHIValInst = makeValInst(PHI, &Stmt, Stmt.getSurroundingLoop());
+
+      // { Scatter[] -> PHIValInst[] }
+      // auto ScatterValInst = PHIValInst.apply_domain(  getScatterFor(&Stmt) );
+
+      // { PHIValInst[] -> IncomingValInst[] }
+      // isl::union_map PHIMap = makeEmptyUnionMap();
+
+      // { IncomingDomain[] -> IncomingValInst[] }
+      isl::union_map IncomingValInsts = makeEmptyUnionMap();
+
+      for (auto *MA : S->getPHIIncomings(SAI)) {
+        auto IncomingStmt = MA->getStatement();
+        auto Incoming = MA->getIncoming();
+        Value *IncomingVal = PHI;
+        if (Incoming.size() == 1)
+          IncomingVal = Incoming[0].second;
+
+        // { Scatter[] -> IncomingDomain[] }
+        //  auto ReachDef =
+        //  getScalarReachingDefinition(IncomingStmt->getDomain());
+
+        // { PHIValInst[] -> IncomingDomain[] }
+        // auto ReachDefValInst = ReachDef.apply_domain(ScatterValInst);
+
+        // TODO: For Incoming.size() > 1, ensure that [RegionStmtDomain[] ->
+        // Val_PHI[]] is the ValInst.
+        // { IncomingDomain[] -> IncomingValInst[] }
+        auto IncomingValInst = makeValInst(IncomingVal, IncomingStmt,
+                                           IncomingStmt->getSurroundingLoop());
+
+        // { PHIValInst[] -> IncomingValInst[] }
+        // auto IncomingMap = ReachDefValInst.apply_range(IncomingValInst);
+
+        // PHIMap = PHIMap.add_map(IncomingMap);
+        IncomingValInsts = IncomingValInsts.add_map(IncomingValInst);
+      }
+
+      // { PHIDomain[] -> IncomingDomain[] }
+      auto PerPHI = computePerPHI(SAI);
+
+      // { PHIValInst[] -> IncomingValInst[] }
+      auto PHIMap =
+          PerPHI.apply_domain(PHIValInst).apply_range(IncomingValInsts);
+      assert(!PHIMap.is_single_valued().is_false());
+
+      PHIMap = normalizeValInst(PHIMap, AllPHIMaps, AllPHIs);
+      AllPHIs.insert(PHI);
+      AllPHIMaps = normalizeValInst(AllPHIMaps, PHIMap, AllPHIs);
+
+      AllPHIMaps = AllPHIMaps.unite(PHIMap);
+      NumNormalizablePHIs++;
+    }
+  }
+
+  ComputedPHIs = AllPHIs;
+  NormalizedPHI = AllPHIMaps;
+  simplify(NormalizedPHI);
+
+  assert(!NormalizedPHI || isNormalized(NormalizedPHI));
 
   for (auto &Stmt : *S) {
     for (auto *MA : Stmt) {
@@ -746,6 +994,30 @@ isl::union_map ZoneAlgorithm::computeKnownFromMustWrites() const {
 }
 
 isl::union_map ZoneAlgorithm::computeKnownFromLoad() const {
+
+#if 0
+	for (auto &Stmt : *S) {
+		for (auto *MA : Stmt) {
+			if (!MA->isRead())
+				continue;
+			if (!MA->isLatestArrayKind())
+				continue;
+
+			auto AccRel = MA->getLatestAccessRelation();
+
+			// { LoadValInst[] }
+			isl::map LoadValInst;
+			if (MA->isOriginalArrayKind() && isa<LoadInst>(MA->getAccessInstruction()))
+				LoadValInst = makeValInst(cast<LoadInst>(MA->getAccessInstruction()), &Stmt, Stmt.getSurroundingLoop());
+			else
+				continue;
+
+
+
+		}
+	}
+#endif
+
   // { Element[] }
   isl::union_set AllAccessedElts = AllReads.range().unite(AllWrites.range());
 
@@ -759,6 +1031,7 @@ isl::union_map ZoneAlgorithm::computeKnownFromLoad() const {
   // { Element[] -> Scatter[] }
   isl::union_set NonReachDef =
       EltZoneUniverse.wrap().subtract(WriteReachDefZone.domain());
+  simplify(NonReachDef);
 
   // { [Element[] -> Zone[]] -> ReachDefId[] }
   isl::union_map DefZone =
@@ -790,12 +1063,71 @@ isl::union_map ZoneAlgorithm::computeKnownFromLoad() const {
       DefZoneEltDefId.apply_domain(ScatterKnown).reverse();
 
   // { [Element[] -> Zone[]] -> ValInst[] }
-  return DefZoneEltDefId.apply_range(DefidKnown);
+  auto Result = DefZoneEltDefId.apply_range(DefidKnown);
+
+  // TODO: Loads can be normalized to other ValInsts.
+
+  return Result;
 }
 
-isl::union_map ZoneAlgorithm::computeKnown(bool FromWrite,
-                                           bool FromRead) const {
+// { [Element[] -> Zone[]] -> ValInst[] }
+isl::union_map ZoneAlgorithm::computeKnown(bool FromWrite, bool FromRead,
+                                           bool FromInit,
+                                           bool FromReachDef) const {
   isl::union_map Result = makeEmptyUnionMap();
+
+  if (FromInit) {
+    //  {  Element[] -> Scatter[] }
+    auto AllWritesScatter = AllWrites.apply_domain(Schedule).reverse();
+
+    auto FirstWrite = AllWritesScatter.lexmin();
+
+    //  { Element[] -> Zone[] }
+    auto BeforeWriteUnscalar = beforeScatter(FirstWrite, true);
+
+    // { Element[] }
+    auto NeverWritten = AllReads.domain().subtract(AllWrites.domain());
+
+    auto NeverWrittenUnscalar = isl::union_map::from_domain_and_range(
+        isl::set::universe(ScatterSpace), NeverWritten);
+
+    //  { Element[] -> Zone[] }
+    auto Unscalar = BeforeWriteUnscalar.unite(NeverWrittenUnscalar);
+
+    // { Element[]  -> [[] -> Element[]] }
+    auto X =
+        isl::union_map::from_range(Unscalar.domain()).range_map().reverse();
+    isl::union_map Y = makeEmptyUnionMap();
+    X.foreach_map([&Y](isl::map Map) -> isl::stat {
+      auto NewMap = Map.set_tuple_name(isl::dim::out, "Element");
+      Y = Y.add_map(Map);
+      return isl::stat::ok;
+    });
+
+    //  { [Element[] -> Zone[]] -> "Element"[[] -> Element[]] }
+    auto UnscalarValInst = Unscalar.domain_map().apply_range(Y);
+
+    Result = Result.unite(UnscalarValInst);
+  }
+
+  if (FromReachDef) {
+    // { Element[] -> DomainWrite[] }
+    auto WriteDomain = WriteReachDefZone.domain_factor_domain();
+
+    // { DomainWrite[] -> [DomainWrite[] -> Element[]] }
+    auto X = WriteDomain.reverse().domain_map().reverse();
+    isl::union_map Y = makeEmptyUnionMap();
+    X.foreach_map([&Y](isl::map Map) -> isl::stat {
+      auto NewMap = Map.set_tuple_name(isl::dim::out, "Element");
+      Y = Y.add_map(Map);
+      return isl::stat::ok;
+    });
+
+    // { [Element[] -> Zone[]] -> "Element"[DomainWrite[] -> Element[]] }
+    auto ReachDefValInst = WriteReachDefZone.apply_range(Y);
+
+    Result = Result.unite(ReachDefValInst);
+  }
 
   if (FromWrite)
     Result = Result.unite(computeKnownFromMustWrites());
@@ -803,6 +1135,6 @@ isl::union_map ZoneAlgorithm::computeKnown(bool FromWrite,
   if (FromRead)
     Result = Result.unite(computeKnownFromLoad());
 
-  simplify(Result);
+  //  simplify(Result);
   return Result;
 }
