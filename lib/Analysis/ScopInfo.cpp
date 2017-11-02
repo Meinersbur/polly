@@ -1845,9 +1845,6 @@ ScopStmt::ScopStmt(Scop &parent, BasicBlock &bb, Loop *SurroundingLoop,
     S += std::to_string(Count);
   BaseName = getIslCompatibleName("Stmt", &bb, parent.getNextStmtIdx(), S,
                                   UseInstructionNames);
-
-  InstructionSet.reserve(Instructions.size());
-  InstructionSet.insert(Instructions.begin(), Instructions.end());
 }
 
 ScopStmt::ScopStmt(Scop &parent, isl::map SourceRel, isl::map TargetRel,
@@ -4908,37 +4905,7 @@ static int countLoops(Loop *L, const Region &IfContainedBy) {
   return Result;
 }
 
-int Scop::getNumContainedLoops() const {
-  int Result = 0;
-  for (auto TopLevelLoop : *getLI())
-    Result += countLoops(TopLevelLoop, getRegion());
-  return Result;
-}
 
-int Scop::getNumScalarAccesses() const {
-  int Result = 0;
-  for (auto &Stmt : *this) {
-    for (auto MA : Stmt) {
-      if (MA->isLatestScalarKind())
-        Result += 1;
-    }
-  }
-  return Result;
-}
-
-int Scop::getNumScalarDeps() const {
-  int Result = 0;
-  for (auto &Stmt : *this) {
-    for (auto MA : Stmt) {
-      if (MA->isLatestValueKind() && MA->isRead())
-        Result += 1;
-
-      if (MA->isLatestAnyPHIKind() && MA->isWrite())
-        Result += 1;
-    }
-  }
-  return Result;
-}
 
 static Loop *commonLoop(Loop *L1, Loop *L2) {
   while (true) {
@@ -4958,51 +4925,7 @@ static Loop *commonLoop(Loop *L1, Loop *L2) {
   }
 }
 
-int Scop::getNumScalarLoopDeps() const {
-  int Result = 0;
-  for (auto &Stmt : *this) {
-    for (auto MA : Stmt) {
-      if (MA->isLatestValueKind() && MA->isRead()) {
-        auto Def = getValueDef(MA->getLatestScopArrayInfo());
-        if (!Def)
-          continue;
 
-        auto CommonLoop = commonLoop(MA->getStatement()->getSurroundingLoop(),
-                                     Def->getStatement()->getSurroundingLoop());
-        if (contains(CommonLoop))
-          Result += 1;
-      }
-
-      else if (MA->isLatestAnyPHIKind() && MA->isWrite()) {
-        auto PHI = getPHIRead(MA->getScopArrayInfo());
-        if (!PHI)
-          continue;
-
-        auto CommonLoop = commonLoop(MA->getStatement()->getSurroundingLoop(),
-                                     PHI->getStatement()->getSurroundingLoop());
-        if (contains(CommonLoop))
-          Result += 1;
-      }
-    }
-  }
-  return Result;
-}
-
-int Scop::getNumScalarWritesInLoops() const {
-  int Result = 0;
-  for (auto &Stmt : *this) {
-    for (auto MA : Stmt) {
-      if (!MA->isLatestScalarKind())
-        continue;
-      if (!MA->isWrite())
-        continue;
-
-      if (contains(MA->getStatement()->getSurroundingLoop()))
-        Result += 1;
-    }
-  }
-  return Result;
-}
 
 ScopStmt *Scop::addScopStmt(isl::map SourceRel, isl::map TargetRel,
                             isl::set Domain) {

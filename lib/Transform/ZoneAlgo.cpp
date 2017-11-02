@@ -766,7 +766,7 @@ isl::map ZoneAlgorithm::makeValInst(Value *Val, ScopStmt *UserStmt, Loop *Scope,
   llvm_unreachable("Unhandled use type");
 }
 
-isl::union_map ZoneAlgorithm::makeNormalizedValInst(llvm::Value *Val,
+static isl::union_map ZoneAlgorithm::makeNormalizedValInst(llvm::Value *Val,
                                                     ScopStmt *UserStmt,
                                                     llvm::Loop *Scope,
                                                     bool IsCertain) {
@@ -776,7 +776,7 @@ isl::union_map ZoneAlgorithm::makeNormalizedValInst(llvm::Value *Val,
   return Normalized;
 }
 
-isl::union_map ZoneAlgorithm::makeNormalizedValInst(llvm::Value *Val,
+static isl::union_map ZoneAlgorithm::makeNormalizedValInst(llvm::Value *Val,
                                                     ScopStmt *UserStmt,
                                                     llvm::Loop *Scope,
                                                     bool IsCertain) {
@@ -835,7 +835,6 @@ bool ZoneAlgorithm::isCompatibleAccess(MemoryAccess *MA) {
   Instruction *AccInst = MA->getAccessInstruction();
   return isa<StoreInst>(AccInst) || isa<LoadInst>(AccInst);
 }
-
 
 bool ZoneAlgorithm::isNormalizable(MemoryAccess *MA) {
   assert(MA->isRead());

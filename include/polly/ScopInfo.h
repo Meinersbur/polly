@@ -1567,13 +1567,7 @@ public:
 
     if (auto *InputMA = lookupValueReadOf(Val))
       return InputMA;
-#if 0
-	if (auto LI = dyn_cast<LoadInst>(Val)) {
-		auto RA = getArrayAccessOrNULLFor(LI);
-		if (RA && RA->isImplicit())
-			return RA;
-	}
-#endif
+
     return nullptr;
   }
 
@@ -2424,13 +2418,6 @@ public:
   ///
   /// @return The count of copy statements added to this Scop.
   unsigned getCopyStmtsNum() { return CopyStmtsNum; }
-
-  int getNumContainedLoops() const;
-
-  int getNumScalarAccesses() const;
-  int getNumScalarDeps() const;
-  int getNumScalarLoopDeps() const;
-  int getNumScalarWritesInLoops() const;
 
   /// Create a new copy statement.
   ///

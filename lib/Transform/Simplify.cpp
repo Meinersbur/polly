@@ -70,8 +70,6 @@ TWO_STATISTICS(
     NumSingletonWritesInLoops,
     "Number of singleton writes nested in affine loops after Simplify");
 
-
-
 static bool isImplicitRead(MemoryAccess *MA) {
   return MA->isRead() && MA->isOriginalScalarKind();
 }
@@ -691,7 +689,6 @@ private:
       }
     }
   }
-
 
   /// Remove statements without side effects.
   void removeUnnecessaryStmts() {

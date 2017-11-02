@@ -93,9 +93,6 @@ static cl::opt<bool> DetectParallel("polly-ast-detect-parallel",
                                     cl::init(false), cl::ZeroOrMore,
                                     cl::cat(PollyCategory));
 
-STATISTIC(ParallelLoops, "Number of parallel loops");
-STATISTIC(ReductionParallelLoops, "Number of reduction-parallel loops");
-
 STATISTIC(ScopsProcessed, "Number of SCoPs processed");
 STATISTIC(ScopsBeneficial, "Number of beneficial SCoPs");
 STATISTIC(BeneficialAffineLoops, "Number of beneficial affine loops");
@@ -598,19 +595,6 @@ __isl_give isl_ast_expr *IslAst::getRunCondition() {
 __isl_give isl_ast_node *IslAstInfo::getAst() { return Ast.getAst(); }
 __isl_give isl_ast_expr *IslAstInfo::getRunCondition() {
   return Ast.getRunCondition();
-
-  auto Root = Ast.getAst();
-  isl_ast_node_foreach_descendant_top_down(
-      Root,
-      [](isl_ast_node *node, void *user) -> isl_bool {
-        if (isParallel(node))
-          ParallelLoops++;
-        if (isReductionParallel(node))
-          ReductionParallelLoops++;
-        return isl_bool_true;
-      },
-      nullptr);
-  isl_ast_node_free(Root);
 }
 
 IslAstUserPayload *IslAstInfo::getNodePayload(__isl_keep isl_ast_node *Node) {

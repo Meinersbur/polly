@@ -86,9 +86,6 @@ using namespace polly;
 
 #define DEBUG_TYPE "polly-opt-isl"
 
-STATISTIC(TiledLoops, "Number of tiled loops");
-STATISTIC(MatMuls, "Number of detected matrix multiplications");
-
 static cl::opt<std::string>
     OptimizeDeps("polly-opt-optimize-only",
                  cl::desc("Only a certain kind of dependences (all/raw)"),
@@ -1343,12 +1340,10 @@ ScheduleTreeOptimizer::optimizeBand(__isl_take isl_schedule_node *Node,
       isMatrMultPattern(isl::manage(isl_schedule_node_copy(Node)), OAI->D,
                         MMI)) {
     DEBUG(dbgs() << "The matrix multiplication pattern was detected\n");
-    MatMuls++;
     MatMulOpts++;
     return optimizeMatMulPattern(isl::manage(Node), OAI->TTI, MMI).release();
   }
 
-  TiledLoops++;
   return standardBandOpts(isl::manage(Node), User).release();
 }
 

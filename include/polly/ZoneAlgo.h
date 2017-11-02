@@ -339,19 +339,6 @@ protected:
   bool isNormalized(isl::union_map Map);
   /// @}
 
-  /// Remove all computed PHIs out of @p Input and replace by their incoming
-  /// value.
-  isl::union_map
-  normalizeValInst(isl::union_map Input, isl::union_map NormalizedPHIs,
-                   llvm::DenseSet<llvm::PHINode *> &TranslatedPHIs);
-
-  /// @{
-  /// Determine whether the argument does not map to any computed PHI. Those
-  /// should have been replaced by their incoming values.
-  bool isNormalized(isl::map Map);
-  bool isNormalized(isl::union_map Map);
-  /// @}
-
 public:
   /// Return the SCoP this object is analyzing.
   Scop *getScop() const { return S; }
@@ -373,7 +360,7 @@ public:
   /// @param FromWrite Use stores as source of information.
   /// @param FromRead  Use loads as source of information.
   /// @param FromInit  For loads that do read a previously stored value, create
-  /// a dummy value to present itself.
+  ///                  a dummy value to present itself.
   /// @param FromReachDef Use reaching definitions as source of information.
   ///
   /// @return { [Element[] -> Zone[]] -> ValInst[] }

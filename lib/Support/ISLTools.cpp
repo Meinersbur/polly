@@ -13,9 +13,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "polly/Support/ISLTools.h"
-#include "polly/FlattenAlgo.h"
-#include "polly/Support/GICHelper.h"
-#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/StringRef.h"
 
 using namespace polly;
