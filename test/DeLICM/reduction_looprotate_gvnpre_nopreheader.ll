@@ -1,5 +1,7 @@
 ; RUN: opt %loadPolly -polly-delicm -analyze < %s | FileCheck %s -match-full-lines
 ;
+; Hosted reduction load (but not the store) without preheader.
+;
 ;    void func(double *A) {
 ;      for (int j = 0; j < 2; j += 1) { /* outer */
 ;        double phi = 0.0;

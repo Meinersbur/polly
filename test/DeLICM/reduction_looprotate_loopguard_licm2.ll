@@ -1,11 +1,17 @@
 ; RUN: opt %loadPolly -polly-delicm -analyze < %s | FileCheck %s -match-full-lines
 ;
+; Reduction over parametric number of elements and a loopguard if the
+; reduction loop is not executed at all, such that A[j] is also not written to.
+; Reduction variable promoted to register.
+;
 ;    void func(double *A) {
 ;      for (int j = 0; j < 2; j += 1) { /* outer */
 ;        double phi = A[j];
-;        for (int i = 0; i < n; i += 1) /* reduction */
-;          phi += 4.2;
-;        A[j] = phi;
+;        if (i > 0) {
+;          for (int i = 0; i < n; i += 1) /* reduction */
+;            phi += 4.2;
+;          A[j] = phi;
+;        }
 ;      }
 ;    }
 ;
@@ -19,18 +25,18 @@ outer.preheader:
 outer.for:
   %j = phi i32 [0, %outer.preheader], [%j.inc, %outer.inc]
   %j.cmp = icmp slt i32 %j, 2
-  br i1 %j.cmp, label %reduction.preheader, label %outer.exit
+  br i1 %j.cmp, label %reduction.guard, label %outer.exit
 
 
-    reduction.preheader:
+    reduction.guard:
       %A_idx = getelementptr inbounds double, double* %A, i32 %j
       %init = load double, double* %A_idx
       %guard.cmp = icmp sle i32 %n,0
       br i1 %guard.cmp, label %reduction.skip, label %reduction.for
 
     reduction.for:
-      %i = phi i32 [0, %reduction.preheader], [%i.inc, %reduction.inc]
-      %phi = phi double [%init, %reduction.preheader], [%add, %reduction.inc]
+      %i = phi i32 [0, %reduction.guard], [%i.inc, %reduction.inc]
+      %phi = phi double [%init, %reduction.guard], [%add, %reduction.inc]
       br label %body
 
 
@@ -49,7 +55,7 @@ outer.for:
     reduction.exit:
       store double %add, double* %A_idx
       br label %reduction.skip
-      
+
     reduction.skip:
       br label %outer.inc
 
@@ -75,12 +81,12 @@ return:
 ; CHECK: }
 
 ; CHECK:      After accesses {
-; CHECK-NEXT:     Stmt_reduction_preheader
+; CHECK-NEXT:     Stmt_reduction_guard
 ; CHECK-NEXT:             ReadAccess :=       [Reduction Type: NONE] [Scalar: 0]
-; CHECK-NEXT:                 [n] -> { Stmt_reduction_preheader[i0] -> MemRef_A[i0] };
+; CHECK-NEXT:                 [n] -> { Stmt_reduction_guard[i0] -> MemRef_A[i0] };
 ; CHECK-NEXT:             MustWriteAccess :=  [Reduction Type: NONE] [Scalar: 1]
-; CHECK-NEXT:                 [n] -> { Stmt_reduction_preheader[i0] -> MemRef_phi__phi[] };
-; CHECK-NEXT:            new: [n] -> { Stmt_reduction_preheader[i0] -> MemRef_A[i0] : n > 0 };
+; CHECK-NEXT:                 [n] -> { Stmt_reduction_guard[i0] -> MemRef_phi__phi[] };
+; CHECK-NEXT:            new: [n] -> { Stmt_reduction_guard[i0] -> MemRef_A[i0] : n > 0 };
 ; CHECK-NEXT:     Stmt_reduction_for
 ; CHECK-NEXT:             ReadAccess :=       [Reduction Type: NONE] [Scalar: 1]
 ; CHECK-NEXT:                 [n] -> { Stmt_reduction_for[i0, i1] -> MemRef_phi__phi[] };

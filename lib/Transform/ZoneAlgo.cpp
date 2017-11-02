@@ -324,7 +324,7 @@ void ZoneAlgorithm::collectIncompatibleElts(ScopStmt *Stmt,
   // This assumes that the MemoryKind::Array MemoryAccesses are iterated in
   // order.
   for (auto *MA : *Stmt) {
-    if (!MA->isLatestArrayKind())
+    if (!MA->isOriginalArrayKind())
       continue;
 
     isl::map AccRelMap = getAccessRelationFor(MA);
@@ -450,26 +450,25 @@ void ZoneAlgorithm::addArrayWriteAccess(MemoryAccess *MA) {
   auto *Stmt = MA->getStatement();
 
   // { Domain[] -> Element[] }
-  auto AccRel = intersectRange(getAccessRelationFor(MA), CompatibleElts);
+  isl::map AccRel = intersectRange(getAccessRelationFor(MA), CompatibleElts);
 
   if (MA->isMustWrite())
-    AllMustWrites =
-        give(isl_union_map_add_map(AllMustWrites.take(), AccRel.copy()));
+    AllMustWrites = AllMustWrites.add_map(AccRel);
 
   if (MA->isMayWrite())
-    AllMayWrites =
-        give(isl_union_map_add_map(AllMayWrites.take(), AccRel.copy()));
+    AllMayWrites = AllMayWrites.add_map(AccRel);
 
   // { Domain[] -> ValInst[] }
-  auto WriteValInstance = getWrittenValue(MA, AccRel);
+  isl::union_map WriteValInstance = getWrittenValue(MA, AccRel);
   if (!WriteValInstance)
     WriteValInstance = makeUnknownForDomain(Stmt);
 
   // { Domain[] -> [Element[] -> Domain[]] }
-  auto IncludeElement = give(isl_map_curry(isl_map_domain_map(AccRel.copy())));
+  isl::map IncludeElement = AccRel.domain_map().curry();
 
   // { [Element[] -> DomainWrite[]] -> ValInst[] }
-  auto EltWriteValInst = WriteValInstance.apply_domain(IncludeElement);
+  isl::union_map EltWriteValInst =
+      WriteValInstance.apply_domain(IncludeElement);
 
   AllWriteValInst = AllWriteValInst.unite(EltWriteValInst);
 }
@@ -485,19 +484,19 @@ void ZoneAlgorithm::addArrayWriteAccess(MemoryAccess *MA) {
 ///   %phi2 = phi [%phi1, %bb]
 ///
 /// In this example, %phi1 is recursive, but %phi2 is not.
-static bool isRecursivePHI(PHINode *PHI) {
-  SmallVector<PHINode *, 8> Worklist;
-  SmallPtrSet<PHINode *, 8> Visited;
+static bool isRecursivePHI(const PHINode *PHI) {
+  SmallVector<const PHINode *, 8> Worklist;
+  SmallPtrSet<const PHINode *, 8> Visited;
   Worklist.push_back(PHI);
 
   while (!Worklist.empty()) {
-    PHINode *Cur = Worklist.pop_back_val();
+    const PHINode *Cur = Worklist.pop_back_val();
 
     if (Visited.count(Cur))
       continue;
     Visited.insert(Cur);
 
-    for (Use &Incoming : Cur->incoming_values()) {
+    for (const Use &Incoming : Cur->incoming_values()) {
       Value *IncomingVal = Incoming.get();
       auto *IncomingPHI = dyn_cast<PHINode>(IncomingVal);
       if (!IncomingPHI)
@@ -513,7 +512,7 @@ static bool isRecursivePHI(PHINode *PHI) {
 
 isl::union_map ZoneAlgorithm::computePerPHI(const ScopArrayInfo *SAI) {
   // TODO: If the PHI has an incoming block from before the SCoP, it is not
-  // represented int any ScopStmt.
+  // represented in any ScopStmt.
 
   auto *PHI = cast<PHINode>(SAI->getBasePtr());
   auto It = PerPHIMaps.find(PHI);
@@ -525,7 +524,7 @@ isl::union_map ZoneAlgorithm::computePerPHI(const ScopArrayInfo *SAI) {
   // { DomainPHIWrite[] -> Scatter[] }
   isl::union_map PHIWriteScatter = makeEmptyUnionMap();
 
-  // Collect all incoming block timepoint.
+  // Collect all incoming block timepoints.
   for (MemoryAccess *MA : S->getPHIIncomings(SAI)) {
     isl::map Scatter = getScatterFor(MA);
     PHIWriteScatter = PHIWriteScatter.add_map(Scatter);
@@ -777,6 +776,57 @@ isl::union_map ZoneAlgorithm::makeNormalizedValInst(llvm::Value *Val,
   return Normalized;
 }
 
+isl::union_map ZoneAlgorithm::makeNormalizedValInst(llvm::Value *Val,
+                                                    ScopStmt *UserStmt,
+                                                    llvm::Loop *Scope,
+                                                    bool IsCertain) {
+  auto ValInst = makeValInst(Val, UserStmt, Scope, IsCertain);
+  auto Normalized =
+      normalizeValInst(ValInst, NormalizedPHI, this->ComputedPHIs);
+  return Normalized;
+}
+
+  isl::union_map Result = isl::union_map::empty(Input.get_space());
+  Input.foreach_map(
+      [&Result, &ComputedPHIs, &NormalizeMap](isl::map Map) -> isl::stat {
+        isl::space Space = Map.get_space();
+        isl::space RangeSpace = Space.range();
+
+        // Instructions within the SCoP are always wrapped. Non-wrapped tuples
+        // are therefore invariant in the SCoP and don't need normalization.
+        if (!RangeSpace.is_wrapping()) {
+          Result = Result.add_map(Map);
+          return isl::stat::ok;
+        }
+
+        auto *PHI = dyn_cast<PHINode>(static_cast<Value *>(
+            RangeSpace.unwrap().get_tuple_id(isl::dim::out).get_user()));
+
+        // If no normalization is necessary, then the ValInst stands for itself.
+        if (!ComputedPHIs.count(PHI)) {
+          Result = Result.add_map(Map);
+          return isl::stat::ok;
+        }
+
+        // Otherwise, apply the normalization.
+        isl::union_map Mapped = isl::union_map(Map).apply_range(NormalizeMap);
+        Result = Result.unite(Mapped);
+        NumPHINormialization++;
+        return isl::stat::ok;
+      });
+  return Result;
+}
+
+isl::union_map ZoneAlgorithm::makeNormalizedValInst(llvm::Value *Val,
+                                                    ScopStmt *UserStmt,
+                                                    llvm::Loop *Scope,
+                                                    bool IsCertain) {
+  isl::map ValInst = makeValInst(Val, UserStmt, Scope, IsCertain);
+  isl::union_map Normalized =
+      normalizeValInst(ValInst, ComputedPHIs, NormalizeMap);
+  return Normalized;
+}
+
 bool ZoneAlgorithm::isCompatibleAccess(MemoryAccess *MA) {
   if (!MA)
     return false;
@@ -784,6 +834,65 @@ bool ZoneAlgorithm::isCompatibleAccess(MemoryAccess *MA) {
     return false;
   Instruction *AccInst = MA->getAccessInstruction();
   return isa<StoreInst>(AccInst) || isa<LoadInst>(AccInst);
+}
+
+
+bool ZoneAlgorithm::isNormalizable(MemoryAccess *MA) {
+  assert(MA->isRead());
+
+  // Exclude ExitPHIs, we are assuming that a normalizable PHI has a READ
+  // MemoryAccess.
+  if (!MA->isOriginalPHIKind())
+    return false;
+
+  // Exclude recursive PHIs, normalizing them would require a transitive
+  // closure.
+  auto *PHI = cast<PHINode>(MA->getAccessInstruction());
+  if (RecursivePHIs.count(PHI))
+    return false;
+
+  // Ensure that each incoming value can be represented by a ValInst[].
+  // We do represent values from statements associated to multiple incoming
+  // value by the PHI itself, but we do not handle this case yet (especially
+  // isNormalized()) when normalizing.
+  const ScopArrayInfo *SAI = MA->getOriginalScopArrayInfo();
+  auto Incomings = S->getPHIIncomings(SAI);
+  for (MemoryAccess *Incoming : Incomings) {
+    if (Incoming->getIncoming().size() != 1)
+      return false;
+  }
+
+  return true;
+}
+
+bool ZoneAlgorithm::isNormalized(isl::map Map) {
+  isl::space Space = Map.get_space();
+  isl::space RangeSpace = Space.range();
+
+  if (!RangeSpace.is_wrapping())
+    return true;
+
+  auto *PHI = dyn_cast<PHINode>(static_cast<Value *>(
+      RangeSpace.unwrap().get_tuple_id(isl::dim::out).get_user()));
+  if (!PHI)
+    return true;
+
+  auto *IncomingStmt = static_cast<ScopStmt *>(
+      RangeSpace.unwrap().get_tuple_id(isl::dim::in).get_user());
+  MemoryAccess *PHIRead = IncomingStmt->lookupPHIReadOf(PHI);
+  if (!isNormalizable(PHIRead))
+    return true;
+
+  return false;
+}
+
+bool ZoneAlgorithm::isNormalized(isl::union_map UMap) {
+  auto Result = UMap.foreach_map([this](isl::map Map) -> isl::stat {
+    if (isNormalized(Map))
+      return isl::stat::ok;
+    return isl::stat::error;
+  });
+  return Result == isl::stat::ok;
 }
 
 isl::union_map
@@ -856,6 +965,11 @@ void ZoneAlgorithm::computeCommon() {
   AllMustWrites = makeEmptyUnionMap();
   AllWriteValInst = makeEmptyUnionMap();
   AllReadValInst = makeEmptyUnionMap();
+
+  // Default to empty, i.e. no normalization/replacement is taking place. Call
+  // computeNormalizedPHIs() to initialize.
+  NormalizeMap = makeEmptyUnionMap();
+  ComputedPHIs.clear();
 
   for (auto &Stmt : *S) {
     for (auto *MA : Stmt) {
@@ -970,6 +1084,97 @@ void ZoneAlgorithm::computeCommon() {
   WriteReachDefZone =
       computeReachingDefinition(Schedule, AllWrites, false, true);
   simplify(WriteReachDefZone);
+}
+
+void ZoneAlgorithm::computeNormalizedPHIs() {
+  // Determine which PHIs can reference themselves. They are excluded from
+  // normalization to avoid problems with transitive closures.
+  for (ScopStmt &Stmt : *S) {
+    for (MemoryAccess *MA : Stmt) {
+      if (!MA->isPHIKind())
+        continue;
+      if (!MA->isRead())
+        continue;
+
+      // TODO: Can be more efficient since isRecursivePHI can theoretically
+      // determine recursiveness for multiple values and/or cache results.
+      auto *PHI = cast<PHINode>(MA->getAccessInstruction());
+      if (isRecursivePHI(PHI)) {
+        NumRecursivePHIs++;
+        RecursivePHIs.insert(PHI);
+      }
+    }
+  }
+
+  // { PHIValInst[] -> IncomingValInst[] }
+  isl::union_map AllPHIMaps = makeEmptyUnionMap();
+
+  // Discover new PHIs and try to normalize them.
+  DenseSet<PHINode *> AllPHIs;
+  for (ScopStmt &Stmt : *S) {
+    for (MemoryAccess *MA : Stmt) {
+      if (!MA->isOriginalPHIKind())
+        continue;
+      if (!MA->isRead())
+        continue;
+      if (!isNormalizable(MA))
+        continue;
+
+      auto *PHI = cast<PHINode>(MA->getAccessInstruction());
+      const ScopArrayInfo *SAI = MA->getOriginalScopArrayInfo();
+
+      // { PHIDomain[] -> PHIValInst[] }
+      isl::map PHIValInst = makeValInst(PHI, &Stmt, Stmt.getSurroundingLoop());
+
+      // { IncomingDomain[] -> IncomingValInst[] }
+      isl::union_map IncomingValInsts = makeEmptyUnionMap();
+
+      // Get all incoming values.
+      for (MemoryAccess *MA : S->getPHIIncomings(SAI)) {
+        ScopStmt *IncomingStmt = MA->getStatement();
+
+        auto Incoming = MA->getIncoming();
+        assert(Incoming.size() == 1 && "The incoming value must be "
+                                       "representable by something else than "
+                                       "the PHI itself");
+        Value *IncomingVal = Incoming[0].second;
+
+        // { IncomingDomain[] -> IncomingValInst[] }
+        isl::map IncomingValInst = makeValInst(
+            IncomingVal, IncomingStmt, IncomingStmt->getSurroundingLoop());
+
+        IncomingValInsts = IncomingValInsts.add_map(IncomingValInst);
+      }
+
+      // Determine which instance of the PHI statement corresponds to which
+      // incoming value.
+      // { PHIDomain[] -> IncomingDomain[] }
+      isl::union_map PerPHI = computePerPHI(SAI);
+
+      // { PHIValInst[] -> IncomingValInst[] }
+      isl::union_map PHIMap =
+          PerPHI.apply_domain(PHIValInst).apply_range(IncomingValInsts);
+      assert(!PHIMap.is_single_valued().is_false());
+
+      // Resolve transitiveness: The incoming value of the newly discovered PHI
+      // may reference a previously normalized PHI. At the same time, already
+      // normalized PHIs might be normalized to the new PHI. At the end, none of
+      // the PHIs may appear on the right-hand-side of the normalization map.
+      PHIMap = normalizeValInst(PHIMap, AllPHIs, AllPHIMaps);
+      AllPHIs.insert(PHI);
+      AllPHIMaps = normalizeValInst(AllPHIMaps, AllPHIs, PHIMap);
+
+      AllPHIMaps = AllPHIMaps.unite(PHIMap);
+      NumNormalizablePHIs++;
+    }
+  }
+  simplify(AllPHIMaps);
+
+  // Apply the normalization.
+  ComputedPHIs = AllPHIs;
+  NormalizeMap = AllPHIMaps;
+
+  assert(!NormalizeMap || isNormalized(NormalizeMap));
 }
 
 void ZoneAlgorithm::printAccesses(llvm::raw_ostream &OS, int Indent) const {

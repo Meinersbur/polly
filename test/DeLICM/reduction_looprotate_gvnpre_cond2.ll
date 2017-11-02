@@ -1,18 +1,18 @@
-; RUN: opt %loadPolly -polly-flatten-schedule -polly-delicm -analyze < %s | FileCheck %s
+; RUN: opt %loadPolly -polly-delicm -analyze < %s | FileCheck %s -match-full-lines
 ;
-; Use %phi instead of the normal %add; that is, the last last iteration will
-; be ignored such the %phi cannot be written to A[3] in %body.
+; Load (but not store) of A[j] hoisted, reduction not written in all iterations.
+; FIXME: %join is not mapped because the MemoryKind::Value mapping does not
+;        encompass all iterations (last iteration is unused)
 ;
 ;    void func(double *A) {
 ;      for (int j = 0; j < 2; j += 1) { /* outer */
-;        double phi;
-;        double incoming = A[j];
+;        double phi = 0.0;
 ;        for (int i = 0; i < 4; i += 1) { /* reduction */
-;          phi = incoming;
-;          add = phi + 4.2;
-;          incoming =  add;
+;          if (i != 2) {
+;            phi += 4.2;
+;            A[j] = phi;
+;          }
 ;        }
-;        A[j] = phi;
 ;      }
 ;    }
 ;
@@ -36,13 +36,22 @@ outer.for:
 
     reduction.for:
       %i = phi i32 [0, %reduction.preheader], [%i.inc, %reduction.inc]
-      %phi = phi double [%init, %reduction.preheader], [%add, %reduction.inc]
+      %phi = phi double [%init, %reduction.preheader], [%join, %reduction.inc]
       br label %body
 
 
 
         body:
+          %cond = icmp ne i32 %i, 2
+          br i1 %cond, label %body_true, label %body_join
+
+        body_true:
           %add = fadd double %phi, 4.2
+          store double %add, double* %A_idx
+          br label %body_join
+
+        body_join:
+          %join = phi double [%phi, %body], [%add, %body_true]
           br label %reduction.inc
 
 
@@ -53,7 +62,6 @@ outer.for:
       br i1 %i.cmp, label %reduction.for, label %reduction.exit
 
     reduction.exit:
-      store double %phi, double* %A_idx
       br label %outer.inc
 
 
@@ -77,7 +85,7 @@ return:
 ; CHECK:     PHI scalars mapped:    1
 ; CHECK: }
 
-; CHECK:      After accesses {
+; CHECK-NEXT: After accesses {
 ; CHECK-NEXT:     Stmt_reduction_preheader
 ; CHECK-NEXT:             ReadAccess :=       [Reduction Type: NONE] [Scalar: 0]
 ; CHECK-NEXT:                 { Stmt_reduction_preheader[i0] -> MemRef_A[i0] };
@@ -92,21 +100,28 @@ return:
 ; CHECK-NEXT:                 { Stmt_reduction_for[i0, i1] -> MemRef_phi[] };
 ; CHECK-NEXT:            new: { Stmt_reduction_for[i0, i1] -> MemRef_A[i0] };
 ; CHECK-NEXT:     Stmt_body
-; CHECK-NEXT:             MustWriteAccess :=  [Reduction Type: NONE] [Scalar: 1]
-; CHECK-NEXT:                 { Stmt_body[i0, i1] -> MemRef_add[] };
 ; CHECK-NEXT:             ReadAccess :=       [Reduction Type: NONE] [Scalar: 1]
 ; CHECK-NEXT:                 { Stmt_body[i0, i1] -> MemRef_phi[] };
-; CHECK-NEXT:            new: { Stmt_body[i0, i1] -> MemRef_A[i0] : 3i1 <= 22 - 14i0; Stmt_body[1, 3] -> MemRef_A[1] };
+; CHECK-NEXT:            new: { Stmt_body[i0, i1] -> MemRef_A[i0] };
+; CHECK-NEXT:             MustWriteAccess :=  [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:                 { Stmt_body[i0, i1] -> MemRef_join__phi[] };
+; CHECK-NEXT:     Stmt_body_true
+; CHECK-NEXT:             ReadAccess :=       [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:                 { Stmt_body_true[i0, i1] -> MemRef_phi[] };
+; CHECK-NEXT:            new: { Stmt_body_true[i0, i1] -> MemRef_A[i0] : i1 <= 1; Stmt_body_true[i0, 3] -> MemRef_A[i0] };
+; CHECK-NEXT:             MustWriteAccess :=  [Reduction Type: NONE] [Scalar: 0]
+; CHECK-NEXT:                 { Stmt_body_true[i0, i1] -> MemRef_A[i0] };
+; CHECK-NEXT:             MustWriteAccess :=  [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:                 { Stmt_body_true[i0, i1] -> MemRef_join__phi[] };
+; CHECK-NEXT:     Stmt_body_join
+; CHECK-NEXT:             MustWriteAccess :=  [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:                 { Stmt_body_join[i0, i1] -> MemRef_join[] };
+; CHECK-NEXT:             ReadAccess :=       [Reduction Type: NONE] [Scalar: 1]
+; CHECK-NEXT:                 { Stmt_body_join[i0, i1] -> MemRef_join__phi[] };
 ; CHECK-NEXT:     Stmt_reduction_inc
 ; CHECK-NEXT:             ReadAccess :=       [Reduction Type: NONE] [Scalar: 1]
-; CHECK-NEXT:                 { Stmt_reduction_inc[i0, i1] -> MemRef_add[] };
+; CHECK-NEXT:                 { Stmt_reduction_inc[i0, i1] -> MemRef_join[] };
 ; CHECK-NEXT:             MustWriteAccess :=  [Reduction Type: NONE] [Scalar: 1]
 ; CHECK-NEXT:                 { Stmt_reduction_inc[i0, i1] -> MemRef_phi__phi[] };
 ; CHECK-NEXT:            new: { Stmt_reduction_inc[i0, i1] -> MemRef_A[i0] : i1 <= 2 };
-; CHECK-NEXT:     Stmt_reduction_exit
-; CHECK-NEXT:             MustWriteAccess :=  [Reduction Type: NONE] [Scalar: 0]
-; CHECK-NEXT:                 { Stmt_reduction_exit[i0] -> MemRef_A[i0] };
-; CHECK-NEXT:             ReadAccess :=       [Reduction Type: NONE] [Scalar: 1]
-; CHECK-NEXT:                 { Stmt_reduction_exit[i0] -> MemRef_phi[] };
-; CHECK-NEXT:            new: { Stmt_reduction_exit[i0] -> MemRef_A[i0] };
 ; CHECK-NEXT: }
