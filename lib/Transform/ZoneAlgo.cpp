@@ -767,9 +767,9 @@ isl::map ZoneAlgorithm::makeValInst(Value *Val, ScopStmt *UserStmt, Loop *Scope,
 }
 
 static isl::union_map ZoneAlgorithm::makeNormalizedValInst(llvm::Value *Val,
-                                                    ScopStmt *UserStmt,
-                                                    llvm::Loop *Scope,
-                                                    bool IsCertain) {
+                                                           ScopStmt *UserStmt,
+                                                           llvm::Loop *Scope,
+                                                           bool IsCertain) {
   auto ValInst = makeValInst(Val, UserStmt, Scope, IsCertain);
   auto Normalized =
       normalizeValInst(ValInst, NormalizedPHI, this->ComputedPHIs);
@@ -777,44 +777,44 @@ static isl::union_map ZoneAlgorithm::makeNormalizedValInst(llvm::Value *Val,
 }
 
 static isl::union_map ZoneAlgorithm::makeNormalizedValInst(llvm::Value *Val,
-                                                    ScopStmt *UserStmt,
-                                                    llvm::Loop *Scope,
-                                                    bool IsCertain) {
+                                                           ScopStmt *UserStmt,
+                                                           llvm::Loop *Scope,
+                                                           bool IsCertain) {
   auto ValInst = makeValInst(Val, UserStmt, Scope, IsCertain);
   auto Normalized =
       normalizeValInst(ValInst, NormalizedPHI, this->ComputedPHIs);
   return Normalized;
 }
 
-  isl::union_map Result = isl::union_map::empty(Input.get_space());
-  Input.foreach_map(
-      [&Result, &ComputedPHIs, &NormalizeMap](isl::map Map) -> isl::stat {
-        isl::space Space = Map.get_space();
-        isl::space RangeSpace = Space.range();
+isl::union_map Result = isl::union_map::empty(Input.get_space());
+Input.foreach_map([&Result, &ComputedPHIs,
+                   &NormalizeMap](isl::map Map) -> isl::stat {
+  isl::space Space = Map.get_space();
+  isl::space RangeSpace = Space.range();
 
-        // Instructions within the SCoP are always wrapped. Non-wrapped tuples
-        // are therefore invariant in the SCoP and don't need normalization.
-        if (!RangeSpace.is_wrapping()) {
-          Result = Result.add_map(Map);
-          return isl::stat::ok;
-        }
+  // Instructions within the SCoP are always wrapped. Non-wrapped tuples
+  // are therefore invariant in the SCoP and don't need normalization.
+  if (!RangeSpace.is_wrapping()) {
+    Result = Result.add_map(Map);
+    return isl::stat::ok;
+  }
 
-        auto *PHI = dyn_cast<PHINode>(static_cast<Value *>(
-            RangeSpace.unwrap().get_tuple_id(isl::dim::out).get_user()));
+  auto *PHI = dyn_cast<PHINode>(static_cast<Value *>(
+      RangeSpace.unwrap().get_tuple_id(isl::dim::out).get_user()));
 
-        // If no normalization is necessary, then the ValInst stands for itself.
-        if (!ComputedPHIs.count(PHI)) {
-          Result = Result.add_map(Map);
-          return isl::stat::ok;
-        }
+  // If no normalization is necessary, then the ValInst stands for itself.
+  if (!ComputedPHIs.count(PHI)) {
+    Result = Result.add_map(Map);
+    return isl::stat::ok;
+  }
 
-        // Otherwise, apply the normalization.
-        isl::union_map Mapped = isl::union_map(Map).apply_range(NormalizeMap);
-        Result = Result.unite(Mapped);
-        NumPHINormialization++;
-        return isl::stat::ok;
-      });
-  return Result;
+  // Otherwise, apply the normalization.
+  isl::union_map Mapped = isl::union_map(Map).apply_range(NormalizeMap);
+  Result = Result.unite(Mapped);
+  NumPHINormialization++;
+  return isl::stat::ok;
+});
+return Result;
 }
 
 isl::union_map ZoneAlgorithm::makeNormalizedValInst(llvm::Value *Val,

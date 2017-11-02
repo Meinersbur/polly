@@ -360,9 +360,9 @@ public:
       Subscripts.push_back(nullptr);
     }
 
-    MemoryAccess *Access =
-        new MemoryAccess(Stmt, LI, MemoryAccess::READ, SAI->getBasePtr(),
-                         LI->getType(), true, {}, Sizes, LI, MemoryKind::Array, false);
+    MemoryAccess *Access = new MemoryAccess(
+        Stmt, LI, MemoryAccess::READ, SAI->getBasePtr(), LI->getType(), true,
+        {}, Sizes, LI, MemoryKind::Array, false);
     S->addAccessFunction(Access);
     Stmt->addAccess(Access, true);
 

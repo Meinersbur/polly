@@ -328,4 +328,3 @@ public:
   }
 } StaticInitializer;
 #endif
-

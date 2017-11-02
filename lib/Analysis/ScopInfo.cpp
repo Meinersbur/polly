@@ -27,8 +27,8 @@
 #include "polly/Support/SCEVAffinator.h"
 #include "polly/Support/SCEVValidator.h"
 #include "polly/Support/ScopHelper.h"
-#include "llvm/ADT/APInt.h"
 #include "polly/Support/VirtualInstruction.h"
+#include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
@@ -4905,8 +4905,6 @@ static int countLoops(Loop *L, const Region &IfContainedBy) {
   return Result;
 }
 
-
-
 static Loop *commonLoop(Loop *L1, Loop *L2) {
   while (true) {
     if (!L1 || !L2)
@@ -4924,8 +4922,6 @@ static Loop *commonLoop(Loop *L1, Loop *L2) {
     L1 = L1->getParentLoop();
   }
 }
-
-
 
 ScopStmt *Scop::addScopStmt(isl::map SourceRel, isl::map TargetRel,
                             isl::set Domain) {

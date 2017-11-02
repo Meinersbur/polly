@@ -19,9 +19,9 @@
 #define POLLY_SCOPINFO_H
 
 #include "polly/ScopDetection.h"
+#include "polly/Support/GICHelper.h"
 #include "polly/Support/SCEVAffinator.h"
 #include "polly/Support/ScopHelper.h"
-#include "polly/Support/GICHelper.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
@@ -1955,7 +1955,7 @@ private:
   /// Map of values to the MemoryAccess that reads a PHI.
   DenseMap<PHINode *, MemoryAccess *> PHIReadAccs;
 
-  public:
+public:
   /// List of all uses (i.e. read MemoryAccesses) for a MemoryKind::Value
   /// scalar.
   DenseMap<const ScopArrayInfo *, SmallVector<MemoryAccess *, 4>> ValueUseAccs;

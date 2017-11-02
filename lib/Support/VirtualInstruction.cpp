@@ -150,7 +150,6 @@ LLVM_DUMP_METHOD void VirtualInstruction::dump() const {
 }
 #endif
 
-
 /// Return true for MemoryAccesses that cannot be removed because it represents
 /// an llvm::Value that is used after the SCoP.
 static bool isEscaping(MemoryAccess *MA) {
@@ -159,15 +158,12 @@ static bool isEscaping(MemoryAccess *MA) {
   return S->isEscaping(cast<Instruction>(MA->getAccessValue()));
 }
 
-
-
 static bool isDefinedInStmt(Value *Val, ScopStmt *Stmt) {
   auto *Inst = dyn_cast<Instruction>(Val);
   if (!Inst)
     return false;
   return Stmt->contains(Inst);
 }
-
 
 static bool isRoot(Instruction *Inst) {
   if (isa<LoadInst>(Inst) || isa<StoreInst>(Inst)) // The store is handled by
@@ -185,8 +181,6 @@ static bool isRoot(Instruction *Inst) {
 
   return false;
 }
-
-
 
 /// Add non-removable virtual instructions in @p Stmt to @p RootInsts.
 static void
@@ -253,10 +247,6 @@ static void addRoots(ScopStmt *Stmt,
   addInstructionRoots(Stmt, RootInsts);
   addAccessRoots(Stmt, RootAccs, Local);
 }
-
-
-
-
 
 VirtualInstruction VirtualUse::getDefinition() const {
   switch (getKind()) {

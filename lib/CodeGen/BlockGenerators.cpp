@@ -734,9 +734,9 @@ void BlockGenerator::generateBeginStmtTrace(ScopStmt &Stmt, LoopToScevMapT &LTS,
     Values.push_back(RuntimeDebugBuilder::getPrintableString(Builder, ") "));
 
     std::vector<VirtualInstruction> VInsts;
-    //markReachableLocal(&Stmt, VInsts, &LI);
+    // markReachableLocal(&Stmt, VInsts, &LI);
     DenseSet<Instruction *> Encountered;
-	
+
     for (auto Inst : Stmt.insts()) {
       if (isa<PHINode>(Inst)) {
         Values.push_back(RuntimeDebugBuilder::getPrintableString(Builder, " "));
@@ -788,8 +788,8 @@ void BlockGenerator::generateComputedPHIs(ScopStmt &Stmt, LoopToScevMapT &LTS,
   // auto Build = give(isl_ast_build_copy( Stmt.getAstBuild()));
   auto USchedule = give(isl_ast_build_get_schedule(Build.keep()));
   auto UDomain = Stmt.getDomain();
-  auto USchedule2 =
-      give(isl_union_map_intersect_domain(USchedule.copy(), isl_union_set_from_set( UDomain.copy())));
+  auto USchedule2 = give(isl_union_map_intersect_domain(
+      USchedule.copy(), isl_union_set_from_set(UDomain.copy())));
 
   auto ScheduleValues = give(
       isl_union_map_apply_domain(IncomingValues.copy(), USchedule2.copy()));

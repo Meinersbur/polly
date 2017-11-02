@@ -354,8 +354,7 @@ private:
     Domain = Domain.intersect_params(S->getContext());
 
     // { [Domain[] -> Element[]] -> Val[] }
-    isl::union_map GuaranteedReads =
-        isl::union_map::empty(S->getParamSpace());
+    isl::union_map GuaranteedReads = isl::union_map::empty(S->getParamSpace());
     isl::union_map PossibleReads = GuaranteedReads;
 
     SmallVector<MemoryAccess *, 32> Accesses(getAccessesInOrder(Stmt));
