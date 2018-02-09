@@ -260,19 +260,65 @@ __isl_give isl_pw_multi_aff *isl_tab_basic_map_partial_lexopt_pw_multi_aff(
 	__isl_take isl_basic_map *bmap, __isl_take isl_basic_set *dom,
 	__isl_give isl_set **empty, unsigned flags);
 
-/* An isl_trivial_region represents a non-triviality region.
- * The region is trivial if applying "trivial" to a given sequence
- * of variables results in a zero vector.
+/* An isl_ilp_region represents a region of variables in the ILP problem
+ * where some constraint needs to hold.
+ *
+ * In particular, if "has_non_zero" is set,
+ * then the rows of "non_zero" are linear combinations
+ * of the given sequence of variables that should not all be zero.
+ * If "has_non_zero" is not set, then "non_zero" is NULL.
+ *
+ * If "has_fixed" is set, then the rows of "fixed" are linear combinations
+ * of the given sequence of variables that should be equal to
+ * the corresponding value in "fixed_val".
+ * If "has_fixed" is not set, then both "fixed" and "fixed_val" are NULL.
+ *
  * pos is the location (starting at 0) of the first variable in the sequence.
+ *
+ * If "optional" is set, then an attempt is made to impose the constraint,
+ * but if this fails, then a solution where the constraint is not satisfied
+ * is also accepted.  In this case, the "failed" field is set
+ * by isl_tab_basic_set_constrained_lexmin.
+ * The "optional" field may be modified by isl_tab_basic_set_constrained_lexmin.
+ * The "disabled" field is used internally in
+ * isl_tab_basic_set_constrained_lexmin to indicate that an optional
+ * constraint has been disabled in the current part of the search space.
+ *
+ * If "disjunctive" is set, then the constraint is considered satisfied
+ * if either the constraint itself or the next constraint (which may
+ * also be marked disjunctive) is satisfied.
+ * A constraint marked "disjunctive" should always be marked "optional"
+ * to be able to consider the next disjunct when an initial disjunct fails.
+ * A constraint marked "disjunctive" never gets marked "failed".
+ * If the entire disjunctive constraint fails, then it is the last
+ * disjunct (the one not marked "disjunctive") that gets marked "failed".
+ *
+ * If "conditional" is set, then the (possibly disjunctive) constraint
+ * is only considered if the previous constraint (which is assumed to
+ * be optional) has been disabled.
+ *
+ * "user" is a field that may be set freely by the caller.
  */
-struct isl_trivial_region {
+struct isl_ilp_region {
+	unsigned has_non_zero : 1;
+	unsigned has_fixed : 1;
+	unsigned optional : 1;
+	unsigned failed : 1;
+	unsigned disabled : 1;
+	unsigned disjunctive : 1;
+	unsigned conditional : 1;
+
 	int pos;
-	isl_mat *trivial;
+	isl_mat *non_zero;
+	isl_mat *fixed;
+	isl_vec *fixed_val;
+
+	void *user;
 };
 
-__isl_give isl_vec *isl_tab_basic_set_non_trivial_lexmin(
+__isl_give isl_vec *isl_tab_basic_set_constrained_lexmin(
 	__isl_take isl_basic_set *bset, int n_op, int n_region,
-	struct isl_trivial_region *region,
+	struct isl_ilp_region *region,
 	int (*conflict)(int con, void *user), void *user);
 
 struct isl_tab_lexmin;

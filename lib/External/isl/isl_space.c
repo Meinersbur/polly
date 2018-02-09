@@ -18,6 +18,11 @@
 #include <isl_id_private.h>
 #include <isl_reordering.h>
 
+#undef BASE
+#define BASE space
+
+#include <isl_list_templ.c>
+
 isl_ctx *isl_space_get_ctx(__isl_keep isl_space *dim)
 {
 	return dim ? dim->ctx : NULL;
@@ -1321,15 +1326,6 @@ error:
 	return NULL;
 }
 
-/* Given a space of the form [A -> B] -> [C -> D], return the space A -> C.
- */
-__isl_give isl_space *isl_space_factor_domain(__isl_take isl_space *space)
-{
-	space = isl_space_domain_factor_domain(space);
-	space = isl_space_range_factor_domain(space);
-	return space;
-}
-
 /* Given a space of the form [A -> B] -> C, return the space A -> C.
  */
 __isl_give isl_space *isl_space_domain_factor_domain(
@@ -1407,19 +1403,18 @@ error:
 	return NULL;
 }
 
-/* Given a space of the form A -> [B -> C], return the space A -> B.
+/* Internal function that selects the domain of the map that is
+ * embedded in either a set space or the range of a map space.
+ * In particular, given a space of the form [A -> B], return the space A.
+ * Given a space of the form A -> [B -> C], return the space A -> B.
  */
-__isl_give isl_space *isl_space_range_factor_domain(
-	__isl_take isl_space *space)
+static __isl_give isl_space *range_factor_domain(__isl_take isl_space *space)
 {
 	isl_space *nested;
 	isl_space *domain;
 
 	if (!space)
 		return NULL;
-	if (!isl_space_range_is_wrapping(space))
-		isl_die(isl_space_get_ctx(space), isl_error_invalid,
-			"range not a product", return isl_space_free(space));
 
 	nested = space->nested[1];
 	domain = isl_space_copy(space);
@@ -1444,6 +1439,47 @@ error:
 	isl_space_free(space);
 	isl_space_free(domain);
 	return NULL;
+}
+
+/* Given a space of the form A -> [B -> C], return the space A -> B.
+ */
+__isl_give isl_space *isl_space_range_factor_domain(
+	__isl_take isl_space *space)
+{
+	if (!space)
+		return NULL;
+	if (!isl_space_range_is_wrapping(space))
+		isl_die(isl_space_get_ctx(space), isl_error_invalid,
+			"range not a product", return isl_space_free(space));
+
+	return range_factor_domain(space);
+}
+
+/* Given a space of the form [A -> B], return the space A.
+ */
+static __isl_give isl_space *set_factor_domain(__isl_take isl_space *space)
+{
+	if (!space)
+		return NULL;
+	if (!isl_space_is_wrapping(space))
+		isl_die(isl_space_get_ctx(space), isl_error_invalid,
+			"not a product", return isl_space_free(space));
+
+	return range_factor_domain(space);
+}
+
+/* Given a space of the form [A -> B] -> [C -> D], return the space A -> C.
+ * Given a space of the form [A -> B], return the space A.
+ */
+__isl_give isl_space *isl_space_factor_domain(__isl_take isl_space *space)
+{
+	if (!space)
+		return NULL;
+	if (isl_space_is_set(space))
+		return set_factor_domain(space);
+	space = isl_space_domain_factor_domain(space);
+	space = isl_space_range_factor_domain(space);
+	return space;
 }
 
 /* Internal function that selects the range of the map that is

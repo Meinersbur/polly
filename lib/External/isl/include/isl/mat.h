@@ -94,6 +94,9 @@ __isl_give isl_mat *isl_mat_add_zero_rows(__isl_take isl_mat *mat, unsigned n);
 void isl_mat_col_add(__isl_keep isl_mat *mat, int dst_col, int src_col);
 
 __isl_give isl_mat *isl_mat_unimodular_complete(__isl_take isl_mat *M, int row);
+__isl_give isl_mat *isl_mat_row_basis(__isl_take isl_mat *mat);
+__isl_give isl_mat *isl_mat_row_basis_extension(
+	__isl_take isl_mat *mat1, __isl_take isl_mat *mat2);
 
 __isl_give isl_mat *isl_mat_from_row_vec(__isl_take isl_vec *vec);
 __isl_give isl_mat *isl_mat_concat(__isl_take isl_mat *top,
@@ -102,7 +105,10 @@ __isl_give isl_mat *isl_mat_vec_concat(__isl_take isl_mat *top,
 	__isl_take isl_vec *bot);
 
 isl_bool isl_mat_is_equal(__isl_keep isl_mat *mat1, __isl_keep isl_mat *mat2);
+isl_bool isl_mat_has_linearly_independent_rows(__isl_keep isl_mat *mat1,
+	__isl_keep isl_mat *mat2);
 
+int isl_mat_rank(__isl_keep isl_mat *mat);
 int isl_mat_initial_non_zero_cols(__isl_keep isl_mat *mat);
 
 void isl_mat_print_internal(__isl_keep isl_mat *mat, FILE *out, int indent);

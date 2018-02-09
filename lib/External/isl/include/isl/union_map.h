@@ -1,7 +1,7 @@
 #ifndef ISL_UNION_MAP_H
 #define ISL_UNION_MAP_H
 
-#include <isl/space.h>
+#include <isl/space_type.h>
 #include <isl/aff_type.h>
 #include <isl/map_type.h>
 #include <isl/union_map_type.h>
@@ -24,7 +24,7 @@ __isl_give isl_union_map *isl_union_map_from_basic_map(
 	__isl_take isl_basic_map *bmap);
 __isl_constructor
 __isl_give isl_union_map *isl_union_map_from_map(__isl_take isl_map *map);
-__isl_give isl_union_map *isl_union_map_empty(__isl_take isl_space *dim);
+__isl_give isl_union_map *isl_union_map_empty(__isl_take isl_space *space);
 __isl_give isl_union_map *isl_union_map_copy(__isl_keep isl_union_map *umap);
 __isl_null isl_union_map *isl_union_map_free(__isl_take isl_union_map *umap);
 
@@ -199,6 +199,7 @@ __isl_give isl_union_map *isl_union_map_project_out(
 __isl_give isl_union_map *isl_union_map_remove_divs(
 	__isl_take isl_union_map *bmap);
 
+isl_bool isl_union_map_plain_is_empty(__isl_keep isl_union_map *umap);
 __isl_export
 isl_bool isl_union_map_is_empty(__isl_keep isl_union_map *umap);
 __isl_export
@@ -228,6 +229,11 @@ int isl_union_map_n_map(__isl_keep isl_union_map *umap);
 __isl_export
 isl_stat isl_union_map_foreach_map(__isl_keep isl_union_map *umap,
 	isl_stat (*fn)(__isl_take isl_map *map, void *user), void *user);
+isl_bool isl_union_map_every_map(__isl_keep isl_union_map *umap,
+	isl_bool (*test)(__isl_keep isl_map *map, void *user), void *user);
+__isl_give isl_union_map *isl_union_map_remove_map_if(
+	__isl_take isl_union_map *umap,
+	isl_bool (*fn)(__isl_keep isl_map *map, void *user), void *user);
 isl_bool isl_union_map_contains(__isl_keep isl_union_map *umap,
 	__isl_keep isl_space *space);
 __isl_give isl_map *isl_union_map_extract_map(__isl_keep isl_union_map *umap,
@@ -268,6 +274,7 @@ __isl_give isl_union_map *isl_union_map_read_from_file(isl_ctx *ctx,
 __isl_constructor
 __isl_give isl_union_map *isl_union_map_read_from_str(isl_ctx *ctx,
 	const char *str);
+__isl_export
 __isl_give char *isl_union_map_to_str(__isl_keep isl_union_map *umap);
 __isl_give isl_printer *isl_printer_print_union_map(__isl_take isl_printer *p,
 	__isl_keep isl_union_map *umap);

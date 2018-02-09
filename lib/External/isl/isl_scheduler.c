@@ -15,6 +15,8 @@
  * CS 42112, 75589 Paris Cedex 12, France
  */
 
+#include <string.h>
+
 #include <isl_ctx_private.h>
 #include <isl_map_private.h>
 #include <isl_space_private.h>
@@ -43,8 +45,94 @@
  * The scheduling algorithm implemented in this file was inspired by
  * Bondhugula et al., "Automatic Transformations for Communication-Minimized
  * Parallelization and Locality Optimization in the Polyhedral Model".
+ *
+ * For a detailed description of the variant implemented in isl,
+ * see Verdoolaege and Janssens, "Scheduling for PPCG" (2017).
  */
 
+
+/* Extract the linear part, i.e., the coefficients of the input variables
+ * and the local variables (if any), from the affine expression "ma".
+ */
+static __isl_give isl_mat *extract_linear(__isl_take isl_multi_aff *ma)
+{
+	int i, n, n_param, n_var, n_div;
+	isl_ctx *ctx;
+	isl_mat *rows;
+
+	ma = isl_multi_aff_align_divs(ma);
+	if (!ma)
+		return NULL;
+
+	ctx = isl_multi_aff_get_ctx(ma);
+	n = isl_multi_aff_dim(ma, isl_dim_out);
+	n_param = isl_multi_aff_dim(ma, isl_dim_param);
+	n_var = isl_multi_aff_dim(ma, isl_dim_in);
+	n_div = 0;
+	if (n > 0)
+		n_div = isl_aff_dim(ma->p[0], isl_dim_div);
+	rows = isl_mat_alloc(ctx, n, n_var + n_div);
+	if (!rows)
+		goto error;
+	for (i = 0; i < n; ++i)
+		isl_seq_cpy(rows->row[i],
+			    ma->p[i]->v->el + 1 + 1 + n_param, n_var + n_div);
+	isl_multi_aff_free(ma);
+	return rows;
+error:
+	isl_multi_aff_free(ma);
+	return NULL;
+}
+
+/* Enumeration for indicating the type of ILP constraints that are added
+ * for an intra-statement consecutivity constraint.
+ *
+ * outer: linear combination of outer rows
+ * inner: equal to some inner row
+ * free: unrestricted
+ */
+enum isl_sched_intra_state {
+	isl_sched_intra_outer,
+	isl_sched_intra_inner,
+	isl_sched_intra_free,
+};
+
+/* A linked list of intra-statement consecutivity constraints
+ * for a particular statement.
+ *
+ * "id" is the tuple identifier of the isl_multi_aff from
+ * which the constraint is derived.  It may be NULL if the isl_multi_aff
+ * did not have a tuple identifier.
+ * "outer": the rows that should be covered by the outer part of the schedule.
+ * "inner": the desired inner schedule rows.
+ * "n_inner": the number of rows in "inner".
+ * "outer" and "inter" are expressed in terms of the compressed domain space.
+ *
+ * "state": the type of ILP constraint that is added.
+ * "n_fixed": the number of rows of "inner" that have already been taken
+ * into account.  A negative value means that this intra-statement
+ * consecutivity constraint can no longer be imposed.
+ * "band_n_fixed": the number of rows of "inner" that had already been taken
+ * into account at the start of the current band.
+ * If "n_fixed" is greater than 0, then "first_fixed" is
+ * the index of the schedule row that corresponds to
+ * the first row of "inner".
+ *
+ * "next": next constraint in the linked list.
+ */
+struct isl_sched_intra {
+	isl_id *id;
+	isl_mat *outer;
+	isl_mat *inner;
+	int n_inner;
+
+	enum isl_sched_intra_state state;
+	int n_fixed;
+	int band_n_fixed;
+	int first_fixed;
+
+	struct isl_sched_intra *next;
+};
 
 /* Internal information about a node that is used during the construction
  * of a schedule.
@@ -53,8 +141,8 @@
  * sched is a matrix representation of the schedule being constructed
  *	for this node; if compressed is set, then this schedule is
  *	defined over the compressed domain space
- * sched_map is an isl_map representation of the same (partial) schedule
- *	sched_map may be NULL; if compressed is set, then this map
+ * band_sched is an isl_map representation of the schedule of the current band
+ *	band_sched may be NULL; if compressed is set, then this map
  *	is defined over the uncompressed domain space
  * rank is the number of linearly independent rows in the linear part
  *	of sched
@@ -66,7 +154,7 @@
  * linearly independent of previously computed schedule rows.
  * start is the first variable in the LP problem in the sequences that
  *	represents the schedule coefficients of this node
- * nvar is the dimension of the domain
+ * nvar is the dimension of the (compressed) domain
  * nparam is the number of parameters or 0 if we are not constructing
  *	a parametric schedule
  *
@@ -96,6 +184,10 @@
  * value is negative.
  * If not NULL, then "bounds" contains a non-parametric set
  * in the compressed space that is bounded by the size in each direction.
+ * "intra" is a linked list of intra-statement consecutivity constraints,
+ * with the highest priority constraints appearing first.
+ * If the node belongs to a graph that is derived through splitting,
+ * then the "intra" list is shared with the node in the original graph.
  */
 struct isl_sched_node {
 	isl_space *space;
@@ -104,7 +196,7 @@ struct isl_sched_node {
 	isl_multi_aff *compress;
 	isl_multi_aff *decompress;
 	isl_mat *sched;
-	isl_map *sched_map;
+	isl_map *band_sched;
 	int	 rank;
 	isl_mat *indep;
 	isl_mat *vmap;
@@ -120,6 +212,8 @@ struct isl_sched_node {
 	isl_multi_val *sizes;
 	isl_basic_set *bounds;
 	isl_vec *max;
+
+	struct isl_sched_intra *intra;
 };
 
 static int node_has_tuples(const void *entry, const void *val)
@@ -145,6 +239,24 @@ static int node_scc_at_least(struct isl_sched_node *node, int scc)
 	return node->scc >= scc;
 }
 
+/* Enumeration for indicating the type of ILP constraint that is added
+ * for an inter-statement consecutivity constraint.
+ *
+ * failed: the inter-statement consecutivity constraint
+ * init: no constraint has been added or only zero-distance constraints
+ * inner: the one-distance constraint has been added
+ * free: no more constraints are added
+ *
+ * In practice, the "failed" and the "free" state have the same effect.
+ * They both result in the constraint being ignored in later steps.
+ */
+enum isl_sched_inter_state {
+	isl_sched_inter_failed = -1,
+	isl_sched_inter_init = 0,
+	isl_sched_inter_inner,
+	isl_sched_inter_free,
+};
+
 /* An edge in the dependence graph.  An edge may be used to
  * ensure validity of the generated schedule, to minimize the dependence
  * distance or both
@@ -169,10 +281,19 @@ static int node_scc_at_least(struct isl_sched_node *node, int scc)
  *	the dependence distance over the edge should be zero
  * conditional_validity is set if the edge is used to conditionally
  *	ensure correctness
+ * consecutivity is set if the edge is used to make pairs of instances
+ *	consecutive at a given level.  A consecutivity edge is exclusively
+ *	used to represent a single consecutivity constraint.
  *
  * For validity edges, start and end mark the sequence of inequality
  * constraints in the LP problem that encode the validity constraint
  * corresponding to this edge.
+ *
+ * For consecutivity edges, "src_intra" and "dst_intra" point
+ * to the corresponding intra-statement consecutivity constraints
+ * in "src" and "dst".  "state" reflects the type of ILP constraints
+ * that have been imposed.  "band_state" is the state at the start
+ * of the current band.
  *
  * During clustering, an edge may be marked "no_merge" if it should
  * not be used to merge clusters.
@@ -191,11 +312,16 @@ struct isl_sched_edge {
 
 	struct isl_sched_node *src;
 	struct isl_sched_node *dst;
+	struct isl_sched_intra *src_intra;
+	struct isl_sched_intra *dst_intra;
 
 	unsigned types;
 
 	int start;
 	int end;
+
+	enum isl_sched_inter_state state;
+	enum isl_sched_inter_state band_state;
 
 	int no_merge;
 	int weight;
@@ -285,6 +411,26 @@ static int is_conditional_validity(struct isl_sched_edge *edge)
 	return is_type(edge, isl_edge_conditional_validity);
 }
 
+/* Is "edge" marked as a consecutivity edge?
+ */
+static int is_consecutivity(struct isl_sched_edge *edge)
+{
+	return is_type(edge, isl_edge_consecutivity);
+}
+
+/* Is "edge" of a type that can appear multiple times between
+ * the same pair of nodes?
+ *
+ * Condition edges and conditional validity edges may have tagged
+ * dependence relations, in which case an edge is added for each
+ * pair of tags.
+ */
+static int is_multi_edge_type(struct isl_sched_edge *edge)
+{
+	return is_condition(edge) || is_conditional_validity(edge) ||
+		is_consecutivity(edge);
+}
+
 /* Internal information about the dependence graph used during
  * the construction of the schedule.
  *
@@ -300,6 +446,10 @@ static int is_conditional_validity(struct isl_sched_edge *edge)
  * is the original, uncompressed dependence relation, while
  * the value is the dual of the compressed dependence relation.
  *
+ * prefix is the schedule prefix specified by the user.
+ * This field may be NULL if no (non-trivial) schedule prefix
+ * was specified.
+ *
  * n is the number of nodes
  * node is the list of nodes
  * maxvar is the maximal number of variables over all nodes
@@ -308,7 +458,7 @@ static int is_conditional_validity(struct isl_sched_edge *edge)
  *	rows in the node schedules
  * n_total_row is the current number of rows in the node schedules
  * band_start is the starting row in the node schedules of the current band
- * root is set to the the original dependence graph from which this graph
+ * root is set to the original dependence graph from which this graph
  *	is derived through splitting.  If this graph is not the result of
  *	splitting, then the root field points to the graph itself.
  *
@@ -329,7 +479,9 @@ static int is_conditional_validity(struct isl_sched_edge *edge)
  *
  * node_table contains pointers into the node array, hashed on the space tuples
  *
- * region contains a list of variable sequences that should be non-trivial
+ * "region" contains a list of variable sequences with constraints
+ * that need to be satisfied.
+ * "n_region" contains the size of the allocated array.
  *
  * lp contains the (I)LP problem used to obtain new schedule rows
  *
@@ -347,6 +499,8 @@ struct isl_sched_graph {
 	isl_map_to_basic_set *intra_hmap_param;
 	isl_map_to_basic_set *inter_hmap;
 
+	isl_multi_union_pw_aff *prefix;
+
 	struct isl_sched_node *node;
 	int n;
 	int maxvar;
@@ -362,11 +516,12 @@ struct isl_sched_graph {
 
 	struct isl_sched_edge *edge;
 	int n_edge;
-	int max_edge[isl_edge_last + 1];
-	struct isl_hash_table *edge_table[isl_edge_last + 1];
+	int max_edge[isl_edge_last_table + 1];
+	struct isl_hash_table *edge_table[isl_edge_last_table + 1];
 
 	struct isl_hash_table *node_table;
-	struct isl_trivial_region *region;
+	int n_region;
+	struct isl_ilp_region *region;
 
 	isl_basic_set *lp;
 
@@ -406,7 +561,7 @@ static int graph_init_table(isl_ctx *ctx, struct isl_sched_graph *graph)
 }
 
 /* Return a pointer to the node that lives within the given space,
- * or NULL if there is no such node.
+ * an invalid node if there is no such node, or NULL in case of error.
  */
 static struct isl_sched_node *graph_find_node(isl_ctx *ctx,
 	struct isl_sched_graph *graph, __isl_keep isl_space *space)
@@ -414,11 +569,14 @@ static struct isl_sched_node *graph_find_node(isl_ctx *ctx,
 	struct isl_hash_table_entry *entry;
 	uint32_t hash;
 
+	if (!space)
+		return NULL;
+
 	hash = isl_space_get_tuple_hash(space);
 	entry = isl_hash_table_find(ctx, graph->node_table, hash,
 				    &node_has_tuples, space, 0);
 
-	return entry ? entry->data : NULL;
+	return entry ? entry->data : graph->node + graph->n;
 }
 
 /* Is "node" a node in "graph"?
@@ -458,6 +616,24 @@ static isl_stat graph_edge_table_add(isl_ctx *ctx,
 	return isl_stat_ok;
 }
 
+/* Add "edge" to all relevant edge tables.
+ * That is, for every type of the edge, add it to the corresponding table.
+ */
+static isl_stat graph_edge_tables_add(isl_ctx *ctx,
+	struct isl_sched_graph *graph, struct isl_sched_edge *edge)
+{
+	enum isl_edge_type t;
+
+	for (t = isl_edge_first; t <= isl_edge_last_table; ++t) {
+		if (!is_type(edge, t))
+			continue;
+		if (graph_edge_table_add(ctx, graph, t, edge) < 0)
+			return isl_stat_error;
+	}
+
+	return isl_stat_ok;
+}
+
 /* Allocate the edge_tables based on the maximal number of edges of
  * each type.
  */
@@ -465,7 +641,7 @@ static int graph_init_edge_tables(isl_ctx *ctx, struct isl_sched_graph *graph)
 {
 	int i;
 
-	for (i = 0; i <= isl_edge_last; ++i) {
+	for (i = 0; i <= isl_edge_last_table; ++i) {
 		graph->edge_table[i] = isl_hash_table_alloc(ctx,
 							    graph->max_edge[i]);
 		if (!graph->edge_table[i])
@@ -535,6 +711,8 @@ static isl_bool graph_has_edge(struct isl_sched_graph *graph,
 }
 
 /* Look for any edge with the same src, dst and map fields as "model".
+ * Do not look for matching edges of consecutivity constraints or
+ * matching consecutivity edges.
  *
  * Return the matching edge if one can be found.
  * Return "model" if no matching edge is found.
@@ -546,9 +724,13 @@ static struct isl_sched_edge *graph_find_matching_edge(
 	enum isl_edge_type i;
 	struct isl_sched_edge *edge;
 
-	for (i = isl_edge_first; i <= isl_edge_last; ++i) {
+	if (is_consecutivity(model))
+		return model;
+	for (i = isl_edge_first; i <= isl_edge_last_table; ++i) {
 		int is_equal;
 
+		if (i == isl_edge_consecutivity)
+			continue;
 		edge = graph_find_edge(graph, i, model->src, model->dst);
 		if (!edge)
 			continue;
@@ -570,7 +752,7 @@ static void graph_remove_edge(struct isl_sched_graph *graph,
 	isl_ctx *ctx = isl_map_get_ctx(edge->map);
 	enum isl_edge_type i;
 
-	for (i = isl_edge_first; i <= isl_edge_last; ++i) {
+	for (i = isl_edge_first; i <= isl_edge_last_table; ++i) {
 		struct isl_hash_table_entry *entry;
 
 		entry = graph_find_edge_entry(graph, i, edge->src, edge->dst);
@@ -591,7 +773,7 @@ static isl_bool graph_has_any_edge(struct isl_sched_graph *graph,
 	enum isl_edge_type i;
 	isl_bool r;
 
-	for (i = isl_edge_first; i <= isl_edge_last; ++i) {
+	for (i = isl_edge_first; i <= isl_edge_last_table; ++i) {
 		r = graph_has_edge(graph, i, src, dst);
 		if (r < 0 || r)
 			return r;
@@ -623,8 +805,19 @@ static isl_bool graph_has_validity_edge(struct isl_sched_graph *graph,
 	return graph_has_edge(graph, isl_edge_conditional_validity, src, dst);
 }
 
-static int graph_alloc(isl_ctx *ctx, struct isl_sched_graph *graph,
-	int n_node, int n_edge)
+/* Perform all the required memory allocations for a schedule graph "graph"
+ * with "n_node" nodes and "n_edge" edge and initialize the corresponding
+ * fields.
+ * "n_consecutive" is the number of consecutivity constraints.
+ * The number of regions introduced per intra-statement consecutivity
+ * constraint can vary between one and three, while an additional
+ * single region is introduced per inter-statement consecutivity constraint.
+ * Only allocate a single entry
+ * per consecutivity constraint for now, relying on graph_extend_region
+ * to extend the list of regions when needed.
+ */
+static isl_stat graph_alloc(isl_ctx *ctx, struct isl_sched_graph *graph,
+	int n_node, int n_edge, int n_consecutive)
 {
 	int i;
 
@@ -632,8 +825,9 @@ static int graph_alloc(isl_ctx *ctx, struct isl_sched_graph *graph,
 	graph->n_edge = n_edge;
 	graph->node = isl_calloc_array(ctx, struct isl_sched_node, graph->n);
 	graph->sorted = isl_calloc_array(ctx, int, graph->n);
-	graph->region = isl_alloc_array(ctx,
-					struct isl_trivial_region, graph->n);
+	graph->n_region = n_consecutive + graph->n;
+	graph->region = isl_calloc_array(ctx, struct isl_ilp_region,
+					graph->n_region);
 	graph->edge = isl_calloc_array(ctx,
 					struct isl_sched_edge, graph->n_edge);
 
@@ -643,12 +837,73 @@ static int graph_alloc(isl_ctx *ctx, struct isl_sched_graph *graph,
 
 	if (!graph->node || !graph->region || (graph->n_edge && !graph->edge) ||
 	    !graph->sorted)
-		return -1;
+		return isl_stat_error;
 
 	for(i = 0; i < graph->n; ++i)
 		graph->sorted[i] = i;
 
-	return 0;
+	return isl_stat_ok;
+}
+
+/* Extend the size of graph->region to contain at least "n" elements,
+ * clearing the additionally allocated elements.
+ */
+static isl_stat graph_extend_region(isl_ctx *ctx, struct isl_sched_graph *graph,
+	int n)
+{
+	struct isl_ilp_region *region;
+
+	if (graph->n_region >= n)
+		return isl_stat_ok;
+
+	n = (n + 1) * 3 / 2;
+	region = isl_realloc_array(ctx, graph->region, struct isl_ilp_region,
+					n);
+	if (!region)
+		return isl_stat_error;
+
+	memset(region + graph->n_region, 0,
+		(n - graph->n_region) * sizeof(struct isl_ilp_region));
+	graph->region = region;
+	graph->n_region = n;
+
+	return isl_stat_ok;
+}
+
+/* Free the memory associated to node "node" in "graph".
+ * The "coincident" and the "intra" fields are shared by nodes in a graph and
+ * its subgraph.
+ * They therefore only need to be freed for the original dependence graph,
+ * i.e., one that is not the result of splitting.
+ */
+static void clear_node(struct isl_sched_graph *graph,
+	struct isl_sched_node *node)
+{
+	isl_space_free(node->space);
+	isl_set_free(node->hull);
+	isl_multi_aff_free(node->compress);
+	isl_multi_aff_free(node->decompress);
+	isl_mat_free(node->sched);
+	isl_map_free(node->band_sched);
+	isl_mat_free(node->indep);
+	isl_mat_free(node->vmap);
+	isl_multi_val_free(node->sizes);
+	isl_basic_set_free(node->bounds);
+	isl_vec_free(node->max);
+
+	if (graph->root != graph)
+		return;
+
+	free(node->coincident);
+	while (node->intra) {
+		struct isl_sched_intra *intra = node->intra;
+
+		node->intra = intra->next;
+		isl_id_free(intra->id);
+		isl_mat_free(intra->outer);
+		isl_mat_free(intra->inner);
+		free(intra);
+	}
 }
 
 static void graph_free(isl_ctx *ctx, struct isl_sched_graph *graph)
@@ -660,21 +915,8 @@ static void graph_free(isl_ctx *ctx, struct isl_sched_graph *graph)
 	isl_map_to_basic_set_free(graph->inter_hmap);
 
 	if (graph->node)
-		for (i = 0; i < graph->n; ++i) {
-			isl_space_free(graph->node[i].space);
-			isl_set_free(graph->node[i].hull);
-			isl_multi_aff_free(graph->node[i].compress);
-			isl_multi_aff_free(graph->node[i].decompress);
-			isl_mat_free(graph->node[i].sched);
-			isl_map_free(graph->node[i].sched_map);
-			isl_mat_free(graph->node[i].indep);
-			isl_mat_free(graph->node[i].vmap);
-			if (graph->root == graph)
-				free(graph->node[i].coincident);
-			isl_multi_val_free(graph->node[i].sizes);
-			isl_basic_set_free(graph->node[i].bounds);
-			isl_vec_free(graph->node[i].max);
-		}
+		for (i = 0; i < graph->n; ++i)
+			clear_node(graph, &graph->node[i]);
 	free(graph->node);
 	free(graph->sorted);
 	if (graph->edge)
@@ -685,10 +927,12 @@ static void graph_free(isl_ctx *ctx, struct isl_sched_graph *graph)
 		}
 	free(graph->edge);
 	free(graph->region);
-	for (i = 0; i <= isl_edge_last; ++i)
+	for (i = 0; i <= isl_edge_last_table; ++i)
 		isl_hash_table_free(ctx, graph->edge_table[i]);
 	isl_hash_table_free(ctx, graph->node_table);
 	isl_basic_set_free(graph->lp);
+
+	isl_multi_union_pw_aff_free(graph->prefix);
 }
 
 /* For each "set" on which this function is called, increment
@@ -713,13 +957,17 @@ static isl_stat init_n_maxvar(__isl_take isl_set *set, void *user)
  * for each basic map in the dependences.
  * Note that it is practically impossible to exhaust both
  * the number of dependences and the number of variables.
+ * If any prefix schedule was specified, then the initial rows
+ * are initialized from this prefix.  Since the prefix may be
+ * completely trivial, it needs to be taken into account separately.
  */
 static isl_stat compute_max_row(struct isl_sched_graph *graph,
 	__isl_keep isl_schedule_constraints *sc)
 {
-	int n_edge;
+	int n_prefix, n_edge;
 	isl_stat r;
 	isl_union_set *domain;
+	isl_multi_union_pw_aff *prefix;
 
 	graph->n = 0;
 	graph->maxvar = 0;
@@ -728,10 +976,15 @@ static isl_stat compute_max_row(struct isl_sched_graph *graph,
 	isl_union_set_free(domain);
 	if (r < 0)
 		return isl_stat_error;
+	prefix = isl_schedule_constraints_get_prefix(sc);
+	n_prefix = isl_multi_union_pw_aff_dim(prefix, isl_dim_set);
+	isl_multi_union_pw_aff_free(prefix);
+	if (!prefix)
+		return isl_stat_error;
 	n_edge = isl_schedule_constraints_n_basic_map(sc);
 	if (n_edge < 0)
 		return isl_stat_error;
-	graph->max_row = n_edge + graph->maxvar;
+	graph->max_row = n_prefix + n_edge + graph->maxvar;
 
 	return isl_stat_ok;
 }
@@ -842,6 +1095,7 @@ error:
 /* Compute and return the size of "set" in dimension "dim".
  * The size is taken to be the difference in values for that variable
  * for fixed values of the other variables.
+ * This assumes that "set" is convex.
  * In particular, the variable is first isolated from the other variables
  * in the range of a map
  *
@@ -886,6 +1140,10 @@ static __isl_give isl_val *compute_size(__isl_take isl_set *set, int dim)
  * the bounds need to be set and this is done in set_max_coefficient.
  * Otherwise, compress the domain if needed, compute the size
  * in each direction and store the results in node->size.
+ * If the domain is not convex, then the sizes are computed
+ * on a convex superset in order to avoid picking up sizes
+ * that are valid for the individual disjuncts, but not for
+ * the domain as a whole.
  * Finally, set the bounds on the coefficients based on the sizes
  * and the schedule_max_coefficient option in compute_max_coefficient.
  */
@@ -903,6 +1161,7 @@ static isl_stat compute_sizes_and_max(isl_ctx *ctx, struct isl_sched_node *node,
 	if (node->compressed)
 		set = isl_set_preimage_multi_aff(set,
 					isl_multi_aff_copy(node->decompress));
+	set = isl_set_from_basic_set(isl_set_simple_hull(set));
 	mv = isl_multi_val_zero(isl_set_get_space(set));
 	n = isl_set_dim(set, isl_dim_set);
 	for (j = 0; j < n; ++j) {
@@ -959,7 +1218,7 @@ static isl_stat add_node(struct isl_sched_graph *graph,
 	node->nvar = nvar;
 	node->nparam = nparam;
 	node->sched = sched;
-	node->sched_map = NULL;
+	node->band_sched = NULL;
 	coincident = isl_calloc_array(ctx, int, graph->max_row);
 	node->coincident = coincident;
 	node->compressed = compressed;
@@ -1142,6 +1401,30 @@ static __isl_give isl_map *insert_dummy_tags(__isl_take isl_map *map)
 	return map;
 }
 
+/* Return a map in the same space as that of "map" that relates
+ * the elements with equal schedule prefix.
+ * Use the original schedule prefix specified by the user and
+ * not the linear information extracted from it for the purpose
+ * of avoiding redundant rows in the generated schedule.
+ */
+static __isl_give isl_map *extract_equal_prefix(struct isl_sched_graph *graph,
+	__isl_keep isl_map *map)
+{
+	isl_space *space;
+	isl_union_map *umap;
+	isl_multi_union_pw_aff *prefix;
+
+	space = isl_map_get_space(map);
+	map = isl_map_universe(isl_space_copy(space));
+	umap = isl_union_map_from_map(map);
+	prefix = isl_multi_union_pw_aff_copy(graph->prefix);
+	umap = isl_union_map_eq_at_multi_union_pw_aff(umap, prefix);
+	map = isl_union_map_extract_map(umap, space);
+	isl_union_map_free(umap);
+
+	return map;
+}
+
 /* Given that at least one of "src" or "dst" is compressed, return
  * a map between the spaces of these nodes restricted to the affine
  * hull that was used in the compression.
@@ -1178,8 +1461,8 @@ static __isl_give isl_map *map_intersect_domains(__isl_take isl_map *tagged,
 	return tagged;
 }
 
-/* Return a pointer to the node that lives in the domain space of "map"
- * or NULL if there is no such node.
+/* Return a pointer to the node that lives in the domain space of "map",
+ * an invalid node if there is no such node, or NULL in case of error.
  */
 static struct isl_sched_node *find_domain_node(isl_ctx *ctx,
 	struct isl_sched_graph *graph, __isl_keep isl_map *map)
@@ -1194,8 +1477,8 @@ static struct isl_sched_node *find_domain_node(isl_ctx *ctx,
 	return node;
 }
 
-/* Return a pointer to the node that lives in the range space of "map"
- * or NULL if there is no such node.
+/* Return a pointer to the node that lives in the range space of "map",
+ * an invalid node if there is no such node, or NULL in case of error.
  */
 static struct isl_sched_node *find_range_node(isl_ctx *ctx,
 	struct isl_sched_graph *graph, __isl_keep isl_map *map)
@@ -1210,12 +1493,32 @@ static struct isl_sched_node *find_range_node(isl_ctx *ctx,
 	return node;
 }
 
+/* Refrain from adding a new edge based on "map" to "graph".
+ * Instead, just free the map and tell the caller
+ * no edge was added.
+ * "tagged" is either a copy of "map" with additional tags or NULL.
+ */
+static struct isl_sched_edge *skip_edge(struct isl_sched_graph *graph,
+	__isl_take isl_map *map, __isl_take isl_map *tagged)
+{
+	isl_map_free(map);
+	isl_map_free(tagged);
+
+	return &graph->edge[graph->n_edge];
+}
+
 /* Add a new edge to the graph based on the given map
- * and add it to data->graph->edge_table[data->type].
+ * and add it to graph->edge_table[type].
  * If a dependence relation of a given type happens to be identical
  * to one of the dependence relations of a type that was added before,
  * then we don't create a new edge, but instead mark the original edge
  * as also representing a dependence of the current type.
+ * No such merging is performed on consecutivity edges.
+ * If no corresponding source or destination nodes can be found,
+ * then no edge is created.
+ * Return a pointer to the new or merged edge if an edge was created or
+ * updated.  Return an invalid edge otherwise.
+ * Return NULL on error.
  *
  * Edges of type isl_edge_condition or isl_edge_conditional_validity
  * may be specified as "tagged" dependence relations.  That is, "map"
@@ -1232,18 +1535,23 @@ static struct isl_sched_node *find_range_node(isl_ctx *ctx,
  * This ensures that there are no schedule constraints defined
  * outside of these domains, while the scheduler no longer has
  * any control over those outside parts.
+ *
+ * If a (non-trivial) prefix schedule was specified by the user,
+ * then only retain dependences between instances with equal
+ * prefix values.  If the specified prefix schedule was incomplete,
+ * then this may result in the removal of all dependences.
  */
-static isl_stat extract_edge(__isl_take isl_map *map, void *user)
+static struct isl_sched_edge *add_edge(struct isl_sched_graph *graph,
+	enum isl_edge_type type, __isl_take isl_map *map)
 {
+	isl_bool empty;
 	isl_ctx *ctx = isl_map_get_ctx(map);
-	struct isl_extract_edge_data *data = user;
-	struct isl_sched_graph *graph = data->graph;
 	struct isl_sched_node *src, *dst;
 	struct isl_sched_edge *edge;
 	isl_map *tagged = NULL;
 
-	if (data->type == isl_edge_condition ||
-	    data->type == isl_edge_conditional_validity) {
+	if (type == isl_edge_condition ||
+	    type == isl_edge_conditional_validity) {
 		if (isl_map_can_zip(map)) {
 			tagged = isl_map_copy(map);
 			map = isl_set_unwrap(isl_map_domain(isl_map_zip(map)));
@@ -1252,14 +1560,21 @@ static isl_stat extract_edge(__isl_take isl_map *map, void *user)
 		}
 	}
 
+	if (graph->prefix) {
+		isl_map *equal_prefix;
+		equal_prefix = extract_equal_prefix(graph, map);
+		if (tagged)
+			tagged = map_intersect_domains(tagged, equal_prefix);
+		map = isl_map_intersect(map, equal_prefix);
+	}
+
 	src = find_domain_node(ctx, graph, map);
 	dst = find_range_node(ctx, graph, map);
 
-	if (!src || !dst) {
-		isl_map_free(map);
-		isl_map_free(tagged);
-		return isl_stat_ok;
-	}
+	if (!src || !dst)
+		goto error;
+	if (!is_node(graph, src) || !is_node(graph, dst))
+		return skip_edge(graph, map, tagged);
 
 	if (src->compressed || dst->compressed) {
 		isl_map *hull;
@@ -1269,33 +1584,607 @@ static isl_stat extract_edge(__isl_take isl_map *map, void *user)
 		map = isl_map_intersect(map, hull);
 	}
 
+	empty = isl_map_plain_is_empty(map);
+	if (empty < 0)
+		goto error;
+	if (empty)
+		return skip_edge(graph, map, tagged);
+
 	graph->edge[graph->n_edge].src = src;
 	graph->edge[graph->n_edge].dst = dst;
 	graph->edge[graph->n_edge].map = map;
 	graph->edge[graph->n_edge].types = 0;
 	graph->edge[graph->n_edge].tagged_condition = NULL;
 	graph->edge[graph->n_edge].tagged_validity = NULL;
-	set_type(&graph->edge[graph->n_edge], data->type);
-	if (data->type == isl_edge_condition)
+	set_type(&graph->edge[graph->n_edge], type);
+	if (type == isl_edge_condition)
 		graph->edge[graph->n_edge].tagged_condition =
 					isl_union_map_from_map(tagged);
-	if (data->type == isl_edge_conditional_validity)
+	if (type == isl_edge_conditional_validity)
 		graph->edge[graph->n_edge].tagged_validity =
 					isl_union_map_from_map(tagged);
 
 	edge = graph_find_matching_edge(graph, &graph->edge[graph->n_edge]);
 	if (!edge) {
 		graph->n_edge++;
-		return isl_stat_error;
+		return NULL;
 	}
 	if (edge == &graph->edge[graph->n_edge])
-		return graph_edge_table_add(ctx, graph, data->type,
-				    &graph->edge[graph->n_edge++]);
+		edge = &graph->edge[graph->n_edge++];
+	else if (merge_edge(edge, &graph->edge[graph->n_edge]) < 0)
+		return NULL;
 
-	if (merge_edge(edge, &graph->edge[graph->n_edge]) < 0)
-		return -1;
+	if (graph_edge_table_add(ctx, graph, type, edge) < 0)
+		return NULL;
+	return edge;
+error:
+	isl_map_free(map);
+	isl_map_free(tagged);
+	return NULL;
+}
 
-	return graph_edge_table_add(ctx, graph, data->type, edge);
+/* Is "edge" an edge in "graph"?
+ */
+static int is_edge(struct isl_sched_graph *graph,
+	struct isl_sched_edge *edge)
+{
+	return edge &&
+		edge >= graph->edge && edge < graph->edge + graph->n_edge;
+}
+
+/* Add a new edge to the graph based on the given map
+ * and add it to data->graph->edge_table[data->type].
+ */
+static isl_stat extract_edge(__isl_take isl_map *map, void *user)
+{
+	struct isl_extract_edge_data *data = user;
+	struct isl_sched_graph *graph = data->graph;
+	struct isl_sched_edge *edge;
+
+	edge = add_edge(graph, data->type, map);
+	return edge ? isl_stat_ok : isl_stat_error;
+}
+
+/* Insert an intra-statement consecutivity constraint with
+ * identifier "id" (may be NULL),
+ * outer part "outer" and inner part "inner" in front of the list of
+ * intra-statement consecutivity constraints of "node".
+ * "outer" is replaced by a basis because only the spanned
+ * space is relevant and not the individual rows.
+ */
+static isl_stat insert_intra(struct isl_sched_node *node,
+	__isl_take isl_id *id, __isl_take isl_mat *outer,
+	__isl_take isl_mat *inner)
+{
+	isl_ctx *ctx;
+	struct isl_sched_intra *intra;
+
+	outer = isl_mat_row_basis(outer);
+	if (!outer || !inner)
+		goto error;
+
+	ctx = isl_mat_get_ctx(outer);
+	intra = isl_calloc_type(ctx, struct isl_sched_intra);
+	if (!intra)
+		goto error;
+	intra->n_inner = isl_mat_rows(inner);
+	intra->id = id;
+	intra->outer = outer;
+	intra->inner = inner;
+	intra->next = node->intra;
+	node->intra = intra;
+	return isl_stat_ok;
+error:
+	isl_id_free(id);
+	isl_mat_free(outer);
+	isl_mat_free(inner);
+	return isl_stat_error;
+}
+
+/* Does the sequence of linear combinations "lin" with outer rows "outer"
+ * represent a valid intra-statement consecutivity constraint for a node
+ * with "nvar" variables?
+ *
+ * If the number of columns is greater than the number of variables,
+ * then the isl_multi_aff from which this linear part was extracted
+ * involves some local variables, meaning that it is a quasi-affine
+ * expression rather than an affine expression.
+ * These are not allowed.
+ *
+ * The inner part of "lin" needs to be of full row-rank and
+ * needs to be linearly independent of "outer".
+ * That is, rank(lin) needs to be equal to rank(outer) + rank(inner),
+ * while rank(inner) needs to be equal to the number of rows of the inner part.
+ * Furthermore, the inner part needs to contain at least one row.
+ */
+static isl_bool valid_intra(__isl_keep isl_mat *lin, __isl_keep isl_mat *outer,
+	int nvar)
+{
+	int n_col;
+	int rank, rank_outer;
+	int n_inner;
+
+	if (!lin || !outer)
+		return isl_bool_error;
+
+	n_col = isl_mat_cols(lin);
+	if (n_col != nvar)
+		return isl_bool_false;
+
+	n_inner = isl_mat_rows(lin) - isl_mat_rows(outer);
+	if (n_inner < 1)
+		return isl_bool_false;
+	rank = isl_mat_rank(lin);
+	rank_outer = isl_mat_rank(outer);
+	if (rank < 0 || rank_outer < 0)
+		return isl_bool_error;
+	if (rank != rank_outer + n_inner)
+		return isl_bool_false;
+
+	return isl_bool_true;
+}
+
+/* Insert the intra-statement consecutivity constraint "lin"
+ * with identifier "id" (may be NULL) and
+ * outer part "outer" in front of the list of
+ * intra-statement consecutivity constraints of "node",
+ * provided it is a valid constraint.
+ */
+static isl_stat insert_valid_intra(struct isl_sched_node *node,
+	__isl_take isl_id *id, __isl_take isl_mat *lin,
+	__isl_take isl_mat *outer)
+{
+	isl_bool valid;
+
+	valid = valid_intra(lin, outer, node->nvar);
+	if (valid >= 0 && valid) {
+		isl_mat *inner;
+		int n_outer;
+
+		n_outer = isl_mat_rows(outer);
+		inner = isl_mat_drop_rows(lin, 0, n_outer);
+		return insert_intra(node, id, outer, inner);
+	}
+
+	isl_id_free(id);
+	isl_mat_free(lin);
+	isl_mat_free(outer);
+	return valid >= 0 ? isl_stat_ok : isl_stat_error;
+}
+
+/* Insert the intra-statement consecutivity constraint "ma"
+ * in front of the list of intra-statement consecutivity constraints
+ * of "node", provided it is a valid constraint.
+ *
+ * "ma" maps the (uncompressed) space of "node" to a product space
+ * of outer and inner parts.
+ * Only the linear parts of the affine expressions are relevant.
+ * If the node is compressed, reformulate the constraints in terms
+ * of the compressed domain,
+ * extract the linear parts and store them in "node",
+ * provided they represent a valid constraint.
+ * If "ma" has a tuple identifier, then keep track of it as well.
+ */
+static isl_stat node_insert_intra(struct isl_sched_node *node,
+	__isl_take isl_multi_aff *ma)
+{
+	isl_bool has_id;
+	isl_id *id;
+	isl_space *space;
+	isl_mat *lin, *outer;
+	int n_outer, n_inner;
+
+	space = isl_multi_aff_get_space(ma);
+	space = isl_space_unwrap(isl_space_range(space));
+	n_outer = isl_space_dim(space, isl_dim_in);
+	n_inner = isl_space_dim(space, isl_dim_out);
+	isl_space_free(space);
+	if (!space)
+		goto error;
+
+	has_id = isl_multi_aff_has_tuple_id(ma, isl_dim_out);
+	if (has_id < 0)
+		goto error;
+	if (!has_id) {
+		id = NULL;
+	} else {
+		id = isl_multi_aff_get_tuple_id(ma, isl_dim_out);
+		if (!id)
+			goto error;
+	}
+
+	if (node->compressed)
+		ma = isl_multi_aff_pullback_multi_aff(ma,
+					isl_multi_aff_copy(node->decompress));
+	lin = extract_linear(ma);
+	outer = isl_mat_drop_rows(isl_mat_copy(lin), n_outer, n_inner);
+	return insert_valid_intra(node, id, lin, outer);
+error:
+	isl_multi_aff_free(ma);
+	return isl_stat_error;
+}
+
+/* Insert the intra-statement consecutivity constraint "ma"
+ * in front of the list of intra-statement consecutivity constraints
+ * of the corresponding node of "graph", provided there is such a node.
+ */
+static isl_stat graph_insert_intra(struct isl_sched_graph *graph,
+	__isl_take isl_multi_aff *ma)
+{
+	struct isl_sched_node *node;
+	isl_ctx *ctx;
+	isl_space *space;
+
+	space = isl_multi_aff_get_domain_space(ma);
+	ctx = isl_multi_aff_get_ctx(ma);
+	node = graph_find_node(ctx, graph, space);
+	isl_space_free(space);
+	if (!node)
+		goto error;
+	if (is_node(graph, node))
+		return node_insert_intra(node, ma);
+	isl_multi_aff_free(ma);
+	return isl_stat_ok;
+error:
+	isl_multi_aff_free(ma);
+	return isl_stat_error;
+}
+
+/* Store the intra-statement consecutivity constraints of "sc"
+ * in the appropriate nodes of "graph".
+ *
+ * If there are multiple constraints per node, then
+ * the constraints are successively inserted in front of
+ * the per-node list.
+ * Start from the last intra-statement consecutivity constraint
+ * to ensure that the final order of the per-node constraints
+ * is the same as in the original list of constraints.
+ */
+static isl_stat graph_set_intra(struct isl_sched_graph *graph,
+	__isl_keep isl_schedule_constraints *sc)
+{
+	isl_multi_aff_list *intra;
+	int i, n;
+
+	intra = isl_schedule_constraints_get_intra_consecutivity(sc);
+	if (!intra)
+		return isl_stat_error;
+	n = isl_multi_aff_list_n_multi_aff(intra);
+	for (i = n - 1; i >= 0; --i) {
+		isl_multi_aff *ma;
+
+		ma = isl_multi_aff_list_get_multi_aff(intra, i);
+		if (graph_insert_intra(graph, ma) < 0)
+			goto error;
+	}
+	isl_multi_aff_list_free(intra);
+
+	return isl_stat_ok;
+error:
+	isl_multi_aff_list_free(intra);
+	return isl_stat_error;
+}
+
+/* Return the intra-statement consecutivity constraint
+ * referenced by "node" that has identifier "id".
+ * Return NULL if no such constraint can be found.
+ */
+static struct isl_sched_intra *find_intra(struct isl_sched_node *node,
+	__isl_take isl_id *id)
+{
+	struct isl_sched_intra *intra;
+
+	for (intra = node->intra; intra; intra = intra->next) {
+		if (intra->id == id)
+			break;
+	}
+
+	isl_id_free(id);
+	return intra;
+}
+
+/* Clear the dependence relation of "edge" and remove
+ * it from the edge tables of "graph".
+ */
+static isl_stat clear_edge(struct isl_sched_graph *graph,
+	struct isl_sched_edge *edge)
+{
+	isl_space *space;
+
+	space = isl_map_get_space(edge->map);
+	isl_map_free(edge->map);
+	edge->map = isl_map_empty(space);
+	if (!edge->map)
+		return isl_stat_error;
+
+	graph_remove_edge(graph, edge);
+
+	return isl_stat_ok;
+}
+
+/* Add an edge to "graph" corresponding to the inter-statement
+ * consecutivity constraint "map" that references
+ * the intra-statement consecutivity constraints identified
+ * by "id_src" and "id_dst", if those intra-statement
+ * consecutivity constraints can be found and have the same number
+ * of rows in their inner parts.
+ *
+ * The edge is first created and then possibly disabled
+ * if the intra-statement consecutivity constraints cannot be found.
+ * A side effect of the edge creation is that the nodes are identified and
+ * the intra-statement consecutivity constraints need to be looked up
+ * in those nodes.
+ */
+static isl_stat graph_add_inter_split(struct isl_sched_graph *graph,
+	__isl_take isl_map *map, __isl_take isl_id *id_src,
+	__isl_take isl_id *id_dst)
+{
+	struct isl_sched_edge *edge;
+
+	edge = add_edge(graph, isl_edge_consecutivity, map);
+	if (!edge)
+		goto error;
+	edge->state = isl_sched_inter_init;
+	edge->src_intra = find_intra(edge->src, id_src);
+	edge->dst_intra = find_intra(edge->dst, id_dst);
+
+	if (edge->src_intra && edge->dst_intra &&
+	    edge->src_intra->n_inner == edge->dst_intra->n_inner)
+		return isl_stat_ok;
+
+	return clear_edge(graph, edge);
+error:
+	isl_id_free(id_src);
+	isl_id_free(id_dst);
+	return isl_stat_error;
+}
+
+/* Add an edge to "graph" corresponding to the inter-statement
+ * consecutivity constraint "map", if it represents a valid constraint.
+ *
+ * Extract out the relation between statement instances and
+ * the pair of intra-statement consecutivity constraint identifiers.
+ */
+static isl_stat add_inter_consecutivity(__isl_take isl_map *map, void *user)
+{
+	struct isl_sched_graph *graph = user;
+	isl_space *space;
+	isl_bool has_id;
+	isl_id *id_src, *id_dst;
+
+	space = isl_map_get_space(map);
+	space = isl_space_factor_range(space);
+	has_id = isl_space_has_tuple_id(space, isl_dim_in);
+	if (has_id >= 0 && has_id)
+		has_id = isl_space_has_tuple_id(space, isl_dim_out);
+	if (has_id < 0 || !has_id) {
+		isl_space_free(space);
+		isl_map_free(map);
+		return has_id < 0 ? isl_stat_error : isl_stat_ok;
+	}
+	id_src = isl_space_get_tuple_id(space, isl_dim_in);
+	id_dst = isl_space_get_tuple_id(space, isl_dim_out);
+	isl_space_free(space);
+
+	map = isl_map_factor_domain(map);
+
+	return graph_add_inter_split(graph, map, id_src, id_dst);
+}
+
+/* Add edges to "graph" corresponding to the valid inter-statement
+ * consecutivity constraints of "sc".
+ */
+static isl_stat graph_set_inter(struct isl_sched_graph *graph,
+	__isl_keep isl_schedule_constraints *sc)
+{
+	isl_map_list *inter;
+	isl_stat r;
+
+	inter = isl_schedule_constraints_get_inter_consecutivity(sc);
+	r = isl_map_list_foreach(inter, &add_inter_consecutivity, graph);
+	isl_map_list_free(inter);
+
+	return r;
+}
+
+/* Extract (a basis for) the purely linear part of "ma",
+ * i.e., the coefficients of the input variables but not the local variables.
+ *
+ * There may be linear combinations of the elements of "ma"
+ * that do not involve local variables, while the elements themselves
+ * do involve local variables.
+ * Perform Gaussian elimination to remove local variables from
+ * as many rows as possible and subsequently remove the remaining rows
+ * involving local variables as well as the columns corresponding
+ * to the local variables.
+ */
+static __isl_give isl_mat *extract_pure_linear(__isl_take isl_multi_aff *ma)
+{
+	int i, n, n_var, n_div;
+	isl_mat *rows;
+
+	if (!ma)
+		return NULL;
+
+	n_var = isl_multi_aff_dim(ma, isl_dim_in);
+
+	rows = extract_linear(ma);
+	rows = isl_mat_reverse_gauss(rows);
+
+	if (!rows)
+		return NULL;
+
+	n = isl_mat_rows(rows);
+	n_div = isl_mat_cols(rows) - n_var;
+	for (i = n - 1; i >= 0; --i)
+		if (isl_seq_first_non_zero(rows->row[i] + n_var, n_div) == -1)
+			break;
+	rows = isl_mat_drop_rows(rows, i + 1, n - (i + 1));
+	rows = isl_mat_drop_cols(rows, n_var, n_div);
+
+	return rows;
+}
+
+/* Extend "complement" with the complement of the purely linear part of "ma".
+ */
+static isl_stat extend_prefix_complement(__isl_take isl_set *dom,
+	__isl_take isl_multi_aff *ma, void *user)
+{
+	isl_mat *complement_ma;
+	isl_mat **complement = user;
+
+	isl_set_free(dom);
+
+	complement_ma = isl_mat_row_complement(extract_pure_linear(ma));
+
+	*complement = isl_mat_concat(*complement, complement_ma);
+
+	return *complement ? isl_stat_ok : isl_stat_error;
+}
+
+/* Extract a linear prefix schedule from "pma" that is valid
+ * for all pieces.
+ * In particular, if there are multiple pieces, then the result
+ * contains linear combinations that have a fixed value in all pieces.
+ * That is, if there is a direction that is not fixed in one or more pieces,
+ * then it is also not fixed by the entire piecewise expression.
+ * A direction that is not fixed needs to have a component along
+ * the orthogonal complement of the fixed directions.
+ * Collect these orthogonal complements over all pieces and
+ * compute the complement of the result to obtain the desired directions.
+ *
+ * If "pma" is empty (which indicates a missing, and therefore invalid,
+ * prefix schedule), then the result will contain a basis for all directions,
+ * being the complement of an empty complement.
+ */
+static __isl_give isl_mat *extract_prefix_pw_multi_aff(
+	__isl_keep isl_pw_multi_aff *pma)
+{
+	int nvar;
+	isl_ctx *ctx;
+	isl_mat *complement;
+
+	if (!pma)
+		return NULL;
+
+	ctx = isl_pw_multi_aff_get_ctx(pma);
+	nvar = isl_pw_multi_aff_dim(pma, isl_dim_in);
+	complement = isl_mat_alloc(ctx, 0, nvar);
+
+	if (isl_pw_multi_aff_foreach_piece(pma, &extend_prefix_complement,
+						&complement) < 0)
+		complement = isl_mat_free(complement);
+
+	return isl_mat_row_complement(complement);
+}
+
+/* Extract a prefix schedule for "node" from "mupa" and add
+ * it to node->sched.
+ *
+ * "mupa" is formulated in terms of the original (uncompressed) spaces,
+ * while node->sched is formulated in terms of the potentially compressed
+ * space.  If "node" is compressed, then the expression corresponding
+ * to "node" therefore needs to be transformed first.
+ *
+ * The prefix stored in node->sched is only used to avoid linearly
+ * dependent schedule rows from being generated.  Only the linear
+ * part of the prefix is therefore relevant.  Use zero for
+ * the coefficients of the constant term and the parameters.
+ * The extracted linear part may have fewer rows than "mupa",
+ * either because of linear dependences or because some element
+ * of "mupa" involve local variables.
+ * Extend the number of rows of the linear part to the number
+ * of elements in "mupa" to ensure that all nodes have the same
+ * number of rows.
+ *
+ * If "mupa" does not contain a prefix schedule for "node",
+ * then it is invalid.  In the current implementation, this will
+ * cause the scheduler to not construct any further schedule rows
+ * for "node".
+ */
+static isl_stat extract_prefix(struct isl_sched_node *node,
+	__isl_keep isl_multi_union_pw_aff *mupa)
+{
+	isl_space *space;
+	isl_multi_pw_aff *mpa;
+	isl_pw_multi_aff *pma;
+	isl_mat *prefix;
+	int n, n_prefix;
+
+	if (!mupa)
+		return isl_stat_error;
+
+	space = isl_space_copy(node->space);
+	mpa = isl_multi_union_pw_aff_extract_multi_pw_aff(mupa, space);
+
+	if (node->compress)
+		mpa = isl_multi_pw_aff_pullback_multi_aff(mpa,
+					isl_multi_aff_copy(node->decompress));
+
+	pma = isl_pw_multi_aff_from_multi_pw_aff(mpa);
+
+	prefix = extract_prefix_pw_multi_aff(pma);
+
+	prefix = isl_mat_insert_zero_cols(prefix, 0, 1 + node->nparam);
+	n_prefix = isl_multi_union_pw_aff_dim(mupa, isl_dim_set);
+	n = isl_mat_rows(prefix);
+	prefix = isl_mat_add_zero_rows(prefix, n_prefix - n);
+	node->sched = isl_mat_concat(node->sched, prefix);
+
+	isl_pw_multi_aff_free(pma);
+
+	if (!node->sched)
+		return isl_stat_error;
+
+	return isl_stat_ok;
+}
+
+/* Check if any (non-trivial) prefix schedule was specified in "sc".
+ * If so, store a copy in "graph" for later simplification
+ * of dependence relations and extract the linear parts
+ * in the respective nodes.
+ * These linear parts are considered as an initial outer band.
+ * Their only effect is to try and prevent rows in the generated schedule
+ * from being linear combinations of the prefix.
+ *
+ * Since the prefix schedule cannot be assumed to be linearly
+ * independent on all nodes, graph->n_row is not incremented.
+ * Note that the ranks of the nodes will get updated regardless and
+ * graph->maxvar is computed based on these ranks.  The test for
+ * whether more schedule rows are required in compute_schedule_wcc
+ * therefore does take the prefix into account.
+ *
+ * The prefix schedule specified by the user is required to
+ * be complete on the domain.  An invalid prefix will result
+ * in nodes being essentially removed from consideration.
+ */
+static isl_stat handle_prefix(struct isl_sched_graph *graph,
+	__isl_keep isl_schedule_constraints *sc)
+{
+	int i;
+	int n;
+	isl_multi_union_pw_aff *mupa;
+
+	mupa = isl_schedule_constraints_get_prefix(sc);
+	if (!mupa)
+		return isl_stat_error;
+	n = isl_multi_union_pw_aff_dim(mupa, isl_dim_set);
+	if (n == 0) {
+		isl_multi_union_pw_aff_free(mupa);
+		return isl_stat_ok;
+	}
+
+	graph->prefix = mupa;
+
+	for (i = 0; i < graph->n; ++i) {
+		if (extract_prefix(&graph->node[i], mupa) < 0)
+			return isl_stat_error;
+	}
+
+	graph->n_total_row = n;
+	graph->band_start = graph->n_total_row;
+
+	return isl_stat_ok;
 }
 
 /* Initialize the schedule graph "graph" from the schedule constraints "sc".
@@ -1310,10 +2199,12 @@ static isl_stat graph_init(struct isl_sched_graph *graph,
 {
 	isl_ctx *ctx;
 	isl_union_set *domain;
+	isl_multi_aff_list *intra;
 	isl_union_map *c;
 	struct isl_extract_edge_data data;
 	enum isl_edge_type i;
 	isl_stat r;
+	int n_intra, n_inter;
 
 	if (!sc)
 		return isl_stat_error;
@@ -1324,8 +2215,13 @@ static isl_stat graph_init(struct isl_sched_graph *graph,
 	graph->n = isl_union_set_n_set(domain);
 	isl_union_set_free(domain);
 
+	intra = isl_schedule_constraints_get_intra_consecutivity(sc);
+	n_intra = isl_multi_aff_list_n_multi_aff(intra);
+	isl_multi_aff_list_free(intra);
+	n_inter = isl_schedule_constraints_n_inter_consecutivity_map(sc);
+
 	if (graph_alloc(ctx, graph, graph->n,
-	    isl_schedule_constraints_n_map(sc)) < 0)
+	    isl_schedule_constraints_n_map(sc), n_intra + n_inter) < 0)
 		return isl_stat_error;
 
 	if (compute_max_row(graph, sc) < 0)
@@ -1341,18 +2237,23 @@ static isl_stat graph_init(struct isl_sched_graph *graph,
 		return isl_stat_error;
 	if (graph_init_table(ctx, graph) < 0)
 		return isl_stat_error;
-	for (i = isl_edge_first; i <= isl_edge_last; ++i) {
+	if (graph_set_intra(graph, sc) < 0)
+		return isl_stat_error;
+	if (handle_prefix(graph, sc) < 0)
+		return isl_stat_error;
+	for (i = isl_edge_first; i <= isl_edge_last_sc; ++i) {
 		c = isl_schedule_constraints_get(sc, i);
 		graph->max_edge[i] = isl_union_map_n_map(c);
 		isl_union_map_free(c);
 		if (!c)
 			return isl_stat_error;
 	}
+	graph->max_edge[isl_edge_consecutivity] = n_inter;
 	if (graph_init_edge_tables(ctx, graph) < 0)
 		return isl_stat_error;
 	graph->n_edge = 0;
 	data.graph = graph;
-	for (i = isl_edge_first; i <= isl_edge_last; ++i) {
+	for (i = isl_edge_first; i <= isl_edge_last_sc; ++i) {
 		isl_stat r;
 
 		data.type = i;
@@ -1362,6 +2263,8 @@ static isl_stat graph_init(struct isl_sched_graph *graph,
 		if (r < 0)
 			return isl_stat_error;
 	}
+	if (graph_set_inter(graph, sc) < 0)
+		return isl_stat_error;
 
 	return isl_stat_ok;
 }
@@ -1390,10 +2293,32 @@ static isl_bool node_follows_strong(int i, int j, void *user)
 	return graph_has_validity_edge(graph, &graph->node[j], &graph->node[i]);
 }
 
+/* Is there a (conditional) validity dependence from node[j] to node[i],
+ * forcing node[i] to follow node[j] or are the nodes related
+ * through an inter-statement consecutivity constraint?
+ */
+static isl_bool node_follows_strong_or_consecutive(int i, int j, void *user)
+{
+	struct isl_sched_graph *graph = user;
+	isl_bool r;
+	struct isl_sched_node *node_i, *node_j;
+
+	r = node_follows_strong(i, j, user);
+	if (r < 0 || r)
+		return r;
+
+	node_i = &graph->node[i];
+	node_j = &graph->node[j];
+	r = graph_has_edge(graph, isl_edge_consecutivity, node_i, node_j);
+	if (r < 0 || r)
+		return r;
+	return graph_has_edge(graph, isl_edge_consecutivity, node_j, node_i);
+}
+
 /* Use Tarjan's algorithm for computing the strongly connected components
  * in the dependence graph only considering those edges defined by "follows".
  */
-static int detect_ccs(isl_ctx *ctx, struct isl_sched_graph *graph,
+static isl_stat detect_ccs(isl_ctx *ctx, struct isl_sched_graph *graph,
 	isl_bool (*follows)(int i, int j, void *user))
 {
 	int i, n;
@@ -1401,7 +2326,7 @@ static int detect_ccs(isl_ctx *ctx, struct isl_sched_graph *graph,
 
 	g = isl_tarjan_graph_init(ctx, graph->n, follows, graph);
 	if (!g)
-		return -1;
+		return isl_stat_error;
 
 	graph->scc = 0;
 	i = 0;
@@ -1418,24 +2343,36 @@ static int detect_ccs(isl_ctx *ctx, struct isl_sched_graph *graph,
 
 	isl_tarjan_graph_free(g);
 
-	return 0;
+	return isl_stat_ok;
 }
 
 /* Apply Tarjan's algorithm to detect the strongly connected components
  * in the dependence graph.
  * Only consider the (conditional) validity dependences and clear "weak".
  */
-static int detect_sccs(isl_ctx *ctx, struct isl_sched_graph *graph)
+static isl_stat detect_sccs(isl_ctx *ctx, struct isl_sched_graph *graph)
 {
 	graph->weak = 0;
 	return detect_ccs(ctx, graph, &node_follows_strong);
+}
+
+/* Apply Tarjan's algorithm to detect the strongly connected components
+ * in the dependence graph, but combine components that are linked
+ * through inter-statement consecutivity constraints.
+ * Only consider the (conditional) validity dependences and clear "weak".
+ */
+static isl_stat detect_sccs_grouping_consecutive(isl_ctx *ctx,
+	struct isl_sched_graph *graph)
+{
+	graph->weak = 0;
+	return detect_ccs(ctx, graph, &node_follows_strong_or_consecutive);
 }
 
 /* Apply Tarjan's algorithm to detect the (weakly) connected components
  * in the dependence graph.
  * Consider all dependences and set "weak".
  */
-static int detect_wccs(isl_ctx *ctx, struct isl_sched_graph *graph)
+static isl_stat detect_wccs(isl_ctx *ctx, struct isl_sched_graph *graph)
 {
 	graph->weak = 1;
 	return detect_ccs(ctx, graph, &node_follows_weak);
@@ -1739,7 +2676,7 @@ static __isl_give isl_dim_map *intra_dim_map(isl_ctx *ctx,
 	unsigned total;
 	isl_dim_map *dim_map;
 
-	if (!node)
+	if (!node || !graph->lp)
 		return NULL;
 
 	total = isl_basic_set_total_dim(graph->lp);
@@ -1779,7 +2716,7 @@ static __isl_give isl_dim_map *inter_dim_map(isl_ctx *ctx,
 	unsigned total;
 	isl_dim_map *dim_map;
 
-	if (!src || !dst)
+	if (!src || !dst || !graph->lp)
 		return NULL;
 
 	total = isl_basic_set_total_dim(graph->lp);
@@ -2169,6 +3106,16 @@ static __isl_give isl_mat *normalize_independent(__isl_take isl_mat *indep)
 	return indep;
 }
 
+/* Extract the linear part of the current schedule for node "node".
+ */
+static __isl_give isl_mat *extract_linear_schedule(struct isl_sched_node *node)
+{
+	int n_row = isl_mat_rows(node->sched);
+
+	return isl_mat_sub_alloc(node->sched, 0, n_row,
+			      1 + node->nparam, node->nvar);
+}
+
 /* Compute a basis for the rows in the linear part of the schedule
  * and extend this basis to a full basis.  The remaining rows
  * can then be used to force linear independence from the rows
@@ -2200,10 +3147,8 @@ static __isl_give isl_mat *normalize_independent(__isl_take isl_mat *indep)
 static int node_update_vmap(struct isl_sched_node *node)
 {
 	isl_mat *H, *U, *Q;
-	int n_row = isl_mat_rows(node->sched);
 
-	H = isl_mat_sub_alloc(node->sched, 0, n_row,
-			      1 + node->nparam, node->nvar);
+	H = extract_linear_schedule(node);
 
 	H = isl_mat_left_hermite(H, 0, &U, &Q);
 	isl_mat_free(node->indep);
@@ -2717,7 +3662,7 @@ static isl_stat setup_lp(isl_ctx *ctx, struct isl_sched_graph *graph,
 }
 
 /* Analyze the conflicting constraint found by
- * isl_tab_basic_set_non_trivial_lexmin.  If it corresponds to the validity
+ * isl_tab_basic_set_constrained_lexmin.  If it corresponds to the validity
  * constraint of one of the edges between distinct nodes, living, moreover
  * in distinct SCCs, then record the source and sink SCC as this may
  * be a good place to cut between SCCs.
@@ -2764,71 +3709,1099 @@ static int needs_row(struct isl_sched_graph *graph, struct isl_sched_node *node)
 	return node->nvar - node->rank >= graph->maxvar - graph->n_row;
 }
 
-/* Construct a non-triviality region with triviality directions
- * corresponding to the rows of "indep".
- * The rows of "indep" are expressed in terms of the schedule coefficients c_i,
- * while the triviality directions are expressed in terms of
+/* Take a linear combination "lin" in terms of the schedule coefficients c_i
+ * and express it in terms of the variables of the ILP problem
+ * as constructed by setup_lp.
+ * In particular, in the ILP, the schedule coefficients are represented by
  * pairs of non-negative variables c^+_i - c^-_i, with c^-_i appearing
  * before c^+_i.  Furthermore,
  * the pairs of non-negative variables representing the coefficients
  * are stored in the opposite order.
  */
-static __isl_give isl_mat *construct_trivial(__isl_keep isl_mat *indep)
+static __isl_give isl_mat *linear_to_lp(__isl_keep isl_mat *lin)
 {
 	isl_ctx *ctx;
 	isl_mat *mat;
 	int i, j, n, n_var;
 
-	if (!indep)
+	if (!lin)
 		return NULL;
 
-	ctx = isl_mat_get_ctx(indep);
-	n = isl_mat_rows(indep);
-	n_var = isl_mat_cols(indep);
+	ctx = isl_mat_get_ctx(lin);
+	n = isl_mat_rows(lin);
+	n_var = isl_mat_cols(lin);
 	mat = isl_mat_alloc(ctx, n, 2 * n_var);
 	if (!mat)
 		return NULL;
 	for (i = 0; i < n; ++i) {
 		for (j = 0; j < n_var; ++j) {
 			int nj = n_var - 1 - j;
-			isl_int_neg(mat->row[i][2 * nj], indep->row[i][j]);
-			isl_int_set(mat->row[i][2 * nj + 1], indep->row[i][j]);
+			isl_int_neg(mat->row[i][2 * nj], lin->row[i][j]);
+			isl_int_set(mat->row[i][2 * nj + 1], lin->row[i][j]);
 		}
 	}
 
 	return mat;
 }
 
+/* Clear all memory associated to "region" and reset the fields
+ * to their default values.
+ */
+static void clear_region(struct isl_ilp_region *region)
+{
+	region->has_non_zero = 0;
+	region->has_fixed = 0;
+	region->optional = 0;
+	region->failed = 0;
+	region->disjunctive = 0;
+	region->conditional = 0;
+	region->non_zero = isl_mat_free(region->non_zero);
+	region->fixed = isl_mat_free(region->fixed);
+	region->fixed_val = isl_vec_free(region->fixed_val);
+	region->user = NULL;
+}
+
+/* Clear all "n" regions of "graph" and return -1.
+ */
+static int clear_regions(struct isl_sched_graph *graph, int n)
+{
+	int i;
+
+	for (i = 0; i < n; ++i)
+		clear_region(&graph->region[i]);
+	return -1;
+}
+
+/* Set the fixed-value constraint of "region" to force
+ * the linear combinations "zero" to be zero on the schedule coefficients.
+ * "zero" is expressed in terms of the schedule coefficients and
+ * needs to be expanded to the ILP variables first.
+ */
+static void set_zero(struct isl_ilp_region *region, __isl_keep isl_mat *zero)
+{
+	int len;
+	isl_ctx *ctx;
+
+	ctx = isl_mat_get_ctx(zero);
+	len = isl_mat_rows(zero);
+	region->has_fixed = 1;
+	region->fixed = linear_to_lp(zero);
+	region->fixed_val = isl_vec_zero(ctx, len);
+}
+
+/* Set the fixed value constraint of "region" to
+ * force the next schedule row to be equal to row "pos" of the inner part
+ * of intra-statement consecutivity constraint "intra" of node "node"
+ * plus some linear combination of the schedule rows
+ * prior to the one that corresponds to the first inner row and/or
+ * rows of the inner part prior to "pos".
+ * What is not allowed in the linear combination are any linearly
+ * independent schedule rows that appear between rows that
+ * correspond to rows of the inner part.
+ * "outer_complement" is the orthogonal complement of [T_0; G], with
+ * T_0 the schedule computed so far and G the outer part of "intra".
+ * Since the outer part has been covered by T_0 at this stage,
+ * "outer_complement" is effectively the orthogonal complement of T_0.
+ *
+ * Let T_1 be the part of the schedule computed so far (T_0) that
+ * does not include any rows corresponding to rows of the inner part.
+ * Let H_< be the inner part before row "pos" and H_= the row
+ * corresponding to "pos".
+ * The next schedule row c should be equal to H_= plus a linear combination
+ * of [T_1; H_<]
+ * Let U be the orthogonal complement of [T_1; H_<; H_=] and
+ * let U' be the orthogonal complement of [T_1; H_<].
+ * Then c U should be zero, while c U' should be equal to H_= U'.
+ * The latter condition can be refined to c U'' = H_= U'' with
+ * U'' a basis extension of U to cover U'.
+ * This means that the remaining row U'' is such that H_= U''
+ * is not zero.  U'' contains exactly one row because the rank of U'
+ * is one greater than that of U.  This assumes that T_1 is
+ * linearly independent of H, but if it is not then consecutivity
+ * cannot be achieved anyway.
+ *
+ * If no inner rows have been covered so far, then T_0 = T_1 and
+ * U' can be obtained as "outer_complement".
+ * Otherwise, it is computed from T_1 and H_<.
+ *
+ * The fixed field of "region" is set to [U''; U], while
+ * the fixed_val field is set to H_= U'' followed by zeros.
+ */
+static void set_equal(struct isl_ilp_region *region,
+	struct isl_sched_node *node, struct isl_sched_intra *intra, int pos,
+	__isl_take isl_mat *complement)
+{
+	int n;
+	isl_vec *val;
+	isl_vec *row;
+	isl_mat *inner, *mat, *ext_complement;
+
+	mat = extract_linear_schedule(node);
+	if (intra->n_fixed > 0) {
+		n = isl_mat_rows(mat);
+		mat = isl_mat_drop_rows(mat,
+				    intra->first_fixed, n - intra->first_fixed);
+		inner = isl_mat_copy(intra->inner);
+		inner = isl_mat_drop_rows(inner, intra->n_fixed,
+					intra->n_inner - intra->n_fixed);
+		mat = isl_mat_concat(mat, inner);
+		isl_mat_free(complement);
+		complement = isl_mat_row_complement(isl_mat_copy(mat));
+	}
+	row = isl_mat_get_row(intra->inner, pos);
+	mat = isl_mat_vec_concat(mat, isl_vec_copy(row));
+	ext_complement = isl_mat_row_complement(mat);
+	complement = isl_mat_row_basis_extension(isl_mat_copy(ext_complement),
+						complement);
+
+	val = isl_mat_vec_product(isl_mat_copy(complement), row);
+	mat = isl_mat_concat(complement, ext_complement);
+	val = isl_vec_zero_extend(val, isl_mat_rows(mat));
+	region->has_fixed = 1;
+	region->fixed = linear_to_lp(mat);
+	region->fixed_val = val;
+	isl_mat_free(mat);
+}
+
+/* Given a node and an intra-statement consecutivity constraint
+ * on that node, construct a matrix that contains
+ * - the linear part of the current schedule
+ * - the outer part of the constraint, if "add_outer" is set
+ * - the inner part of the constraint, if "add_inner" is set
+ */
+static __isl_give isl_mat *intra_rows(struct isl_sched_node *node,
+	struct isl_sched_intra *intra, int add_outer, int add_inner)
+{
+	isl_mat *mat;
+
+	mat = extract_linear_schedule(node);
+	if (add_outer)
+		mat = isl_mat_concat(mat, isl_mat_copy(intra->outer));
+	if (add_inner)
+		mat = isl_mat_concat(mat, isl_mat_copy(intra->inner));
+	return mat;
+}
+
+/* Finish the initialization of graph->region[n] as a region
+ * corresponding to intra-statement consecutivity constraint "intra"
+ * for node "node".
+ * In particular, set the position of the sequence of variables
+ * to which the region applies, mark the region as optional and
+ * add a pointer to "intra" to be able to recover the constraint
+ * from the region.
+ */
+static int finish_intra(struct isl_sched_graph *graph,
+	struct isl_sched_node *node, struct isl_sched_intra *intra, int n)
+{
+	graph->region[n].pos = node_var_coef_offset(node);
+	graph->region[n].optional = 1;
+	graph->region[n].user = intra;
+
+	return n + 1;
+}
+
+/* Set the non-zero constraint of "region" to "non_zero".
+ * "non_zero" is expressed in terms of the schedule coefficients.
+ * Normalize it first and expand it to the ILP variables.
+ */
+static void set_non_zero(struct isl_ilp_region *region,
+	__isl_take isl_mat *non_zero)
+{
+	non_zero = normalize_independent(non_zero);
+	region->has_non_zero = 1;
+	region->non_zero = linear_to_lp(non_zero);
+	isl_mat_free(non_zero);
+}
+
+/* Set the non-zero constraint of "region" to force the schedule row
+ * to be linearly independent of the combination of the schedule computed
+ * so far for "node" and the inner rows of "intra".
+ * Simplify the constraints by exploiting the fact that
+ * the linear combinations "zero" are all zero on the corresponding
+ * schedule coefficients.
+ */
+static void set_independent_to_inner(struct isl_ilp_region *region,
+	struct isl_sched_node *node, struct isl_sched_intra *intra,
+	__isl_take isl_mat *zero)
+{
+	isl_mat *mat;
+
+	mat = intra_rows(node, intra, 0, 1);
+	mat = isl_mat_row_complement(mat);
+	mat = isl_mat_row_basis_extension(zero, mat);
+	set_non_zero(region, mat);
+}
+
+/* Add an ILP region to "graph" that forces the next schedule row
+ * for "node" to be a linear combination of the outer rows of
+ * intra-statement consecutivity constraint "intra" and
+ * of the schedule rows computed so far.
+ * "n" is the current number of ILP regions.
+ * "outer_complement" is the orthogonal complement of [T_0; G], with
+ * T_0 the schedule computed so far and G the outer part of "intra".
+ * Return the updated number of ILP regions.
+ *
+ * The next row being a linear combination of T_0 and G means
+ * that "outer_complement" needs to be zero on the schedule coefficients.
+ * The schedule row further needs to be linearly independent of
+ * the inner part of "intra" (in order for later rows to be set
+ * equal to the inner part) and of the previous schedule rows
+ * (in order to make progress).
+ */
+static int add_linear_combination(struct isl_sched_graph *graph,
+	struct isl_sched_node *node, struct isl_sched_intra *intra, int n,
+	__isl_take isl_mat *outer_complement)
+{
+	set_zero(&graph->region[n], outer_complement);
+	set_independent_to_inner(&graph->region[n], node, intra,
+				outer_complement);
+	return finish_intra(graph, node, intra, n);
+}
+
+/* Add an ILP region to "graph" that forces the next schedule row
+ * for "node" to be equal to the next inner row of "intra"
+ * (plus a linear combination of the schedule computed so far,
+ * except for linearly independent rows that appear in the middle
+ * of rows that correspond to the inner part of "intra").
+ * "n" is the current number of ILP regions.
+ * "outer_complement" is the orthogonal complement of [T_0; G], with
+ * T_0 the schedule computed so far and G the outer part of "intra".
+ * Return the updated number of ILP regions.
+ *
+ * Note that the schedule computed so far should be linearly
+ * independent of the next inner row of "intra", meaning that
+ * the linear combination does not cancel out the contribution
+ * of the next inner row of "intra".
+ * The next schedule row also needs to be
+ * linearly independent of the remaining inner part of "intra"
+ * (in order for later rows to be set equal to this remaining part) and
+ * of the previous schedule rows (in order to make progress).
+ * However, both of these are linearly independent of the next inner
+ * row of "intra".  Since the next schedule row has a non-zero
+ * contribution of this next inner row, it is also linearly
+ * independent of those rows.
+ */
+static int add_next_inner(struct isl_sched_graph *graph,
+	struct isl_sched_node *node, struct isl_sched_intra *intra, int n,
+	__isl_take isl_mat *outer_complement)
+{
+	set_equal(&graph->region[n], node, intra, intra->n_fixed,
+		outer_complement);
+	return finish_intra(graph, node, intra, n);
+}
+
+/* Add an extra ILP region to "graph" that allows the next schedule row
+ * for "node" to be linearly independent of the combination
+ * of the schedule computed so far and all rows of "intra".
+ * "n" is the current number of ILP regions or -1 on error.
+ * Return the updated number of ILP regions or -1 on error.
+ *
+ * The next schedule row is linearly independent of these rows
+ * if the orthogonal complement is not zero on the schedule coefficients.
+ */
+static int allow_linear_independence(struct isl_sched_graph *graph,
+	struct isl_sched_node *node, struct isl_sched_intra *intra, int n)
+{
+	isl_mat *mat;
+	isl_mat *U;
+
+	if (n < 0)
+		return -1;
+
+	mat = intra_rows(node, intra, 1, 1);
+	U = isl_mat_row_complement(mat);
+	set_non_zero(&graph->region[n], U);
+	return finish_intra(graph, node, intra, n);
+}
+
+/* Add an extra ILP region to "graph" that allows the next schedule row
+ * for "node" to be a linear combination
+ * of the schedule computed so far.
+ * "n" is the current number of ILP regions or -1 on error.
+ * Return the updated number of ILP regions or -1 on error.
+ *
+ * The next schedule row is a linear combination of the current schedule
+ * if its orthogonal complement is zero on the schedule coefficients.
+ */
+static int allow_linear_combination(struct isl_sched_graph *graph,
+	struct isl_sched_node *node, struct isl_sched_intra *intra, int n)
+{
+	isl_mat *mat;
+
+	if (n < 0)
+		return -1;
+
+	mat = extract_linear_schedule(node);
+	mat = isl_mat_row_complement(mat);
+
+	set_zero(&graph->region[n], mat);
+
+	isl_mat_free(mat);
+
+	return finish_intra(graph, node, intra, n);
+}
+
+/* Is "region1" equal to "region2"?
+ *
+ * Two regions are considered equal if they refer to the same sequence
+ * of variables and if their non-zero and fixed-value constraints
+ * are the same.
+ */
+static isl_bool region_is_equal(struct isl_ilp_region *region1,
+	struct isl_ilp_region *region2)
+{
+	isl_bool equal;
+
+	if (region1->pos != region2->pos)
+		return isl_bool_false;
+	if (region1->has_non_zero != region2->has_non_zero)
+		return isl_bool_false;
+	if (region1->has_fixed != region2->has_fixed)
+		return isl_bool_false;
+
+	if (region1->has_non_zero) {
+		equal = isl_mat_is_equal(region1->non_zero, region2->non_zero);
+		if (equal < 0 || !equal)
+			return equal;
+	}
+
+	if (region1->has_fixed) {
+		equal = isl_mat_is_equal(region1->fixed, region2->fixed);
+		if (equal < 0 || !equal)
+			return equal;
+		equal = isl_vec_is_equal(region1->fixed_val,
+					region2->fixed_val);
+		if (equal < 0 || !equal)
+			return equal;
+	}
+
+	return isl_bool_true;
+}
+
+/* Is the region at position "pos" a duplicate of any of the regions
+ * of "graph" starting at "first" and before "pos"?
+ */
+static isl_bool is_duplicate(struct isl_sched_graph *graph, int first, int pos)
+{
+	int i;
+
+	for (i = first; i < pos; ++i) {
+		isl_bool equal;
+
+		equal = region_is_equal(&graph->region[i], &graph->region[pos]);
+		if (equal < 0 || equal)
+			return equal;
+	}
+
+	return isl_bool_false;
+}
+
+/* Check if the most recently added disjunct, the one at position n - 1,
+ * is a duplicate of any of the regions in "graph" starting at "first".
+ * If so, drop this disjunct and return the updated "n".
+ * Return -1 on error.
+ */
+static int drop_if_duplicate(struct isl_sched_graph *graph, int first, int n)
+{
+	isl_bool duplicate;
+
+	if (n < 0)
+		return -1;
+
+	duplicate = is_duplicate(graph, first, n - 1);
+	if (duplicate < 0)
+		return clear_regions(graph, n);
+	if (duplicate)
+		clear_region(&graph->region[--n]);
+
+	return n;
+}
+
+/* Add ILP regions for the intra-statement consecutivity constraint "intra"
+ * on node "node" in "graph".
+ * "first" is the position of the first intra-statement consecutivity
+ * constraint ILP region for "node".
+ * "n" is the current number of ILP regions.
+ * Return the updated number of ILP regions or -1 on error.
+ *
+ * The type of constraint that needs to be imposed is prescribed by
+ * intra->state.
+ * "outer_complement" is the orthogonal complement of [T_0; G].
+ * "allow_independent" is set if the next schedule row should
+ * be allowed to be linearly independent of [T_0; G; H].
+ *
+ * The regions introduced for "intra" form a disjunction of at most
+ * three disjuncts.
+ * The first option is to make progress on the consecutivity,
+ * meaning that the next schedule row is either a linear combination
+ * of the outer rows of the consecutivity constraint or
+ * equal to the next inner row.
+ * The second option is for the next schedule row to be linearly
+ * independent of both the current schedule rows and all
+ * rows from the consecutivity constraint.
+ * The caller has already checked whether this is possible.
+ * The third option is for the next schedule row to be a linear
+ * combination of the outer schedule rows.
+ *
+ * First check if the next schedule row should be allowed to
+ * be a linear combination of outer schedule rows.
+ * This is only allowed if no linear independence constraint
+ * will be added for this node.
+ * Furthermore, since the corresponding region is independent
+ * of the intra-statement consecutivity constraint, it should
+ * only be considered if this is the first intra-statement consecutivity
+ * constraint for the node.  Otherwise, the same region will already
+ * have been added as part of the encoding of the first constraint and
+ * the region would only be reached in cases where it is known that
+ * it cannot be satisfied.
+ *
+ * If this is not the first intra-statement consecutivity constraint,
+ * then the other two disjuncts are also checked for being duplicates
+ * of disjuncts from earlier intra-statement consecutivity constraints
+ * for the same node.  If so, then the duplicates are removed.
+ * The first disjunct for this constraint (if any is left) is also
+ * made conditional on the previous disjunction to ensure that
+ * this disjunction is only considered if all previous disjunctions
+ * for the same node have failed.
+ *
+ * Finally, the initial disjuncts in the disjunction are marked
+ * disjunctive.
+ */
+static int add_state_intra_ilp_regions(isl_ctx *ctx,
+	struct isl_sched_graph *graph, struct isl_sched_node *node,
+	struct isl_sched_intra *intra, int first, int n,
+	__isl_take isl_mat *outer_complement, int allow_independent)
+{
+	int allow_combination;
+	int needed;
+	int conditional = n > first;
+	int first_disj = n;
+	int i;
+
+	allow_combination = !conditional && !needs_row(graph, node);
+	needed = n + 1 + allow_independent + allow_combination;
+	if (graph_extend_region(ctx, graph, needed) < 0)
+		goto error;
+
+	if (intra->state == isl_sched_intra_outer)
+		n = add_linear_combination(graph, node, intra, n,
+					outer_complement);
+	else
+		n = add_next_inner(graph, node, intra, n, outer_complement);
+	if (conditional)
+		n = drop_if_duplicate(graph, first, n);
+
+	if (allow_independent) {
+		n = allow_linear_independence(graph, node, intra, n);
+		if (conditional)
+			n = drop_if_duplicate(graph, first, n);
+	}
+	if (allow_combination)
+		n = allow_linear_combination(graph, node, intra, n);
+
+	if (conditional && n > first_disj)
+		graph->region[first_disj].conditional = 1;
+	for (i = first_disj; i + 1 < n; ++i)
+		graph->region[i].disjunctive = 1;
+
+	return n;
+error:
+	isl_mat_free(outer_complement);
+	return clear_regions(graph, n);
+}
+
+/* Add ILP regions for the intra-statement consecutivity constraint "intra"
+ * on node "node" in "graph".
+ * "first" is the position of the first intra-statement consecutivity
+ * constraint ILP region for "node".
+ * "n" is the current number of ILP regions.
+ * Return the updated number of ILP regions or -1 on error.
+ *
+ * Let T_0 be the schedule computed so far,
+ * let G be the outer part of the consecutivity constraint,
+ * let H be the inner part of the consecutivity constraint, and
+ * let h be the number of rows of H that still need to be handled.
+ *
+ * If rank(T_0; G; H) < rank(T_0; G) + h,
+ * then T_0 can no longer be extended with those remaining h rows
+ * without introducing a linear dependence.
+ * Mark the constraint as failed.
+ *
+ * Otherwise, if rank(T_0) < rank(T_0; G), then T_0 does not cover G yet and
+ * T_0 should be extended with a linear combination of G first.
+ *
+ * Otherwise, if the number of rows of H that appear in T_0 is smaller
+ * than the total number of rows in H, then the next schedule row
+ * should be equal to the next row of H.
+ *
+ * Otherwise, consecutivity has been achieved and no ILP constraint
+ * needs to be added.
+ *
+ * In the cases where some ILP regions need to be added,
+ * check whether rank(T_0; G; H) < dim, in which case
+ * a schedule row that is linearly independent of T_0; G; H
+ * is also allowed.
+ */
+static int add_intra_ilp_regions(isl_ctx *ctx, struct isl_sched_graph *graph,
+	struct isl_sched_node *node, struct isl_sched_intra *intra,
+	int first, int n)
+{
+	isl_mat *mat, *complement, *all;
+	int allow_independent;
+	int n_inner, rank_outer, rank_all;
+
+	mat = intra_rows(node, intra, 1, 0);
+	complement = isl_mat_row_complement(mat);
+	if (!complement)
+		return clear_regions(graph, n);
+	rank_outer = isl_mat_cols(complement) - isl_mat_rows(complement);
+
+	n_inner = intra->n_inner - intra->n_fixed;
+
+	all = intra_rows(node, intra, 1, 1);
+	rank_all = isl_mat_rank(all);
+	isl_mat_free(all);
+	if (rank_all < 0)
+		goto error;
+
+	allow_independent = rank_all < node->nvar;
+
+	if (rank_all < rank_outer + n_inner)
+		intra->n_fixed = -1;
+	else if (node->rank < rank_outer)
+		intra->state = isl_sched_intra_outer;
+	else if (intra->n_fixed < intra->n_inner)
+		intra->state = isl_sched_intra_inner;
+	else
+		intra->state = isl_sched_intra_free;
+	if (intra->n_fixed >= 0 && intra->state != isl_sched_intra_free)
+		return add_state_intra_ilp_regions(ctx, graph, node, intra,
+				    first, n, complement, allow_independent);
+
+	isl_mat_free(complement);
+	return n;
+error:
+	isl_mat_free(complement);
+	return clear_regions(graph, n);
+}
+
+/* Add ILP regions for all active intra-statement consecutivity constraints
+ * in "graph".
+ * Return the total number of such regions or -1 is some error occurred.
+ */
+static int add_graph_intra_ilp_regions(isl_ctx *ctx,
+	struct isl_sched_graph *graph)
+{
+	int i, n;
+
+	n = 0;
+	for (i = 0; i < graph->n; ++i) {
+		struct isl_sched_node *node = &graph->node[i];
+		struct isl_sched_intra *intra;
+		int first = n;
+
+		for (intra = node->intra; intra; intra = intra->next) {
+			if (intra->n_fixed < 0)
+				continue;
+			n = add_intra_ilp_regions(ctx, graph, node, intra,
+						    first, n);
+			if (n < 0)
+				return -1;
+		}
+	}
+
+	return n;
+}
+
+/* Set graph->region[n] to an optional fixed-value constraint with
+ * linear combinations "eq" and expected value "val"
+ * that applies to the entire sequence of variables.
+ */
+static int set_global_eq(struct isl_sched_graph *graph,
+	struct isl_sched_edge *edge, __isl_take isl_mat *eq,
+	__isl_take isl_vec *val, int n)
+{
+	graph->region[n].has_fixed = 1;
+	graph->region[n].fixed = eq;
+	graph->region[n].fixed_val = val;
+	graph->region[n].pos = 0;
+	graph->region[n].optional = 1;
+	graph->region[n].user = edge;
+
+	return n + 1;
+}
+
+/* Construct the equality constraints on the set of coefficients
+ * for valid equality constraints for the dependence relation of "edge".
+ *
+ * First compute the affine hull of the dependence relation.
+ * An equality constraint is valid for the dependence relation
+ * if it is a linear combination of the (equality) constraints
+ * of the affine hull.
+ * This means the coefficients of such an equality constraint
+ * need to be orthogonal to the orthogonal complement of
+ * the constraints of the affine hull.
+ * Return this orthogonal complement E.
+ * Note that the first element in this matrix corresponds
+ * to the coefficient of the constant term.
+ *
+ * That is
+ *
+ *	E (c_0, c_n, c_x, c_y)^T = 0
+ *
+ * for constraints
+ *
+ *	c_0 + c_n n + c_x x + c_y y = 0 for each (x,y) in R
+ *
+ * If the source or destination nodes of "edge" have been compressed,
+ * then the dependence relation is also compressed before
+ * the affine hull of the set of coefficients is computed.
+ */
+static __isl_give isl_mat *inter_coefficients_eq(struct isl_sched_edge *edge)
+{
+	isl_mat *mat;
+	isl_map *map;
+	isl_basic_map *aff;
+
+	map = isl_map_copy(edge->map);
+	if (edge->src->compressed)
+		map = isl_map_preimage_domain_multi_aff(map,
+				    isl_multi_aff_copy(edge->src->decompress));
+	if (edge->dst->compressed)
+		map = isl_map_preimage_range_multi_aff(map,
+				    isl_multi_aff_copy(edge->dst->decompress));
+	aff = isl_map_affine_hull(map);
+	aff = isl_basic_map_remove_divs(aff);
+	mat = isl_basic_map_extract_equalities(aff);
+	mat = isl_mat_row_complement(mat);
+	isl_basic_map_free(aff);
+
+	return mat;
+}
+
+/* Add an ILP region for the inter-statement consecutivity constraint "edge"
+ * in "graph" that fixed the dependence distance to zero or
+ * one (if "one" is set).
+ * "n" is the current number of ILP regions.
+ * Return the updated number of ILP regions or -1 on error.
+ *
+ * Construct a matrix E with
+ *
+ *	E (c_0, c_n, c_x, c_y)^T = 0
+ *
+ * for constraints
+ *
+ *	c_0 + c_n n + c_x x + c_y y = 0 for each (x,y) in R
+ *
+ * In case "one" is set, the constraints need to be of the form
+ *
+ *	c_0 + c_n n + c_x x + c_y y = 1 for each (x,y) in R
+ *
+ * i.e.,
+ *
+ *	(c_0 - 1) + c_n n + c_x x + c_y y = 0 for each (x,y) in R
+ *
+ * or
+ *
+ *	E (c_0 - 1, c_n, c_x, c_y)^T = 0
+ *
+ * i.e.,
+ *
+ *	E (c_0, c_n, c_x, c_y)^T = E (1, 0, 0, 0)^T
+ *
+ * That is the linear combinations E need to be equal to either zero
+ * (if "one" is not set) or the first column of E (if "one" is set);
+ *
+ * Before imposing these constraints, they need to be formulated
+ * in terms of the ILP variables by plugging in
+ * (c_j_0 - c_i_0, c_j_n - c_i_n, -(c_i_x^+ - c_i_x^-), c_j_x^+ - c_j_x^-)
+ * for (c_0, c_n, c_x, c_y),
+ * where c_* = c_*^+ - c_*^-, with c_*^+ and c_*^- non-negative.
+ * In graph->lp, the c_*^- appear before their c_*^+ counterpart.
+ * This results in constraints
+ *
+ *	(c_j_0 + c_j_n n + c_j_x y) - (c_i_0 + c_i_n n + c_i_x x) = 0
+ *
+ * or
+ *
+ *	(c_j_0 + c_j_n n + c_j_x y) - (c_i_0 + c_i_n n + c_i_x x) = 1
+ *
+ * Note that the first column of E corresponds to the coefficient
+ * of the constant term, while the mapping returned by inter_dim_map
+ * assumes the presence of a constant term.  An extra zero column
+ * is therefore temporarily inserted to represent this constant term.
+ */
+static int add_fixed_inter_ilp_region(isl_ctx *ctx,
+	struct isl_sched_graph *graph, struct isl_sched_edge *edge, int n,
+	int one)
+{
+	int offset;
+	isl_dim_map *dim_map;
+	isl_mat *eq;
+	isl_vec *val;
+
+	if (graph_extend_region(ctx, graph, n + 1) < 0)
+		return -1;
+
+	eq = inter_coefficients_eq(edge);
+	val = isl_mat_get_col(eq, 0);
+	if (!one)
+		val = isl_vec_set_si(val, 0);
+	offset = isl_map_offset(edge->map, isl_dim_in);
+	dim_map = inter_dim_map(ctx, graph, edge->src, edge->dst, offset, 1);
+	eq = isl_mat_insert_zero_cols(eq, 0, 1);
+	eq = isl_mat_dim_map(eq, dim_map);
+	eq = isl_mat_drop_cols(eq, 0, 1);
+	n = set_global_eq(graph, edge, eq, val, n);
+
+	return n;
+}
+
+/* Add an ILP region for the inter-statement consecutivity constraint "edge"
+ * in "graph" that fixed the dependence distance to zero.
+ * "n" is the current number of ILP regions.
+ * Return the updated number of ILP regions or -1 on error.
+ */
+static int add_outer_inter_ilp_region(isl_ctx *ctx,
+	struct isl_sched_graph *graph, struct isl_sched_edge *edge, int n)
+{
+	return add_fixed_inter_ilp_region(ctx, graph, edge, n, 0);
+}
+
+/* Add an ILP region for the inter-statement consecutivity constraint "edge"
+ * in "graph" that fixed the dependence distance to one.
+ * "n" is the current number of ILP regions.
+ * Return the updated number of ILP regions or -1 on error.
+ *
+ * This distance should only be one at the point where both
+ * corresponding intra-statement consecutivity constraints
+ * fix the schedule row to be equal to the first inner row.
+ * If either of these intra-statement consecutivity constraints
+ * already fixed some inner rows, then this can no longer be achieved.
+ */
+static int add_inner_inter_ilp_region(isl_ctx *ctx,
+	struct isl_sched_graph *graph, struct isl_sched_edge *edge, int n)
+{
+	if (edge->src_intra->n_fixed > 0 || edge->dst_intra->n_fixed > 0) {
+		edge->state = isl_sched_inter_failed;
+		return n;
+	}
+	edge->state = isl_sched_inter_inner;
+	return add_fixed_inter_ilp_region(ctx, graph, edge, n, 1);
+}
+
+/* Add an ILP region for the inter-statement consecutivity constraint "edge"
+ * in "graph".
+ * "n" is the current number of ILP regions.
+ * Return the updated number of ILP regions or -1 on error.
+ *
+ * The dependence distance should be kept at zero as long as
+ * both corresponding intra-statement consecutivity constraints
+ * haven't had their outer parts covered by the current schedule.
+ * The distance should be one when the schedule is made equal
+ * to the first rows of their inner parts.
+ * Note that at each level the constraint on dependence distance
+ * is imposed unconditionally.  This means that it is imposed
+ * even if the regions of the corresponding intra-statement consecutivity
+ * constraints cannot be satisfied at that level.
+ * The distance-one constraint is also imposed if those regions
+ * succeed for the wrong reason, i.e., if the schedule row does
+ * not get equated to the first inner row but if rather one of
+ * the other potential disjuncts applies.
+ * The assumption is that the distance-one constraint somehow aligns
+ * with the first inner rows and is therefore unlikely to succeed
+ * if the schedule is not made equal to those first inner rows.
+ * In any case, the distance-one constraint is applied only once.
+ */
+static int add_inter_ilp_region(isl_ctx *ctx, struct isl_sched_graph *graph,
+	struct isl_sched_edge *edge, int n)
+{
+	enum isl_sched_intra_state src_state, dst_state;
+
+	if (edge->state == isl_sched_inter_failed)
+		return n;
+	if (edge->state == isl_sched_inter_free)
+		return n;
+	if (edge->src_intra->n_fixed < 0 || edge->dst_intra->n_fixed < 0) {
+		edge->state = isl_sched_inter_failed;
+		return n;
+	}
+	if (edge->state == isl_sched_inter_inner) {
+		if (edge->src_intra->n_fixed == 0 ||
+		    edge->dst_intra->n_fixed == 0)
+			edge->state = isl_sched_inter_failed;
+		else
+			edge->state = isl_sched_inter_free;
+		return n;
+	}
+	src_state = edge->src_intra->state;
+	dst_state = edge->dst_intra->state;
+	if (src_state == isl_sched_intra_outer ||
+	    dst_state == isl_sched_intra_outer)
+		return add_outer_inter_ilp_region(ctx, graph, edge, n);
+	if (src_state == isl_sched_intra_inner &&
+	    dst_state == isl_sched_intra_inner)
+		return add_inner_inter_ilp_region(ctx, graph, edge, n);
+	return n;
+}
+
+/* Add ILP regions for all active inter-statement consecutivity constraints
+ * in "graph".
+ * "n" is the current number of ILP regions.
+ * Return the updated number of ILP regions or -1 on error.
+ */
+static int add_graph_inter_ilp_regions(isl_ctx *ctx,
+	struct isl_sched_graph *graph, int n)
+{
+	int i;
+
+	for (i = 0; i < graph->n_edge; ++i) {
+		struct isl_sched_edge *edge = &graph->edge[i];
+
+		if (!is_consecutivity(edge))
+			continue;
+		n = add_inter_ilp_region(ctx, graph, edge, n);
+		if (n < 0)
+			return -1;
+	}
+	return n;
+}
+
+/* Add ILP regions for all active intra-statement and inter-statement
+ * consecutivity constraints in "graph".
+ * Return the total number of such regions or -1 is some error occurred.
+ */
+static int add_graph_consecutivity_ilp_regions(isl_ctx *ctx,
+	struct isl_sched_graph *graph)
+{
+	int n;
+
+	n = add_graph_intra_ilp_regions(ctx, graph);
+	if (n < 0)
+		return -1;
+	n = add_graph_inter_ilp_regions(ctx, graph, n);
+
+	return n;
+}
+
+/* Does this region try to fix the schedule row to be equal
+ * to a row of the inner part of the corresponding
+ * intra-statement consecutivity constraint?
+ * In particular, was such a constraint imposed and
+ * is this the region that imposes the constraint
+ * (rather than any of the potential other disjuncts
+ * corresponding to the same intra-statement consecutivity constraint)?
+ * Note that the other disjuncts express either a pure linear combination
+ * (with a zero fixed_val) or a (pure) linear independence.
+ * The "user" field was set by finish_intra.
+ * set_equal puts the row with the non-zero fixed_val in the first position.
+ */
+static isl_bool fixes_inner(struct isl_ilp_region *region)
+{
+	struct isl_sched_intra *intra = region->user;
+
+	if (intra->state != isl_sched_intra_inner)
+		return isl_bool_false;
+	if (!region->has_fixed)
+		return isl_bool_false;
+	return isl_bool_not(isl_vec_element_is_zero(region->fixed_val, 0));
+}
+
+/* Extract the subsequence of elements of length "len" starting at "pos"
+ * from "v".
+ */
+static __isl_give isl_vec *extract(__isl_keep isl_vec *v, int pos, int len)
+{
+	isl_ctx *ctx;
+	isl_vec *r;
+
+	if (!v)
+		return NULL;
+	ctx = isl_vec_get_ctx(v);
+	r = isl_vec_alloc(ctx, len);
+	if (!r)
+		return NULL;
+	isl_seq_cpy(r->el, v->el + pos, len);
+	return r;
+}
+
+/* Given a region that tries to fix the schedule row to be equal
+ * to a row of the inner part of the corresponding
+ * intra-statement consecutivity constraint, does "sol"
+ * satisfy this constraint?
+ *
+ * By definition, such a region imposes some linear combinations
+ * that need to be equal to some fixed values.
+ * Note that "sol" is the solution to an ILP problem,
+ * so the denominator is always 1.
+ */
+static isl_bool is_fixed(struct isl_ilp_region *region, __isl_keep isl_vec *sol)
+{
+	int len;
+	isl_bool fixed;
+	isl_vec *v;
+
+	len = isl_mat_cols(region->fixed);
+	v = extract(sol, 1 + region->pos, len);
+
+	v = isl_mat_vec_product(isl_mat_copy(region->fixed), v);
+	fixed = isl_vec_is_equal(v, region->fixed_val);
+	isl_vec_free(v);
+
+	return fixed;
+}
+
+/* Update the information on the intra-statement consecutivity constraint
+ * associated to ILP region "pos" in "graph" based on the region itself and
+ * on the (non-empty) ILP solution "sol".
+ *
+ * If the entire disjunctive constraint associated to
+ * an intra-statement consecutivity constraint could not be imposed
+ * (as witnessed by the region corresponding to the last disjunct
+ * being marked failed), then mark the intra-statement consecutivity constraint
+ * as failed.
+ * Otherwise, if the region was meant to fix the schedule row to be equal
+ * to a row of the inner part of the corresponding
+ * intra-statement consecutivity constraint and if this succeeded,
+ * then update the number of fixed rows of the
+ * intra-statement consecutivity constraint.
+ * If this is the first such row, then also keep track of its position.
+ *
+ * Note that the "user" field of the region was set by finish_intra.
+ */
+static isl_stat update_intra(struct isl_sched_graph *graph, int pos,
+	__isl_keep isl_vec *sol)
+{
+	struct isl_ilp_region *region = &graph->region[pos];
+	struct isl_sched_intra *intra = region->user;
+	isl_bool fixes;
+
+	if (region->failed) {
+		intra->n_fixed = -1;
+		return isl_stat_ok;
+	}
+
+	fixes = fixes_inner(region);
+	if (fixes < 0)
+		return isl_stat_error;
+	if (!fixes)
+		return isl_stat_ok;
+
+	fixes = is_fixed(region, sol);
+	if (fixes < 0)
+		return isl_stat_error;
+	if (!fixes)
+		return isl_stat_ok;
+
+	if (intra->n_fixed == 0)
+		intra->first_fixed = graph->n_total_row;
+	intra->n_fixed++;
+
+	return isl_stat_ok;
+}
+
+/* Update the information on the inter-statement consecutivity constraint
+ * associated to ILP region "pos" in "graph" based on the region itself and
+ * on the (non-empty) ILP solution "sol".
+ *
+ * Check if the region was marked failed and, if so,
+ * mark the corresponding edge as failed.
+ *
+ * Note that the "user" field of the region was set by set_global_eq.
+ */
+static isl_stat update_inter(struct isl_sched_graph *graph, int pos)
+{
+	struct isl_ilp_region *region = &graph->region[pos];
+	struct isl_sched_edge *edge = region->user;
+
+	if (region->failed)
+		edge->state = isl_sched_inter_failed;
+
+	return isl_stat_ok;
+}
+
+/* Update the information on the intra-statement or inter-statement
+ * consecutivity constraint
+ * associated to ILP region "pos" in "graph" based on the region itself and
+ * on the ILP solution "sol".
+ *
+ * If no solution was computed, then no useful information can be extracted
+ * from the region.
+ *
+ * The "user" field points to either an isl_sched_intra object
+ * (set by finish_intra) or an isl_sched_edge object
+ * (set by set_global_eq).
+ * Use the field to determine whether the region corresponds
+ * to an intra-statement on inter-statement consecutivity constraint and
+ * handle it accordingly.
+ */
+static isl_stat update_consecutivity(struct isl_sched_graph *graph, int pos,
+	__isl_keep isl_vec *sol)
+{
+	struct isl_ilp_region *region = &graph->region[pos];
+
+	if (!sol)
+		return isl_stat_error;
+	if (sol->size == 0)
+		return isl_stat_ok;
+	if (!region->user)
+		return isl_stat_ok;
+
+	if (is_edge(graph, region->user))
+		return update_inter(graph, pos);
+	else
+		return update_intra(graph, pos, sol);
+
+}
+
 /* Solve the ILP problem constructed in setup_lp.
- * For each node such that all the remaining rows of its schedule
- * need to be non-trivial, we construct a non-triviality region.
- * This region imposes that the next row is independent of previous rows.
- * In particular, the non-triviality region enforces that at least
+ * First construct one or more ILP regions for each active intra-statement
+ * consecutivity constraint.  These (optional) regions try to
+ * make progress in achieving consecutivity.
+ * Next, for each node such that all the remaining rows of its schedule
+ * need to be non-trivial, construct a region with a non-zero constraint.
+ * This region imposes that the next row is independent of previous rows,
+ * by enforcing that at least
  * one of the linear combinations in the rows of node->indep is non-zero.
+ * The ILP regions corresponding to intra-statement and inter-statement
+ * consecutivity constraints are added first to allow more freedom for them
+ * to be satisfied.
+ *
+ * After a solution has been computed, update the information
+ * on intra-statement consecutivity constraints based on
+ * the solution and on failed optional regions.
  */
 static __isl_give isl_vec *solve_lp(isl_ctx *ctx, struct isl_sched_graph *graph)
 {
-	int i;
+	int i, n;
 	isl_vec *sol;
 	isl_basic_set *lp;
 
+	n = add_graph_consecutivity_ilp_regions(ctx, graph);
+	if (n < 0)
+		return NULL;
+	if (graph_extend_region(ctx, graph, n + graph->n) < 0)
+		goto error;
 	for (i = 0; i < graph->n; ++i) {
 		struct isl_sched_node *node = &graph->node[i];
-		isl_mat *trivial;
 
-		graph->region[i].pos = node_var_coef_offset(node);
-		if (needs_row(graph, node))
-			trivial = construct_trivial(node->indep);
-		else
-			trivial = isl_mat_zero(ctx, 0, 0);
-		graph->region[i].trivial = trivial;
+		graph->region[n + i].pos = node_var_coef_offset(node);
+		graph->region[n + i].has_non_zero = needs_row(graph, node);
+		if (!graph->region[n + i].has_non_zero)
+			continue;
+		graph->region[n + i].non_zero = linear_to_lp(node->indep);
 	}
 	lp = isl_basic_set_copy(graph->lp);
-	sol = isl_tab_basic_set_non_trivial_lexmin(lp, 2, graph->n,
+	sol = isl_tab_basic_set_constrained_lexmin(lp, 2, n + graph->n,
 				       graph->region, &check_conflict, graph);
-	for (i = 0; i < graph->n; ++i)
-		isl_mat_free(graph->region[i].trivial);
+	for (i = 0; i < n; ++i)
+		if (update_consecutivity(graph, i, sol) < 0)
+			return isl_vec_free(sol);
+	clear_regions(graph, n + graph->n);
 	return sol;
+error:
+	clear_regions(graph, n + graph->n);
+	return NULL;
 }
 
 /* Extract the coefficients for the variables of "node" from "sol".
@@ -2897,8 +4870,8 @@ static int update_schedule(struct isl_sched_graph *graph,
 		if (!csol)
 			goto error;
 
-		isl_map_free(node->sched_map);
-		node->sched_map = NULL;
+		isl_map_free(node->band_sched);
+		node->band_sched = NULL;
 		node->sched = isl_mat_add_rows(node->sched, 1);
 		if (!node->sched)
 			goto error;
@@ -2940,20 +4913,28 @@ static __isl_give isl_aff *extract_schedule_row(__isl_take isl_local_space *ls,
 	isl_int_init(v);
 
 	aff = isl_aff_zero_on_domain(ls);
-	isl_mat_get_element(node->sched, row, 0, &v);
+	if (isl_mat_get_element(node->sched, row, 0, &v) < 0)
+		goto error;
 	aff = isl_aff_set_constant(aff, v);
 	for (j = 0; j < node->nparam; ++j) {
-		isl_mat_get_element(node->sched, row, 1 + j, &v);
+		if (isl_mat_get_element(node->sched, row, 1 + j, &v) < 0)
+			goto error;
 		aff = isl_aff_set_coefficient(aff, isl_dim_param, j, v);
 	}
 	for (j = 0; j < node->nvar; ++j) {
-		isl_mat_get_element(node->sched, row, 1 + node->nparam + j, &v);
+		if (isl_mat_get_element(node->sched, row,
+					1 + node->nparam + j, &v) < 0)
+			goto error;
 		aff = isl_aff_set_coefficient(aff, isl_dim_in, j, v);
 	}
 
 	isl_int_clear(v);
 
 	return aff;
+error:
+	isl_int_clear(v);
+	isl_aff_free(aff);
+	return NULL;
 }
 
 /* Convert the "n" rows starting at "first" of node->sched into a multi_aff
@@ -2997,52 +4978,57 @@ static __isl_give isl_multi_aff *node_extract_partial_schedule_multi_aff(
 	return ma;
 }
 
-/* Convert node->sched into a multi_aff and return this multi_aff.
+/* Convert the part of node->sched that corresponds to the current band
+ * into a multi_aff and return this multi_aff.
  *
  * The result is defined over the uncompressed node domain.
  */
-static __isl_give isl_multi_aff *node_extract_schedule_multi_aff(
-	struct isl_sched_node *node)
+static __isl_give isl_multi_aff *node_extract_band_schedule_multi_aff(
+	struct isl_sched_graph *graph, struct isl_sched_node *node)
 {
 	int nrow;
+	int start;
 
-	nrow = isl_mat_rows(node->sched);
-	return node_extract_partial_schedule_multi_aff(node, 0, nrow);
+	start = graph->band_start;
+	nrow = isl_mat_rows(node->sched) - start;
+	return node_extract_partial_schedule_multi_aff(node, start, nrow);
 }
 
-/* Convert node->sched into a map and return this map.
+/* Convert the part of node->sched that corresponds to the current band
+ * into a map and return this map.
  *
- * The result is cached in node->sched_map, which needs to be released
+ * The result is cached in node->band_sched, which needs to be released
  * whenever node->sched is updated.
  * It is defined over the uncompressed node domain.
  */
-static __isl_give isl_map *node_extract_schedule(struct isl_sched_node *node)
+static __isl_give isl_map *node_extract_band_schedule(
+	struct isl_sched_graph *graph, struct isl_sched_node *node)
 {
-	if (!node->sched_map) {
+	if (!node->band_sched) {
 		isl_multi_aff *ma;
 
-		ma = node_extract_schedule_multi_aff(node);
-		node->sched_map = isl_map_from_multi_aff(ma);
+		ma = node_extract_band_schedule_multi_aff(graph, node);
+		node->band_sched = isl_map_from_multi_aff(ma);
 	}
 
-	return isl_map_copy(node->sched_map);
+	return isl_map_copy(node->band_sched);
 }
 
 /* Construct a map that can be used to update a dependence relation
- * based on the current schedule.
+ * based on the current band schedule.
  * That is, construct a map expressing that source and sink
- * are executed within the same iteration of the current schedule.
+ * are executed within the same iteration of the current band.
  * This map can then be intersected with the dependence relation.
  * This is not the most efficient way, but this shouldn't be a critical
  * operation.
  */
-static __isl_give isl_map *specializer(struct isl_sched_node *src,
-	struct isl_sched_node *dst)
+static __isl_give isl_map *specializer(struct isl_sched_graph *graph,
+	struct isl_sched_node *src, struct isl_sched_node *dst)
 {
 	isl_map *src_sched, *dst_sched;
 
-	src_sched = node_extract_schedule(src);
-	dst_sched = node_extract_schedule(dst);
+	src_sched = node_extract_band_schedule(graph, src);
+	dst_sched = node_extract_band_schedule(graph, dst);
 	return isl_map_apply_range(src_sched, isl_map_reverse(dst_sched));
 }
 
@@ -3062,18 +5048,36 @@ static __isl_give isl_union_map *intersect_domains(
 }
 
 /* Update the dependence relation of the given edge based
- * on the current schedule.
- * If the dependence is carried completely by the current schedule, then
+ * on the current band schedule.
+ * If the dependence is carried completely by the current band, then
  * it is removed from the edge_tables.  It is kept in the list of edges
  * as otherwise all edge_tables would have to be recomputed.
+ *
+ * If the edge is of a type that can appear multiple times
+ * between the same pair of nodes, then it is added to
+ * the edge table (again).  This prevents the situation
+ * where none of these edges is referenced from the edge table
+ * because the one that was referenced turned out to be empty and
+ * was therefore removed from the table.
+ *
+ * If the edge is marked failed or completely handled, then it is
+ * (only) a consecutivity edge and it can be removed from consideration
+ * without even updating the dependence relation.
+ * Other types of edges have the default (isl_sched_inter_init) value
+ * for this field.
  */
-static int update_edge(struct isl_sched_graph *graph,
+static isl_stat update_edge(isl_ctx *ctx, struct isl_sched_graph *graph,
 	struct isl_sched_edge *edge)
 {
 	int empty;
 	isl_map *id;
 
-	id = specializer(edge->src, edge->dst);
+	if (edge->state == isl_sched_inter_failed)
+		return clear_edge(graph, edge);
+	if (edge->state == isl_sched_inter_free)
+		return clear_edge(graph, edge);
+
+	id = specializer(graph, edge->src, edge->dst);
 	edge->map = isl_map_intersect(edge->map, isl_map_copy(id));
 	if (!edge->map)
 		goto error;
@@ -3094,14 +5098,18 @@ static int update_edge(struct isl_sched_graph *graph,
 	empty = isl_map_plain_is_empty(edge->map);
 	if (empty < 0)
 		goto error;
-	if (empty)
+	if (empty) {
 		graph_remove_edge(graph, edge);
+	} else if (is_multi_edge_type(edge)) {
+		if (graph_edge_tables_add(ctx, graph, edge) < 0)
+			goto error;
+	}
 
 	isl_map_free(id);
-	return 0;
+	return isl_stat_ok;
 error:
 	isl_map_free(id);
-	return -1;
+	return isl_stat_error;
 }
 
 /* Does the domain of "umap" intersect "uset"?
@@ -3135,14 +5143,15 @@ static int range_intersects(__isl_keep isl_union_map *umap,
 }
 
 /* Are the condition dependences of "edge" local with respect to
- * the current schedule?
+ * the current band schedule?
  *
  * That is, are domain and range of the condition dependences mapped
  * to the same point?
  *
  * In other words, is the condition false?
  */
-static int is_condition_false(struct isl_sched_edge *edge)
+static int is_condition_false(struct isl_sched_graph *graph,
+	struct isl_sched_edge *edge)
 {
 	isl_union_map *umap;
 	isl_map *map, *sched, *test;
@@ -3157,9 +5166,9 @@ static int is_condition_false(struct isl_sched_edge *edge)
 	umap = isl_union_set_unwrap(isl_union_map_domain(umap));
 	map = isl_map_from_union_map(umap);
 
-	sched = node_extract_schedule(edge->src);
+	sched = node_extract_band_schedule(graph, edge->src);
 	map = isl_map_apply_domain(map, sched);
-	sched = node_extract_schedule(edge->dst);
+	sched = node_extract_band_schedule(graph, edge->dst);
 	map = isl_map_apply_range(map, sched);
 
 	test = isl_map_identity(isl_map_get_space(map));
@@ -3213,8 +5222,8 @@ error:
 	return -1;
 }
 
-/* Update the dependence relations of all edges based on the current schedule
- * and enforce conditional validity constraints that are adjacent
+/* Update the dependence relations of all edges based on the current band
+ * schedule and enforce conditional validity constraints that are adjacent
  * to satisfied condition constraints.
  *
  * First check if any of the condition constraints are satisfied
@@ -3243,7 +5252,7 @@ static int update_edges(isl_ctx *ctx, struct isl_sched_graph *graph)
 			continue;
 		if (is_local(&graph->edge[i]))
 			continue;
-		local = is_condition_false(&graph->edge[i]);
+		local = is_condition_false(graph, &graph->edge[i]);
 		if (local < 0)
 			goto error;
 		if (local)
@@ -3260,8 +5269,8 @@ static int update_edges(isl_ctx *ctx, struct isl_sched_graph *graph)
 		sink = isl_union_set_union(sink, uset);
 	}
 
-	for (i = graph->n_edge - 1; i >= 0; --i) {
-		if (update_edge(graph, &graph->edge[i]) < 0)
+	for (i = 0; i < graph->n_edge; ++i) {
+		if (update_edge(ctx, graph, &graph->edge[i]) < 0)
 			goto error;
 	}
 
@@ -3277,9 +5286,28 @@ error:
 	return -1;
 }
 
+/* Initiate a new band by recording the starting position of the new band and
+ * by keeping track of the number of inner rows already taken into account for
+ * all intra-statement consecutivity constraints at this point and
+ * the states of the all inter-statement consecutivity constraints
+ * such that they can be reset when the band gets discarded
+ * in reset_band.
+ */
 static void next_band(struct isl_sched_graph *graph)
 {
+	int i;
+
 	graph->band_start = graph->n_total_row;
+
+	for (i = 0; i < graph->n; ++i) {
+		struct isl_sched_node *node = &graph->node[i];
+		struct isl_sched_intra *intra;
+
+		for (intra = node->intra; intra; intra = intra->next)
+			intra->band_n_fixed = intra->n_fixed;
+	}
+	for (i = 0; i < graph->n_edge; ++i)
+		graph->edge[i].band_state = graph->edge[i].state;
 }
 
 /* Return the union of the universe domains of the nodes in "graph"
@@ -3356,8 +5384,13 @@ static __isl_give isl_union_set_list *extract_split(isl_ctx *ctx,
 
 /* Copy nodes that satisfy node_pred from the src dependence graph
  * to the dst dependence graph.
+ *
+ * The subgraph into which the nodes are copied will be used
+ * to create a new band, so the cached value of the current
+ * band schedule does not need to be copied.
  */
-static int copy_nodes(struct isl_sched_graph *dst, struct isl_sched_graph *src,
+static isl_stat copy_nodes(struct isl_sched_graph *dst,
+	struct isl_sched_graph *src,
 	int (*node_pred)(struct isl_sched_node *node, int data), int data)
 {
 	int i;
@@ -3380,22 +5413,23 @@ static int copy_nodes(struct isl_sched_graph *dst, struct isl_sched_graph *src,
 		dst->node[j].nvar = src->node[i].nvar;
 		dst->node[j].nparam = src->node[i].nparam;
 		dst->node[j].sched = isl_mat_copy(src->node[i].sched);
-		dst->node[j].sched_map = isl_map_copy(src->node[i].sched_map);
+		dst->node[j].band_sched = NULL;
 		dst->node[j].coincident = src->node[i].coincident;
 		dst->node[j].sizes = isl_multi_val_copy(src->node[i].sizes);
 		dst->node[j].bounds = isl_basic_set_copy(src->node[i].bounds);
 		dst->node[j].max = isl_vec_copy(src->node[i].max);
+		dst->node[j].intra = src->node[i].intra;
 		dst->n++;
 
 		if (!dst->node[j].space || !dst->node[j].sched)
-			return -1;
+			return isl_stat_error;
 		if (dst->node[j].compressed &&
 		    (!dst->node[j].hull || !dst->node[j].compress ||
 		     !dst->node[j].decompress))
-			return -1;
+			return isl_stat_error;
 	}
 
-	return 0;
+	return isl_stat_ok;
 }
 
 /* Copy non-empty edges that satisfy edge_pred from the src dependence graph
@@ -3403,13 +5437,16 @@ static int copy_nodes(struct isl_sched_graph *dst, struct isl_sched_graph *src,
  * If the source or destination node of the edge is not in the destination
  * graph, then it must be a backward proximity edge and it should simply
  * be ignored.
+ * Note that the intra-statement consecutivity constraints are
+ * shared between the nodes of "src" and "dst".
+ * If an edge references any intra-statement consecutivity constraints,
+ * they can therefore simply be copied.
  */
-static int copy_edges(isl_ctx *ctx, struct isl_sched_graph *dst,
+static isl_stat copy_edges(isl_ctx *ctx, struct isl_sched_graph *dst,
 	struct isl_sched_graph *src,
 	int (*edge_pred)(struct isl_sched_edge *edge, int data), int data)
 {
 	int i;
-	enum isl_edge_type t;
 
 	dst->n_edge = 0;
 	for (i = 0; i < src->n_edge; ++i) {
@@ -3418,6 +5455,7 @@ static int copy_edges(isl_ctx *ctx, struct isl_sched_graph *dst,
 		isl_union_map *tagged_condition;
 		isl_union_map *tagged_validity;
 		struct isl_sched_node *dst_src, *dst_dst;
+		struct isl_sched_intra *dst_src_intra, *dst_dst_intra;
 
 		if (!edge_pred(edge, data))
 			continue;
@@ -3427,13 +5465,18 @@ static int copy_edges(isl_ctx *ctx, struct isl_sched_graph *dst,
 
 		dst_src = graph_find_node(ctx, dst, edge->src->space);
 		dst_dst = graph_find_node(ctx, dst, edge->dst->space);
-		if (!dst_src || !dst_dst) {
+		if (!dst_src || !dst_dst)
+			return isl_stat_error;
+		if (!is_node(dst, dst_src) || !is_node(dst, dst_dst)) {
 			if (is_validity(edge) || is_conditional_validity(edge))
 				isl_die(ctx, isl_error_internal,
 					"backward (conditional) validity edge",
-					return -1);
+					return isl_stat_error);
 			continue;
 		}
+
+		dst_src_intra = edge->src_intra;
+		dst_dst_intra = edge->dst_intra;
 
 		map = isl_map_copy(edge->map);
 		tagged_condition = isl_union_map_copy(edge->tagged_condition);
@@ -3441,6 +5484,8 @@ static int copy_edges(isl_ctx *ctx, struct isl_sched_graph *dst,
 
 		dst->edge[dst->n_edge].src = dst_src;
 		dst->edge[dst->n_edge].dst = dst_dst;
+		dst->edge[dst->n_edge].src_intra = dst_src_intra;
+		dst->edge[dst->n_edge].dst_intra = dst_dst_intra;
 		dst->edge[dst->n_edge].map = map;
 		dst->edge[dst->n_edge].tagged_condition = tagged_condition;
 		dst->edge[dst->n_edge].tagged_validity = tagged_validity;
@@ -3448,21 +5493,16 @@ static int copy_edges(isl_ctx *ctx, struct isl_sched_graph *dst,
 		dst->n_edge++;
 
 		if (edge->tagged_condition && !tagged_condition)
-			return -1;
+			return isl_stat_error;
 		if (edge->tagged_validity && !tagged_validity)
-			return -1;
+			return isl_stat_error;
 
-		for (t = isl_edge_first; t <= isl_edge_last; ++t) {
-			if (edge !=
-			    graph_find_edge(src, t, edge->src, edge->dst))
-				continue;
-			if (graph_edge_table_add(ctx, dst, t,
+		if (graph_edge_tables_add(ctx, dst,
 					    &dst->edge[dst->n_edge - 1]) < 0)
-				return -1;
-		}
+			return isl_stat_error;
 	}
 
-	return 0;
+	return isl_stat_ok;
 }
 
 /* Compute the maximal number of variables over all nodes.
@@ -3491,43 +5531,64 @@ static int compute_maxvar(struct isl_sched_graph *graph)
 	return 0;
 }
 
-/* Extract the subgraph of "graph" that consists of the node satisfying
+/* Count the number of (active) intra-statement consecutivity constraints
+ * associated to "node".
+ */
+static int node_n_intra(struct isl_sched_node *node)
+{
+	int n;
+	struct isl_sched_intra *intra;
+
+	n = 0;
+	for (intra = node->intra; intra; intra = intra->next)
+		if (intra->n_fixed >= 0)
+			++n;
+
+	return n;
+}
+
+/* Extract the subgraph of "graph" that consists of the nodes satisfying
  * "node_pred" and the edges satisfying "edge_pred" and store
  * the result in "sub".
  */
-static int extract_sub_graph(isl_ctx *ctx, struct isl_sched_graph *graph,
+static isl_stat extract_sub_graph(isl_ctx *ctx, struct isl_sched_graph *graph,
 	int (*node_pred)(struct isl_sched_node *node, int data),
 	int (*edge_pred)(struct isl_sched_edge *edge, int data),
 	int data, struct isl_sched_graph *sub)
 {
-	int i, n = 0, n_edge = 0;
+	int i, n = 0, n_edge = 0, n_intra = 0, n_inter = 0;
 	int t;
 
 	for (i = 0; i < graph->n; ++i)
-		if (node_pred(&graph->node[i], data))
+		if (node_pred(&graph->node[i], data)) {
 			++n;
+			n_intra += node_n_intra(&graph->node[i]);
+		}
 	for (i = 0; i < graph->n_edge; ++i)
-		if (edge_pred(&graph->edge[i], data))
+		if (edge_pred(&graph->edge[i], data)) {
 			++n_edge;
-	if (graph_alloc(ctx, sub, n, n_edge) < 0)
-		return -1;
+			if (is_consecutivity(&graph->edge[i]))
+				++n_inter;
+		}
+	if (graph_alloc(ctx, sub, n, n_edge, n_intra + n_inter) < 0)
+		return isl_stat_error;
 	sub->root = graph->root;
 	if (copy_nodes(sub, graph, node_pred, data) < 0)
-		return -1;
+		return isl_stat_error;
 	if (graph_init_table(ctx, sub) < 0)
-		return -1;
-	for (t = 0; t <= isl_edge_last; ++t)
+		return isl_stat_error;
+	for (t = 0; t <= isl_edge_last_table; ++t)
 		sub->max_edge[t] = graph->max_edge[t];
 	if (graph_init_edge_tables(ctx, sub) < 0)
-		return -1;
+		return isl_stat_error;
 	if (copy_edges(ctx, sub, graph, edge_pred, data) < 0)
-		return -1;
+		return isl_stat_error;
 	sub->n_row = graph->n_row;
 	sub->max_row = graph->max_row;
 	sub->n_total_row = graph->n_total_row;
 	sub->band_start = graph->band_start;
 
-	return 0;
+	return isl_stat_ok;
 }
 
 static __isl_give isl_schedule_node *compute_schedule(isl_schedule_node *node,
@@ -3586,9 +5647,14 @@ static int edge_src_scc_at_least(struct isl_sched_edge *edge, int scc)
 	return edge->src->scc >= scc;
 }
 
-/* Reset the current band by dropping all its schedule rows.
+/* Reset the current band by dropping all its schedule rows and
+ * resetting the number of inner rows of
+ * the intra-statement consecutivity constraints already taken into account
+ * to their original values at the start of the band.
+ * The states of the inter-statement consecutivity constraints
+ * are also reset to their values at the start of the band.
  */
-static int reset_band(struct isl_sched_graph *graph)
+static isl_stat reset_band(struct isl_sched_graph *graph)
 {
 	int i;
 	int drop;
@@ -3599,18 +5665,24 @@ static int reset_band(struct isl_sched_graph *graph)
 
 	for (i = 0; i < graph->n; ++i) {
 		struct isl_sched_node *node = &graph->node[i];
+		struct isl_sched_intra *intra;
 
-		isl_map_free(node->sched_map);
-		node->sched_map = NULL;
+		for (intra = node->intra; intra; intra = intra->next)
+			intra->n_fixed = intra->band_n_fixed;
+
+		isl_map_free(node->band_sched);
+		node->band_sched = NULL;
 
 		node->sched = isl_mat_drop_rows(node->sched,
 						graph->band_start, drop);
 
 		if (!node->sched)
-			return -1;
+			return isl_stat_error;
 	}
+	for (i = 0; i < graph->n_edge; ++i)
+		graph->edge[i].state = graph->edge[i].band_state;
 
-	return 0;
+	return isl_stat_ok;
 }
 
 /* Split the current graph into two parts and compute a schedule for each
@@ -3869,6 +5941,8 @@ static void isl_carry_clear(struct isl_carry *carry)
 /* Return a pointer to the node in "graph" that lives in "space".
  * If the requested node has been compressed, then "space"
  * corresponds to the compressed space.
+ * The graph is assumed to have such a node.
+ * Return NULL in case of error.
  *
  * First try and see if "space" is the space of an uncompressed node.
  * If so, return that node.
@@ -3889,7 +5963,9 @@ static struct isl_sched_node *graph_find_compressed_node(isl_ctx *ctx,
 		return NULL;
 
 	node = graph_find_node(ctx, graph, space);
-	if (node)
+	if (!node)
+		return NULL;
+	if (is_node(graph, node))
 		return node;
 
 	id = isl_space_get_tuple_id(space, isl_dim_set);
@@ -3904,6 +5980,9 @@ static struct isl_sched_node *graph_find_compressed_node(isl_ctx *ctx,
 			"space points to invalid node", return NULL);
 	if (graph != graph->root)
 		node = graph_find_node(ctx, graph, node->space);
+	if (!is_node(graph, node))
+		isl_die(ctx, isl_error_internal,
+			"unable to find node", return NULL);
 
 	return node;
 }
@@ -4441,8 +6520,9 @@ static __isl_give isl_vec *non_neg_lexmin(struct isl_sched_graph *graph,
 	int i, pos, cut;
 	isl_ctx *ctx;
 	isl_tab_lexmin *tl;
-	isl_vec *sol, *prev = NULL;
+	isl_vec *sol = NULL, *prev;
 	int treat_coalescing;
+	int try_again;
 
 	if (!lp)
 		return NULL;
@@ -4454,8 +6534,10 @@ static __isl_give isl_vec *non_neg_lexmin(struct isl_sched_graph *graph,
 	do {
 		int integral;
 
+		try_again = 0;
 		if (cut)
 			tl = isl_tab_lexmin_cut_to_integer(tl);
+		prev = sol;
 		sol = non_empty_solution(tl);
 		if (!sol)
 			goto error;
@@ -4471,7 +6553,7 @@ static __isl_give isl_vec *non_neg_lexmin(struct isl_sched_graph *graph,
 		prev = isl_vec_free(prev);
 		cut = want_integral && !integral;
 		if (cut)
-			prev = sol;
+			try_again = 1;
 		if (!treat_coalescing)
 			continue;
 		for (i = 0; i < graph->n; ++i) {
@@ -4484,11 +6566,11 @@ static __isl_give isl_vec *non_neg_lexmin(struct isl_sched_graph *graph,
 				break;
 		}
 		if (i < graph->n) {
-			prev = sol;
+			try_again = 1;
 			tl = zero_out_node_coef(tl, &graph->node[i], pos);
 			cut = 0;
 		}
-	} while (prev);
+	} while (try_again);
 
 	isl_tab_lexmin_free(tl);
 
@@ -5355,7 +7437,7 @@ static int has_adjacent_true_conditions(struct isl_sched_graph *graph,
 
 		set_local(&graph->edge[i]);
 
-		local = is_condition_false(&graph->edge[i]);
+		local = is_condition_false(graph, &graph->edge[i]);
 		if (local < 0)
 			return -1;
 		if (!local)
@@ -5451,22 +7533,26 @@ error:
  * In each case, we first insert a band node in the schedule tree
  * if any rows have been computed.
  *
- * If the caller managed to complete the schedule, we insert a band node
- * (if any schedule rows were computed) and we finish off by topologically
+ * If the caller managed to complete the schedule and the current band
+ * is empty, then finish off by topologically
  * sorting the statements based on the remaining dependences.
+ * If, on the other hand, the current band has at least one row,
+ * then continue with the next band.  Note that this next band
+ * will necessarily be empty, but the graph may still be split up
+ * into weakly connected components before arriving back here.
  */
 static __isl_give isl_schedule_node *compute_schedule_finish_band(
 	__isl_take isl_schedule_node *node, struct isl_sched_graph *graph,
 	int initialized)
 {
-	int insert;
+	int empty;
 
 	if (!node)
 		return NULL;
 
+	empty = graph->n_total_row == graph->band_start;
 	if (graph->n_row < graph->maxvar) {
 		isl_ctx *ctx;
-		int empty = graph->n_total_row == graph->band_start;
 
 		ctx = isl_schedule_node_get_ctx(node);
 		if (!ctx->opt->schedule_maximize_band_depth && !empty)
@@ -5484,16 +7570,9 @@ static __isl_give isl_schedule_node *compute_schedule_finish_band(
 		return carry_dependences(node, graph);
 	}
 
-	insert = graph->n_total_row > graph->band_start;
-	if (insert) {
-		node = insert_current_band(node, graph, 1);
-		node = isl_schedule_node_child(node, 0);
-	}
-	node = sort_statements(node, graph, initialized);
-	if (insert)
-		node = isl_schedule_node_parent(node);
-
-	return node;
+	if (!empty)
+		return compute_next_band(node, graph, 1);
+	return sort_statements(node, graph, initialized);
 }
 
 /* Construct a band of schedule rows for a connected dependence graph.
@@ -5989,7 +8068,7 @@ static __isl_give isl_schedule_constraints *add_non_conditional_constraints(
 	if (!sc)
 		return NULL;
 
-	for (t = isl_edge_first; t <= isl_edge_last; ++t) {
+	for (t = isl_edge_first; t <= isl_edge_last_sc; ++t) {
 		if (t == isl_edge_condition ||
 		    t == isl_edge_conditional_validity)
 			continue;
@@ -6085,13 +8164,119 @@ static __isl_give isl_schedule_constraints *collect_edge_constraints(
 	return sc;
 }
 
+/* How many of the outer dimensions of the band of size "dim" starting
+ * at "start" can be freely combined without destroying
+ * the schedule rows that correspond to the inner part
+ * of any of the intra-statement consecutivity constraints of "node".
+ *
+ * If the first such row belongs to an outer band,
+ * then all schedule rows need to be preserved and
+ * the number of rows that can be freely combined is zero.
+ * Otherwise, it's the minimal number of rows that lie
+ * outside the first row corresponding to an inner part.
+ * Only take into account intra-statement consecutivity constraints
+ * that are still active.
+ */
+static int n_outer_in_band(struct isl_sched_node *node, int start, int dim)
+{
+	struct isl_sched_intra *intra;
+	int n_outer;
+
+	n_outer = dim;
+	for (intra = node->intra; intra; intra = intra->next) {
+		if (intra->n_fixed < 0)
+			continue;
+		if (intra->n_fixed == 0)
+			continue;
+		if (intra->first_fixed <= start)
+			return 0;
+		else if (n_outer > intra->first_fixed - start)
+			n_outer = intra->first_fixed - start;
+	}
+
+	return n_outer;
+}
+
+/* Construct the space for an intra-statement consecutivity constraint
+ * on domain "space" with "n_outer" outer expressions and
+ * "n_inner" inner expressions.
+ *
+ * The returned space is of the form
+ *
+ *	space -> [outer -> inner]
+ */
+static __isl_give isl_space *intra_space(__isl_take isl_space *space,
+	int n_outer, int n_inner)
+{
+	isl_space *space2;
+
+	space = isl_space_from_domain(space);
+	space2 = isl_space_copy(space);
+	space = isl_space_add_dims(space, isl_dim_out, n_outer);
+	space2 = isl_space_add_dims(space2, isl_dim_out, n_inner);
+	space = isl_space_range_product(space, space2);
+
+	return space;
+}
+
+/* Add an intra-statement consecutivity constraint on the cluster
+ * with index "cluster" to "sc" that preserves the schedule rows of "node"
+ * that correspond to inner parts of the original intra-statement
+ * consecutivity constraints.
+ *
+ * The constraint is an identity affine expression with the inner part
+ * covering all the rows in the schedule that correspond to
+ * inner parts of the original intra-statement consecutivity constraints.
+ * This ensures that those inner parts are not modified and remain innermost
+ * in the band.
+ * If the inner part would be empty (this includes the case where there are no
+ * original intra-statement consecutivity constraints), then
+ * no constraint needs to be added.
+ */
+static __isl_give isl_schedule_constraints *collect_intra_consecutivity(
+	struct isl_sched_node *node, __isl_take isl_schedule_constraints *sc,
+	int cluster, int start, int dim)
+{
+	int n_outer;
+	isl_ctx *ctx;
+	isl_id *id;
+	isl_space *space;
+	isl_multi_aff *ma;
+	isl_multi_aff_list *list;
+
+	n_outer = n_outer_in_band(node, start, dim);
+	if (n_outer == dim)
+		return sc;
+
+	ctx = isl_schedule_constraints_get_ctx(sc);
+	id = cluster_id(ctx, cluster);
+	space = isl_space_set_alloc(ctx, 0, dim);
+	space = isl_space_set_tuple_id(space, isl_dim_set, id);
+	space = intra_space(space, n_outer, dim - n_outer);
+	ma = isl_multi_aff_identity(space);
+
+	list = isl_schedule_constraints_get_intra_consecutivity(sc);
+	list = isl_multi_aff_list_add(list, ma);
+	sc = isl_schedule_constraints_set_intra_consecutivity(sc, list);
+
+	return sc;
+}
+
 /* Given a mapping "cluster_map" from the original instances to
  * the cluster instances, add schedule constraints on the clusters
  * to "sc" corresponding to all edges in "graph" between nodes that
- * belong to SCCs that are marked for merging in "scc_in_merge".
+ * belong to SCCs that are marked for merging in "c".
+ * Also add intra-statement consecutivity constraints
+ * that preserve the schedule rows that correspond
+ * to the inner parts of intra-statement consecutivity constraints
+ * on the original graph.
+ * Any inter-statement consecutivity constraint forces the two
+ * corresponding statements to be part of the same cluster.
+ * There are therefore no cross-cluster inter-statement consecutivity
+ * constraints.
  */
 static __isl_give isl_schedule_constraints *collect_constraints(
-	struct isl_sched_graph *graph, int *scc_in_merge,
+	struct isl_sched_graph *graph, struct isl_clustering *c,
 	__isl_keep isl_union_map *cluster_map,
 	__isl_take isl_schedule_constraints *sc)
 {
@@ -6100,11 +8285,25 @@ static __isl_give isl_schedule_constraints *collect_constraints(
 	for (i = 0; i < graph->n_edge; ++i) {
 		struct isl_sched_edge *edge = &graph->edge[i];
 
-		if (!scc_in_merge[edge->src->scc])
+		if (!c->scc_in_merge[edge->src->scc])
 			continue;
-		if (!scc_in_merge[edge->dst->scc])
+		if (!c->scc_in_merge[edge->dst->scc])
 			continue;
 		sc = collect_edge_constraints(edge, cluster_map, sc);
+	}
+
+	for (i = 0; i < graph->n; ++i) {
+		struct isl_sched_node *node = &graph->node[i];
+		struct isl_sched_graph *scc;
+		int start, dim, cluster;
+
+		if (!c->scc_in_merge[node->scc])
+			continue;
+		cluster = c->scc_cluster[node->scc];
+		scc = &c->scc[node->scc];
+		start = scc->band_start;
+		dim = scc->n_total_row - start;
+		sc = collect_intra_consecutivity(node, sc, cluster, start, dim);
 	}
 
 	return sc;
@@ -6134,7 +8333,7 @@ static isl_stat init_merge_graph(isl_ctx *ctx, struct isl_sched_graph *graph,
 	if (!sc)
 		return isl_stat_error;
 	cluster_map = collect_cluster_map(ctx, graph, c);
-	sc = collect_constraints(graph, c->scc_in_merge, cluster_map, sc);
+	sc = collect_constraints(graph, c, cluster_map, sc);
 	isl_union_map_free(cluster_map);
 
 	r = graph_init(merge_graph, sc);
@@ -6332,12 +8531,15 @@ static __isl_give isl_map *extract_node_transformation(isl_ctx *ctx,
 	isl_multi_aff *ma, *ma2;
 
 	scc_node = graph_find_node(ctx, &c->scc[node->scc], node->space);
+	if (scc_node && !is_node(&c->scc[node->scc], scc_node))
+		isl_die(ctx, isl_error_internal, "unable to find node",
+			return NULL);
 	start = c->scc[node->scc].band_start;
 	n = c->scc[node->scc].n_total_row - start;
 	ma = node_extract_partial_schedule_multi_aff(scc_node, start, n);
 	space = cluster_space(&c->scc[node->scc], c->scc_cluster[node->scc]);
 	cluster_node = graph_find_node(ctx, merge_graph, space);
-	if (space && !cluster_node)
+	if (cluster_node && !is_node(merge_graph, cluster_node))
 		isl_die(ctx, isl_error_internal, "unable to find cluster",
 			space = isl_space_free(space));
 	id = isl_space_get_tuple_id(space, isl_dim_set);
@@ -6645,7 +8847,7 @@ static isl_stat transform(isl_ctx *ctx, struct isl_sched_graph *graph,
 		t = node_transformation(ctx, t_node, node, start, n);
 		node->sched = isl_mat_drop_rows(node->sched, start, n);
 		node->sched = isl_mat_concat(node->sched, t);
-		node->sched_map = isl_map_free(node->sched_map);
+		node->band_sched = isl_map_free(node->band_sched);
 		if (!node->sched)
 			return isl_stat_error;
 		for (j = 0; j < n_new; ++j)
@@ -6684,11 +8886,11 @@ static isl_stat merge(isl_ctx *ctx, struct isl_clustering *c,
 		if (cluster < 0)
 			cluster = i;
 		space = cluster_space(&c->scc[i], c->scc_cluster[i]);
-		if (!space)
-			return isl_stat_error;
 		node = graph_find_node(ctx, merge_graph, space);
 		isl_space_free(space);
 		if (!node)
+			return isl_stat_error;
+		if (!is_node(merge_graph, node))
 			isl_die(ctx, isl_error_internal,
 				"unable to find cluster",
 				return isl_stat_error);
@@ -6856,15 +9058,15 @@ static void swap_sched(struct isl_sched_node *node1,
 	struct isl_sched_node *node2)
 {
 	isl_mat *sched;
-	isl_map *sched_map;
+	isl_map *band_sched;
 
 	sched = node1->sched;
 	node1->sched = node2->sched;
 	node2->sched = sched;
 
-	sched_map = node1->sched_map;
-	node1->sched_map = node2->sched_map;
-	node2->sched_map = sched_map;
+	band_sched = node1->band_sched;
+	node1->band_sched = node2->band_sched;
+	node2->band_sched = band_sched;
 }
 
 /* Copy the current band schedule from the SCCs that form the cluster
@@ -7137,6 +9339,9 @@ error:
  * there is no point in trying to combine SCCs
  * in compute_schedule_wcc_clustering, so compute_schedule_wcc_whole
  * is called instead.
+ * Strongly connected components that are connected through
+ * inter-statement consecutivity constraints are treated as
+ * a single component to ensure that those constraints can be applied.
  */
 static __isl_give isl_schedule_node *compute_schedule_wcc(
 	__isl_take isl_schedule_node *node, struct isl_sched_graph *graph)
@@ -7147,7 +9352,7 @@ static __isl_give isl_schedule_node *compute_schedule_wcc(
 		return NULL;
 
 	ctx = isl_schedule_node_get_ctx(node);
-	if (detect_sccs(ctx, graph) < 0)
+	if (detect_sccs_grouping_consecutive(ctx, graph) < 0)
 		return isl_schedule_node_free(node);
 
 	if (compute_maxvar(graph) < 0)
@@ -7171,6 +9376,14 @@ static __isl_give isl_schedule_node *compute_schedule_wcc(
  * weakly connected component in the dependence graph so that
  * there is no need for compute_sub_schedule to look for weakly
  * connected components.
+ *
+ * If a set node would be introduced and if the number of components
+ * is equal to the number of nodes, then check if the schedule
+ * is already complete.  If so, a redundant set node would be introduced
+ * (without any further descendants) stating that the statements
+ * can be executed in arbitrary order, which is also expressed
+ * by the absence of any node.  Refrain from inserting any nodes
+ * in this case and simply return.
  */
 static __isl_give isl_schedule_node *compute_component_schedule(
 	__isl_take isl_schedule_node *node, struct isl_sched_graph *graph,
@@ -7182,8 +9395,15 @@ static __isl_give isl_schedule_node *compute_component_schedule(
 
 	if (!node)
 		return NULL;
-	ctx = isl_schedule_node_get_ctx(node);
 
+	if (graph->weak && graph->scc == graph->n) {
+		if (compute_maxvar(graph) < 0)
+			return isl_schedule_node_free(node);
+		if (graph->n_row >= graph->maxvar)
+			return node;
+	}
+
+	ctx = isl_schedule_node_get_ctx(node);
 	filters = extract_sccs(ctx, graph);
 	if (graph->weak)
 		node = isl_schedule_node_insert_set(node, filters);

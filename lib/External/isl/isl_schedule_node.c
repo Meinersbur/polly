@@ -11,10 +11,13 @@
  * B.P. 105 - 78153 Le Chesnay, France
  */
 
+#include <isl/val.h>
+#include <isl/space.h>
 #include <isl/set.h>
 #include <isl_schedule_band.h>
 #include <isl_schedule_private.h>
 #include <isl_schedule_node_private.h>
+#include <isl_schedule_constraints.h>
 
 /* Create a new schedule node in the given schedule, point at the given
  * tree with given ancestors and child positions.
@@ -294,7 +297,7 @@ int isl_schedule_node_get_schedule_depth(__isl_keep isl_schedule_node *node)
  *
  * "initialized" is set if the filter field has been initialized.
  * If "universe_domain" is not set, then the collected filter is intersected
- * with the the domain of the root domain node.
+ * with the domain of the root domain node.
  * "universe_filter" is set if we are only collecting the universes of filters
  * "collect_prefix" is set if we are collecting prefixes.
  * "filter" collects all outer filters and is NULL until "initialized" is set.
@@ -1334,11 +1337,12 @@ static __isl_give isl_schedule_node *preorder_leave(
 /* Traverse the descendants of "node" (including the node itself)
  * in depth first preorder.
  *
- * If "fn" returns -1 on any of the nodes, then the traversal is aborted.
- * If "fn" returns 0 on any of the nodes, then the subtree rooted
+ * If "fn" returns isl_bool_error on any of the nodes,
+ * then the traversal is aborted.
+ * If "fn" returns isl_bool_false on any of the nodes, then the subtree rooted
  * at that node is skipped.
  *
- * Return 0 on success and -1 on failure.
+ * Return isl_stat_ok on success and isl_stat_error on failure.
  */
 isl_stat isl_schedule_node_foreach_descendant_top_down(
 	__isl_keep isl_schedule_node *node,
@@ -1352,6 +1356,56 @@ isl_stat isl_schedule_node_foreach_descendant_top_down(
 	isl_schedule_node_free(node);
 
 	return node ? isl_stat_ok : isl_stat_error;
+}
+
+/* Internal data structure for isl_schedule_node_every_descendant.
+ *
+ * "test" is the user-specified callback function.
+ * "user" is the user-specified callback function argument.
+ *
+ * "failed" is initialized to 0 and set to 1 if "test" fails
+ * on any node.
+ */
+struct isl_union_map_every_data {
+	isl_bool (*test)(__isl_keep isl_schedule_node *node, void *user);
+	void *user;
+	int failed;
+};
+
+/* isl_schedule_node_foreach_descendant_top_down callback
+ * that sets data->failed if data->test returns false and
+ * subsequently aborts the traversal.
+ */
+static isl_bool call_every(__isl_keep isl_schedule_node *node, void *user)
+{
+	struct isl_union_map_every_data *data = user;
+	isl_bool r;
+
+	r = data->test(node, data->user);
+	if (r < 0)
+		return isl_bool_error;
+	if (r)
+		return isl_bool_true;
+	data->failed = 1;
+	return isl_bool_error;
+}
+
+/* Does "test" succeed on every descendant of "node" (including "node" itself)?
+ */
+isl_bool isl_schedule_node_every_descendant(__isl_keep isl_schedule_node *node,
+	isl_bool (*test)(__isl_keep isl_schedule_node *node, void *user),
+	void *user)
+{
+	struct isl_union_map_every_data data = { test, user, 0 };
+	isl_stat r;
+
+	r = isl_schedule_node_foreach_descendant_top_down(node, &call_every,
+							&data);
+	if (r >= 0)
+		return isl_bool_true;
+	if (data.failed)
+		return isl_bool_false;
+	return isl_bool_error;
 }
 
 /* Internal data structure for isl_schedule_node_map_descendant_bottom_up.
@@ -1960,7 +2014,7 @@ __isl_give isl_schedule_node *isl_schedule_node_band_sink(
  * dimensions and one with the remaining dimensions.
  * The schedules of the two band nodes live in anonymous spaces.
  * The loop AST generation type options and the isolate option
- * are split over the the two band nodes.
+ * are split over the two band nodes.
  */
 __isl_give isl_schedule_node *isl_schedule_node_band_split(
 	__isl_take isl_schedule_node *node, int pos)
@@ -2667,6 +2721,27 @@ __isl_give isl_schedule_node *isl_schedule_node_delete(
 	node = isl_schedule_node_graft_tree(node, tree);
 
 	return node;
+}
+
+/* Replace the subtree that "pos" points to by the one that "node" points to.
+ */
+__isl_give isl_schedule_node *isl_schedule_node_graft(
+	__isl_take isl_schedule_node *pos, __isl_take isl_schedule_node *node)
+{
+	isl_schedule_tree *tree;
+
+	if (!pos || !node)
+		goto error;
+
+	tree = isl_schedule_tree_copy(node->tree);
+	pos = isl_schedule_node_graft_tree(pos, tree);
+	isl_schedule_node_free(node);
+
+	return pos;
+error:
+	isl_schedule_node_free(pos);
+	isl_schedule_node_free(node);
+	return NULL;
 }
 
 /* Internal data structure for the group_ancestor callback.
@@ -4661,6 +4736,85 @@ __isl_give isl_schedule_node *isl_schedule_node_get_shared_ancestor(
 
 	node1 = isl_schedule_node_copy(node1);
 	return isl_schedule_node_ancestor(node1, n1 - i);
+}
+
+/* Reschedule the subtree that "node" points to using
+ * the schedule constraints "sc" in the case where "node"
+ * points to the root of the schedule tree.
+ *
+ * In this case, "node" does not contain any useful information and
+ * a schedule is constructed directly from "sc".
+ */
+static __isl_give isl_schedule_node *complete_schedule(
+	__isl_take isl_schedule_node *node,
+	__isl_take isl_schedule_constraints *sc)
+{
+	isl_schedule *schedule;
+
+	isl_schedule_node_free(node);
+
+	schedule = isl_schedule_constraints_compute_schedule(sc);
+	node = isl_schedule_get_root(schedule);
+	isl_schedule_free(schedule);
+
+	return node;
+}
+
+/* Restrict the domain of "sc" to the domain elements reaching "node".
+ * The original domain is required to include all those elements.
+ */
+static __isl_give isl_schedule_constraints *restrict_domain(
+	__isl_take isl_schedule_constraints *sc,
+	__isl_keep isl_schedule_node *node)
+{
+	isl_bool valid;
+	isl_union_set *node_domain, *sc_domain;
+
+	node_domain = isl_schedule_node_get_domain(node);
+	sc_domain = isl_schedule_constraints_get_domain(sc);
+	valid = isl_union_set_is_subset(node_domain, sc_domain);
+	sc = isl_schedule_constraints_intersect_domain(sc, node_domain);
+	isl_union_set_free(sc_domain);
+
+	if (valid < 0)
+		return isl_schedule_constraints_free(sc);
+	if (!valid)
+		isl_die(isl_schedule_node_get_ctx(node), isl_error_invalid,
+			"invalid schedule constraints domain",
+			return isl_schedule_constraints_free(sc));
+	return sc;
+}
+
+/* Reschedule the subtree that "node" points to using
+ * the schedule constraints "sc".
+ *
+ * Restrict the domain of "sc" to the domain elements at "node",
+ * compute a schedule taking into account the prefix schedule at "node" and
+ * replace the subtree by the result.
+ *
+ * If "node" points to the root of a schedule tree, then no part
+ * of the schedule tree survives and a fresh schedule is computed instead.
+ */
+__isl_give isl_schedule_node *isl_schedule_node_schedule(
+	__isl_take isl_schedule_node *node,
+	__isl_take isl_schedule_constraints *sc)
+{
+	isl_multi_union_pw_aff *prefix;
+	isl_schedule *schedule;
+	isl_schedule_node *root;
+
+	if (isl_schedule_node_get_type(node) == isl_schedule_node_domain)
+		return complete_schedule(node, sc);
+
+	sc = restrict_domain(sc, node);
+
+	prefix = isl_schedule_node_get_prefix_schedule_multi_union_pw_aff(node);
+	sc = isl_schedule_constraints_set_prefix(sc, prefix);
+	schedule = isl_schedule_constraints_compute_schedule(sc);
+	root = isl_schedule_get_root(schedule);
+	isl_schedule_free(schedule);
+
+	return isl_schedule_node_graft(node, isl_schedule_node_child(root, 0));
 }
 
 /* Print "node" to "p".

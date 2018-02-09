@@ -24,12 +24,14 @@ struct isl_vec;
 typedef struct isl_vec isl_vec;
 
 __isl_give isl_vec *isl_vec_alloc(isl_ctx *ctx, unsigned size);
+__isl_give isl_vec *isl_vec_zero(isl_ctx *ctx, unsigned size);
 __isl_give isl_vec *isl_vec_copy(__isl_keep isl_vec *vec);
 __isl_null isl_vec *isl_vec_free(__isl_take isl_vec *vec);
 
 isl_ctx *isl_vec_get_ctx(__isl_keep isl_vec *vec);
 
 int isl_vec_size(__isl_keep isl_vec *vec);
+isl_bool isl_vec_element_is_zero(__isl_keep isl_vec *vec, int pos);
 __isl_give isl_val *isl_vec_get_element_val(__isl_keep isl_vec *vec, int pos);
 __isl_give isl_vec *isl_vec_set_element_si(__isl_take isl_vec *vec,
 	int pos, int v);

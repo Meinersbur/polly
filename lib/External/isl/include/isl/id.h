@@ -10,10 +10,11 @@
 extern "C" {
 #endif
 
-struct isl_id;
+struct __isl_export isl_id;
 typedef struct isl_id isl_id;
 
 ISL_DECLARE_LIST(id)
+ISL_DECLARE_LIST_FN_READ(id)
 
 isl_ctx *isl_id_get_ctx(__isl_keep isl_id *id);
 uint32_t isl_id_get_hash(__isl_keep isl_id *id);

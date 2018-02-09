@@ -19,7 +19,6 @@ TESTS = isl_test codegen_test.sh pip_test.sh bound_test.sh isl_test_int \
 if IMATH_FOR_MP
 
 MP_SRC = \
-	isl_hide_deprecated.h \
 	isl_imath.c \
 	isl_imath.h \
 	isl_int_imath.h \
@@ -42,7 +41,6 @@ else
 MP_SRC += isl_val_imath.c
 endif
 
-DEPRECATED_SRC =
 MP_INCLUDE_H =
 endif
 
@@ -57,7 +55,6 @@ MP_SRC = \
 	isl_gmp.c \
 	isl_val_gmp.c
 
-DEPRECATED_SRC = isl_ast_int.c
 MP_INCLUDE_H = include/isl/val_gmp.h
 endif
 
@@ -66,7 +63,6 @@ AM_CFLAGS = @WARNING_FLAGS@
 
 libisl_la_SOURCES = \
 	$(MP_SRC) \
-	$(DEPRECATED_SRC) \
 	isl_aff.c \
 	isl_aff_private.h \
 	isl_affine_hull.c \
@@ -80,8 +76,6 @@ libisl_la_SOURCES = \
 	isl_ast_codegen.c \
 	isl_ast_graft.c \
 	isl_ast_graft_private.h \
-	isl_band.c \
-	isl_band_private.h \
 	isl_basis_reduction.h \
 	basis_reduction_tab.c \
 	isl_bernstein.c \
@@ -277,7 +271,6 @@ pkginclude_HEADERS = \
 	include/isl/ast.h \
 	include/isl/ast_type.h \
 	include/isl/ast_build.h \
-	include/isl/band.h \
 	include/isl/constraint.h \
 	include/isl/ctx.h \
 	include/isl/flow.h \
@@ -316,6 +309,7 @@ pkginclude_HEADERS = \
 	include/isl/set.h \
 	include/isl/set_type.h \
 	include/isl/space.h \
+	include/isl/space_type.h \
 	include/isl/stream.h \
 	include/isl/union_map.h \
 	include/isl/union_map_type.h \
@@ -325,21 +319,6 @@ pkginclude_HEADERS = \
 	include/isl/vec.h \
 	include/isl/version.h \
 	include/isl/vertices.h
-deprecateddir = $(pkgincludedir)/deprecated
-deprecated_HEADERS = \
-	include/isl/deprecated/int.h \
-	include/isl/deprecated/aff_int.h \
-	include/isl/deprecated/ast_int.h \
-	include/isl/deprecated/constraint_int.h \
-	include/isl/deprecated/ilp_int.h \
-	include/isl/deprecated/map_int.h \
-	include/isl/deprecated/mat_int.h \
-	include/isl/deprecated/point_int.h \
-	include/isl/deprecated/polynomial_int.h \
-	include/isl/deprecated/set_int.h \
-	include/isl/deprecated/union_map_int.h \
-	include/isl/deprecated/val_int.h \
-	include/isl/deprecated/vec_int.h
 
 BUILT_SOURCES = gitversion.h
 
@@ -360,8 +339,10 @@ EXTRA_DIST = \
 	bset_to_bmap.c \
 	bset_from_bmap.c \
 	extract_key.c \
+	isl_list_macro.h \
 	isl_list_templ.c \
 	isl_list_templ.h \
+	isl_list_read.c \
 	isl_map_lexopt_templ.c \
 	isl_maybe_map.h \
 	isl_multi_macro.h \
@@ -409,7 +390,7 @@ EXTRA_DIST = \
 	imath/imrat.c \
 	imath/imrat.h \
 	interface/all.h \
-	interface/isl.h.top \
+	interface/isl-noexceptions.h.top \
 	interface/isl.py.top \
 	test_inputs
 

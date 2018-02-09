@@ -11,6 +11,8 @@
  */
 
 #include <limits.h>
+#include <isl/val.h>
+#include <isl/space.h>
 #include <isl/aff.h>
 #include <isl/constraint.h>
 #include <isl/set.h>
@@ -3520,6 +3522,12 @@ static __isl_give isl_ast_graft_list *generate_shifted_component_only_after(
  * the remaining iterations (those that are incomparable
  * to the isolated domain).
  * We generate an AST for each piece and concatenate the results.
+ *
+ * If the isolated domain is not convex, then it is replaced
+ * by a convex superset to ensure that the sets of preceding and
+ * following iterations are properly defined and, in particular,
+ * that there are no intermediate iterations that do not belong
+ * to the isolated domain.
  *
  * In the special case where at least one element of the schedule
  * domain that does not belong to the isolated domain needs

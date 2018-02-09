@@ -13,7 +13,6 @@
 #include <isl_seq.h>
 #include <isl_val_private.h>
 #include <isl_vec_private.h>
-#include <isl/deprecated/vec_int.h>
 
 isl_ctx *isl_vec_get_ctx(__isl_keep isl_vec *vec)
 {
@@ -123,6 +122,19 @@ __isl_give isl_vec *isl_vec_expand(__isl_take isl_vec *vec, int pos, int n,
 		}
 	}
 
+	return vec;
+}
+
+/* Create a vector of size "size" with zero-valued elements.
+ */
+__isl_give isl_vec *isl_vec_zero(isl_ctx *ctx, unsigned size)
+{
+	isl_vec *vec;
+
+	vec = isl_vec_alloc(ctx, size);
+	if (!vec)
+		return NULL;
+	isl_seq_clr(vec->el, size);
 	return vec;
 }
 
@@ -238,16 +250,25 @@ int isl_vec_size(__isl_keep isl_vec *vec)
 	return vec ? vec->size : -1;
 }
 
-int isl_vec_get_element(__isl_keep isl_vec *vec, int pos, isl_int *v)
+/* Check that "pos" is a valid element position for "vec".
+ */
+static isl_stat check_pos(__isl_keep isl_vec *vec, int pos)
 {
 	if (!vec)
-		return -1;
-
+		return isl_stat_error;
 	if (pos < 0 || pos >= vec->size)
-		isl_die(vec->ctx, isl_error_invalid, "position out of range",
-			return -1);
-	isl_int_set(*v, vec->el[pos]);
-	return 0;
+		isl_die(isl_vec_get_ctx(vec), isl_error_invalid,
+			"position out of range", return isl_stat_error);
+	return isl_stat_ok;
+}
+
+/* Is the element at position "pos" of "vec" equal to zero?
+ */
+isl_bool isl_vec_element_is_zero(__isl_keep isl_vec *vec, int pos)
+{
+	if (check_pos(vec, pos) < 0)
+		return isl_bool_error;
+	return isl_int_is_zero(vec->el[pos]);
 }
 
 /* Extract the element at position "pos" of "vec".
@@ -256,45 +277,34 @@ __isl_give isl_val *isl_vec_get_element_val(__isl_keep isl_vec *vec, int pos)
 {
 	isl_ctx *ctx;
 
-	if (!vec)
+	if (check_pos(vec, pos) < 0)
 		return NULL;
 	ctx = isl_vec_get_ctx(vec);
-	if (pos < 0 || pos >= vec->size)
-		isl_die(ctx, isl_error_invalid, "position out of range",
-			return NULL);
 	return isl_val_int_from_isl_int(ctx, vec->el[pos]);
 }
 
 __isl_give isl_vec *isl_vec_set_element(__isl_take isl_vec *vec,
 	int pos, isl_int v)
 {
+	if (check_pos(vec, pos) < 0)
+		return isl_vec_free(vec);
 	vec = isl_vec_cow(vec);
 	if (!vec)
 		return NULL;
-	if (pos < 0 || pos >= vec->size)
-		isl_die(vec->ctx, isl_error_invalid, "position out of range",
-			goto error);
 	isl_int_set(vec->el[pos], v);
 	return vec;
-error:
-	isl_vec_free(vec);
-	return NULL;
 }
 
 __isl_give isl_vec *isl_vec_set_element_si(__isl_take isl_vec *vec,
 	int pos, int v)
 {
+	if (check_pos(vec, pos) < 0)
+		return isl_vec_free(vec);
 	vec = isl_vec_cow(vec);
 	if (!vec)
 		return NULL;
-	if (pos < 0 || pos >= vec->size)
-		isl_die(vec->ctx, isl_error_invalid, "position out of range",
-			goto error);
 	isl_int_set_si(vec->el[pos], v);
 	return vec;
-error:
-	isl_vec_free(vec);
-	return NULL;
 }
 
 /* Replace the element at position "pos" of "vec" by "v".
@@ -320,11 +330,8 @@ error:
 int isl_vec_cmp_element(__isl_keep isl_vec *vec1, __isl_keep isl_vec *vec2,
 	int pos)
 {
-	if (!vec1 || !vec2)
+	if (check_pos(vec1, pos) < 0 || check_pos(vec2, pos) < 0)
 		return 0;
-	if (pos < 0 || pos >= vec1->size || pos >= vec2->size)
-		isl_die(isl_vec_get_ctx(vec1), isl_error_invalid,
-			"position out of range", return 0);
 	return isl_int_cmp(vec1->el[pos], vec2->el[pos]);
 }
 

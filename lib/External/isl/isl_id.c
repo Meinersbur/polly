@@ -15,6 +15,7 @@
 #define BASE id
 
 #include <isl_list_templ.c>
+#include <isl_list_read.c>
 
 /* A special, static isl_id to use as domains (and ranges)
  * of sets and parameters domains.
@@ -241,4 +242,31 @@ __isl_give isl_printer *isl_printer_print_id(__isl_take isl_printer *p,
 error:
 	isl_printer_free(p);
 	return NULL;
+}
+
+/* Read an isl_id from "s" based on its name.
+ */
+__isl_give isl_id *isl_stream_read_id(__isl_keep isl_stream *s)
+{
+	struct isl_token *tok;
+	char *str;
+	isl_ctx *ctx;
+	isl_id *id;
+
+	if (!s)
+		return NULL;
+	tok = isl_stream_next_token(s);
+	if (!tok) {
+		isl_stream_error(s, NULL, "unexpected EOF");
+		return NULL;
+	}
+	ctx = isl_stream_get_ctx(s);
+	str = isl_token_get_str(ctx, tok);
+	isl_token_free(tok);
+	if (!str)
+		return NULL;
+	id = isl_id_alloc(ctx, str, NULL);
+	free(str);
+
+	return id;
 }

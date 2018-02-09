@@ -22,6 +22,9 @@
 #include <isl/union_set.h>
 #include <isl/val.h>
 #include <isl/polynomial.h>
+#include <isl/space.h>
+#include <isl/space_type.h>
+#include <isl/band.h>
 
 #include <functional>
 #include <string>

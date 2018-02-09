@@ -134,8 +134,8 @@ am__aclocal_m4_deps = $(top_srcdir)/m4/ax_c___attribute__.m4 \
 am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
 	$(ACLOCAL_M4)
 DIST_COMMON = $(srcdir)/Makefile.am $(top_srcdir)/configure \
-	$(am__configure_deps) $(deprecated_HEADERS) \
-	$(am__pkginclude_HEADERS_DIST) $(am__DIST_COMMON)
+	$(am__configure_deps) $(am__pkginclude_HEADERS_DIST) \
+	$(am__DIST_COMMON)
 am__CONFIG_DISTCLEAN_FILES = config.status config.cache config.log \
  configure.lineno config.status.lineno
 mkinstalldirs = $(install_sh) -d
@@ -171,26 +171,25 @@ am__uninstall_files_from_dir = { \
          $(am__cd) "$$dir" && rm -f $$files; }; \
   }
 am__installdirs = "$(DESTDIR)$(libdir)" "$(DESTDIR)$(pkgconfigdir)" \
-	"$(DESTDIR)$(deprecateddir)" "$(DESTDIR)$(pkgincludedir)" \
-	"$(DESTDIR)$(pkgincludedir)"
+	"$(DESTDIR)$(pkgincludedir)" "$(DESTDIR)$(pkgincludedir)"
 LTLIBRARIES = $(lib_LTLIBRARIES)
 libisl_la_DEPENDENCIES =
 am__libisl_la_SOURCES_DIST = mp_get_memory_functions.c isl_int_gmp.h \
-	isl_gmp.c isl_val_gmp.c isl_hide_deprecated.h isl_imath.c \
-	isl_imath.h isl_int_imath.h imath_wrap/gmp_compat.h \
-	imath_wrap/imath.h imath_wrap/imrat.h imath_wrap/wrap.h \
-	imath_wrap/gmp_compat.c imath_wrap/imath.c imath_wrap/imrat.c \
-	isl_int_sioimath.h isl_int_sioimath.c isl_val_sioimath.c \
-	isl_val_imath.c isl_ast_int.c isl_aff.c isl_aff_private.h \
-	isl_affine_hull.c isl_arg.c isl_ast.c isl_ast_private.h \
-	isl_ast_build.c isl_ast_build_private.h isl_ast_build_expr.c \
+	isl_gmp.c isl_val_gmp.c isl_imath.c isl_imath.h \
+	isl_int_imath.h imath_wrap/gmp_compat.h imath_wrap/imath.h \
+	imath_wrap/imrat.h imath_wrap/wrap.h imath_wrap/gmp_compat.c \
+	imath_wrap/imath.c imath_wrap/imrat.c isl_int_sioimath.h \
+	isl_int_sioimath.c isl_val_sioimath.c isl_val_imath.c \
+	isl_aff.c isl_aff_private.h isl_affine_hull.c isl_arg.c \
+	isl_ast.c isl_ast_private.h isl_ast_build.c \
+	isl_ast_build_private.h isl_ast_build_expr.c \
 	isl_ast_build_expr.h isl_ast_codegen.c isl_ast_graft.c \
-	isl_ast_graft_private.h isl_band.c isl_band_private.h \
-	isl_basis_reduction.h basis_reduction_tab.c isl_bernstein.c \
-	isl_bernstein.h isl_blk.c isl_blk.h isl_bound.c isl_bound.h \
-	isl_coalesce.c isl_constraint.c isl_constraint_private.h \
-	isl_convex_hull.c isl_ctx.c isl_ctx_private.h isl_deprecated.c \
-	isl_dim_map.h isl_dim_map.c isl_equalities.c isl_equalities.h \
+	isl_ast_graft_private.h isl_basis_reduction.h \
+	basis_reduction_tab.c isl_bernstein.c isl_bernstein.h \
+	isl_blk.c isl_blk.h isl_bound.c isl_bound.h isl_coalesce.c \
+	isl_constraint.c isl_constraint_private.h isl_convex_hull.c \
+	isl_ctx.c isl_ctx_private.h isl_deprecated.c isl_dim_map.h \
+	isl_dim_map.c isl_equalities.c isl_equalities.h \
 	isl_factorization.c isl_factorization.h isl_farkas.c isl_ffs.c \
 	isl_flow.c isl_fold.c isl_hash.c isl_hash_private.h \
 	isl_id_to_ast_expr.c isl_id_to_id.c isl_id_to_pw_aff.c \
@@ -232,29 +231,27 @@ am__dirstamp = $(am__leading_dot)dirstamp
 @GMP_FOR_MP_FALSE@@IMATH_FOR_MP_TRUE@	$(am__objects_3)
 @GMP_FOR_MP_TRUE@am__objects_4 = $(am__objects_1) isl_gmp.lo \
 @GMP_FOR_MP_TRUE@	isl_val_gmp.lo
-@GMP_FOR_MP_TRUE@am__objects_5 = isl_ast_int.lo
-am_libisl_la_OBJECTS = $(am__objects_4) $(am__objects_5) isl_aff.lo \
-	isl_affine_hull.lo isl_arg.lo isl_ast.lo isl_ast_build.lo \
-	isl_ast_build_expr.lo isl_ast_codegen.lo isl_ast_graft.lo \
-	isl_band.lo basis_reduction_tab.lo isl_bernstein.lo isl_blk.lo \
-	isl_bound.lo isl_coalesce.lo isl_constraint.lo \
-	isl_convex_hull.lo isl_ctx.lo isl_deprecated.lo isl_dim_map.lo \
-	isl_equalities.lo isl_factorization.lo isl_farkas.lo \
-	isl_ffs.lo isl_flow.lo isl_fold.lo isl_hash.lo \
-	isl_id_to_ast_expr.lo isl_id_to_id.lo isl_id_to_pw_aff.lo \
-	isl_ilp.lo isl_input.lo isl_local.lo isl_local_space.lo \
-	isl_lp.lo isl_map.lo isl_map_list.lo isl_map_simplify.lo \
-	isl_map_subtract.lo isl_map_to_basic_set.lo isl_mat.lo \
-	isl_morph.lo isl_id.lo isl_obj.lo isl_options.lo isl_output.lo \
-	isl_point.lo isl_polynomial.lo isl_printer.lo print.lo \
-	isl_range.lo isl_reordering.lo isl_sample.lo isl_scan.lo \
-	isl_schedule.lo isl_schedule_band.lo isl_schedule_node.lo \
-	isl_schedule_read.lo isl_schedule_tree.lo \
-	isl_schedule_constraints.lo isl_scheduler.lo isl_set_list.lo \
-	isl_sort.lo isl_space.lo isl_stream.lo isl_seq.lo isl_tab.lo \
-	isl_tab_pip.lo isl_tarjan.lo isl_transitive_closure.lo \
-	isl_union_map.lo isl_val.lo isl_vec.lo isl_version.lo \
-	isl_vertices.lo
+am_libisl_la_OBJECTS = $(am__objects_4) isl_aff.lo isl_affine_hull.lo \
+	isl_arg.lo isl_ast.lo isl_ast_build.lo isl_ast_build_expr.lo \
+	isl_ast_codegen.lo isl_ast_graft.lo basis_reduction_tab.lo \
+	isl_bernstein.lo isl_blk.lo isl_bound.lo isl_coalesce.lo \
+	isl_constraint.lo isl_convex_hull.lo isl_ctx.lo \
+	isl_deprecated.lo isl_dim_map.lo isl_equalities.lo \
+	isl_factorization.lo isl_farkas.lo isl_ffs.lo isl_flow.lo \
+	isl_fold.lo isl_hash.lo isl_id_to_ast_expr.lo isl_id_to_id.lo \
+	isl_id_to_pw_aff.lo isl_ilp.lo isl_input.lo isl_local.lo \
+	isl_local_space.lo isl_lp.lo isl_map.lo isl_map_list.lo \
+	isl_map_simplify.lo isl_map_subtract.lo \
+	isl_map_to_basic_set.lo isl_mat.lo isl_morph.lo isl_id.lo \
+	isl_obj.lo isl_options.lo isl_output.lo isl_point.lo \
+	isl_polynomial.lo isl_printer.lo print.lo isl_range.lo \
+	isl_reordering.lo isl_sample.lo isl_scan.lo isl_schedule.lo \
+	isl_schedule_band.lo isl_schedule_node.lo isl_schedule_read.lo \
+	isl_schedule_tree.lo isl_schedule_constraints.lo \
+	isl_scheduler.lo isl_set_list.lo isl_sort.lo isl_space.lo \
+	isl_stream.lo isl_seq.lo isl_tab.lo isl_tab_pip.lo \
+	isl_tarjan.lo isl_transitive_closure.lo isl_union_map.lo \
+	isl_val.lo isl_vec.lo isl_version.lo isl_vertices.lo
 libisl_la_OBJECTS = $(am_libisl_la_OBJECTS)
 AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
@@ -420,29 +417,29 @@ DATA = $(pkgconfig_DATA)
 am__pkginclude_HEADERS_DIST = include/isl/val_gmp.h include/isl/aff.h \
 	include/isl/aff_type.h include/isl/arg.h include/isl/ast.h \
 	include/isl/ast_type.h include/isl/ast_build.h \
-	include/isl/band.h include/isl/constraint.h include/isl/ctx.h \
-	include/isl/flow.h include/isl/id.h \
-	include/isl/id_to_ast_expr.h include/isl/id_to_id.h \
-	include/isl/id_to_pw_aff.h include/isl/ilp.h \
-	include/isl/hash.h include/isl/hmap.h include/isl/hmap_templ.c \
-	include/isl/list.h include/isl/local_space.h include/isl/lp.h \
-	include/isl/mat.h include/isl/map.h \
-	include/isl/map_to_basic_set.h include/isl/map_type.h \
-	include/isl/maybe.h include/isl/maybe_ast_expr.h \
-	include/isl/maybe_basic_set.h include/isl/maybe_id.h \
-	include/isl/maybe_pw_aff.h include/isl/maybe_templ.h \
-	include/isl/multi.h include/isl/obj.h include/isl/options.h \
-	include/isl/point.h include/isl/polynomial.h \
-	include/isl/polynomial_type.h include/isl/printer.h \
-	include/isl/printer_type.h include/isl/schedule.h \
-	include/isl/schedule_node.h include/isl/schedule_type.h \
-	include/isl/set.h include/isl/set_type.h include/isl/space.h \
-	include/isl/stream.h include/isl/union_map.h \
-	include/isl/union_map_type.h include/isl/union_set.h \
-	include/isl/union_set_type.h include/isl/val.h \
-	include/isl/vec.h include/isl/version.h include/isl/vertices.h
-HEADERS = $(deprecated_HEADERS) $(nodist_pkginclude_HEADERS) \
-	$(pkginclude_HEADERS)
+	include/isl/constraint.h include/isl/ctx.h include/isl/flow.h \
+	include/isl/id.h include/isl/id_to_ast_expr.h \
+	include/isl/id_to_id.h include/isl/id_to_pw_aff.h \
+	include/isl/ilp.h include/isl/hash.h include/isl/hmap.h \
+	include/isl/hmap_templ.c include/isl/list.h \
+	include/isl/local_space.h include/isl/lp.h include/isl/mat.h \
+	include/isl/map.h include/isl/map_to_basic_set.h \
+	include/isl/map_type.h include/isl/maybe.h \
+	include/isl/maybe_ast_expr.h include/isl/maybe_basic_set.h \
+	include/isl/maybe_id.h include/isl/maybe_pw_aff.h \
+	include/isl/maybe_templ.h include/isl/multi.h \
+	include/isl/obj.h include/isl/options.h include/isl/point.h \
+	include/isl/polynomial.h include/isl/polynomial_type.h \
+	include/isl/printer.h include/isl/printer_type.h \
+	include/isl/schedule.h include/isl/schedule_node.h \
+	include/isl/schedule_type.h include/isl/set.h \
+	include/isl/set_type.h include/isl/space.h \
+	include/isl/space_type.h include/isl/stream.h \
+	include/isl/union_map.h include/isl/union_map_type.h \
+	include/isl/union_set.h include/isl/union_set_type.h \
+	include/isl/val.h include/isl/vec.h include/isl/version.h \
+	include/isl/vertices.h
+HEADERS = $(nodist_pkginclude_HEADERS) $(pkginclude_HEADERS)
 RECURSIVE_CLEAN_TARGETS = mostlyclean-recursive clean-recursive	\
   distclean-recursive maintainer-clean-recursive
 am__recursive_targets = \
@@ -850,15 +847,12 @@ lib_LTLIBRARIES = libisl.la
 @GMP_FOR_MP_TRUE@	isl_gmp.c \
 @GMP_FOR_MP_TRUE@	isl_val_gmp.c
 
-@IMATH_FOR_MP_TRUE@MP_SRC = isl_hide_deprecated.h isl_imath.c \
-@IMATH_FOR_MP_TRUE@	isl_imath.h isl_int_imath.h \
+@IMATH_FOR_MP_TRUE@MP_SRC = isl_imath.c isl_imath.h isl_int_imath.h \
 @IMATH_FOR_MP_TRUE@	imath_wrap/gmp_compat.h imath_wrap/imath.h \
 @IMATH_FOR_MP_TRUE@	imath_wrap/imrat.h imath_wrap/wrap.h \
 @IMATH_FOR_MP_TRUE@	imath_wrap/gmp_compat.c imath_wrap/imath.c \
 @IMATH_FOR_MP_TRUE@	imath_wrap/imrat.c $(am__append_3) \
 @IMATH_FOR_MP_TRUE@	$(am__append_4)
-@GMP_FOR_MP_TRUE@DEPRECATED_SRC = isl_ast_int.c
-@IMATH_FOR_MP_TRUE@DEPRECATED_SRC = 
 @GMP_FOR_MP_TRUE@MP_INCLUDE_H = include/isl/val_gmp.h
 @IMATH_FOR_MP_TRUE@MP_INCLUDE_H = 
 @GMP_FOR_MP_TRUE@@NEED_GET_MEMORY_FUNCTIONS_TRUE@GET_MEMORY_FUNCTIONS = mp_get_memory_functions.c
@@ -866,7 +860,6 @@ AM_CPPFLAGS = -I. -I$(srcdir) -I$(srcdir)/include -Iinclude/ @MP_CPPFLAGS@
 AM_CFLAGS = @WARNING_FLAGS@
 libisl_la_SOURCES = \
 	$(MP_SRC) \
-	$(DEPRECATED_SRC) \
 	isl_aff.c \
 	isl_aff_private.h \
 	isl_affine_hull.c \
@@ -880,8 +873,6 @@ libisl_la_SOURCES = \
 	isl_ast_codegen.c \
 	isl_ast_graft.c \
 	isl_ast_graft_private.h \
-	isl_band.c \
-	isl_band_private.h \
 	isl_basis_reduction.h \
 	basis_reduction_tab.c \
 	isl_bernstein.c \
@@ -1074,7 +1065,6 @@ pkginclude_HEADERS = \
 	include/isl/ast.h \
 	include/isl/ast_type.h \
 	include/isl/ast_build.h \
-	include/isl/band.h \
 	include/isl/constraint.h \
 	include/isl/ctx.h \
 	include/isl/flow.h \
@@ -1113,6 +1103,7 @@ pkginclude_HEADERS = \
 	include/isl/set.h \
 	include/isl/set_type.h \
 	include/isl/space.h \
+	include/isl/space_type.h \
 	include/isl/stream.h \
 	include/isl/union_map.h \
 	include/isl/union_map_type.h \
@@ -1122,22 +1113,6 @@ pkginclude_HEADERS = \
 	include/isl/vec.h \
 	include/isl/version.h \
 	include/isl/vertices.h
-
-deprecateddir = $(pkgincludedir)/deprecated
-deprecated_HEADERS = \
-	include/isl/deprecated/int.h \
-	include/isl/deprecated/aff_int.h \
-	include/isl/deprecated/ast_int.h \
-	include/isl/deprecated/constraint_int.h \
-	include/isl/deprecated/ilp_int.h \
-	include/isl/deprecated/map_int.h \
-	include/isl/deprecated/mat_int.h \
-	include/isl/deprecated/point_int.h \
-	include/isl/deprecated/polynomial_int.h \
-	include/isl/deprecated/set_int.h \
-	include/isl/deprecated/union_map_int.h \
-	include/isl/deprecated/val_int.h \
-	include/isl/deprecated/vec_int.h
 
 BUILT_SOURCES = gitversion.h
 CLEANFILES = \
@@ -1157,8 +1132,10 @@ EXTRA_DIST = \
 	bset_to_bmap.c \
 	bset_from_bmap.c \
 	extract_key.c \
+	isl_list_macro.h \
 	isl_list_templ.c \
 	isl_list_templ.h \
+	isl_list_read.c \
 	isl_map_lexopt_templ.c \
 	isl_maybe_map.h \
 	isl_multi_macro.h \
@@ -1206,7 +1183,7 @@ EXTRA_DIST = \
 	imath/imrat.c \
 	imath/imrat.h \
 	interface/all.h \
-	interface/isl.h.top \
+	interface/isl-noexceptions.h.top \
 	interface/isl.py.top \
 	test_inputs
 
@@ -1424,8 +1401,6 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/isl_ast_build_expr.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/isl_ast_codegen.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/isl_ast_graft.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/isl_ast_int.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/isl_band.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/isl_bernstein.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/isl_blk.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/isl_bound.Plo@am__quote@
@@ -1565,27 +1540,6 @@ uninstall-pkgconfigDATA:
 	@list='$(pkgconfig_DATA)'; test -n "$(pkgconfigdir)" || list=; \
 	files=`for p in $$list; do echo $$p; done | sed -e 's|^.*/||'`; \
 	dir='$(DESTDIR)$(pkgconfigdir)'; $(am__uninstall_files_from_dir)
-install-deprecatedHEADERS: $(deprecated_HEADERS)
-	@$(NORMAL_INSTALL)
-	@list='$(deprecated_HEADERS)'; test -n "$(deprecateddir)" || list=; \
-	if test -n "$$list"; then \
-	  echo " $(MKDIR_P) '$(DESTDIR)$(deprecateddir)'"; \
-	  $(MKDIR_P) "$(DESTDIR)$(deprecateddir)" || exit 1; \
-	fi; \
-	for p in $$list; do \
-	  if test -f "$$p"; then d=; else d="$(srcdir)/"; fi; \
-	  echo "$$d$$p"; \
-	done | $(am__base_list) | \
-	while read files; do \
-	  echo " $(INSTALL_HEADER) $$files '$(DESTDIR)$(deprecateddir)'"; \
-	  $(INSTALL_HEADER) $$files "$(DESTDIR)$(deprecateddir)" || exit $$?; \
-	done
-
-uninstall-deprecatedHEADERS:
-	@$(NORMAL_UNINSTALL)
-	@list='$(deprecated_HEADERS)'; test -n "$(deprecateddir)" || list=; \
-	files=`for p in $$list; do echo $$p; done | sed -e 's|^.*/||'`; \
-	dir='$(DESTDIR)$(deprecateddir)'; $(am__uninstall_files_from_dir)
 install-nodist_pkgincludeHEADERS: $(nodist_pkginclude_HEADERS)
 	@$(NORMAL_INSTALL)
 	@list='$(nodist_pkginclude_HEADERS)'; test -n "$(pkgincludedir)" || list=; \
@@ -2146,7 +2100,7 @@ all-am: Makefile $(LTLIBRARIES) $(PROGRAMS) $(DATA) $(HEADERS) \
 		isl_config.h
 installdirs: installdirs-recursive
 installdirs-am:
-	for dir in "$(DESTDIR)$(libdir)" "$(DESTDIR)$(pkgconfigdir)" "$(DESTDIR)$(deprecateddir)" "$(DESTDIR)$(pkgincludedir)" "$(DESTDIR)$(pkgincludedir)"; do \
+	for dir in "$(DESTDIR)$(libdir)" "$(DESTDIR)$(pkgconfigdir)" "$(DESTDIR)$(pkgincludedir)" "$(DESTDIR)$(pkgincludedir)"; do \
 	  test -z "$$dir" || $(MKDIR_P) "$$dir"; \
 	done
 install: $(BUILT_SOURCES)
@@ -2212,9 +2166,8 @@ info: info-recursive
 
 info-am:
 
-install-data-am: install-data-local install-deprecatedHEADERS \
-	install-nodist_pkgincludeHEADERS install-pkgconfigDATA \
-	install-pkgincludeHEADERS
+install-data-am: install-data-local install-nodist_pkgincludeHEADERS \
+	install-pkgconfigDATA install-pkgincludeHEADERS
 
 install-dvi: install-dvi-recursive
 
@@ -2262,9 +2215,9 @@ ps: ps-recursive
 
 ps-am:
 
-uninstall-am: uninstall-deprecatedHEADERS uninstall-libLTLIBRARIES \
-	uninstall-local uninstall-nodist_pkgincludeHEADERS \
-	uninstall-pkgconfigDATA uninstall-pkgincludeHEADERS
+uninstall-am: uninstall-libLTLIBRARIES uninstall-local \
+	uninstall-nodist_pkgincludeHEADERS uninstall-pkgconfigDATA \
+	uninstall-pkgincludeHEADERS
 
 .MAKE: $(am__recursive_targets) all check check-am install install-am \
 	install-strip
@@ -2279,10 +2232,9 @@ uninstall-am: uninstall-deprecatedHEADERS uninstall-libLTLIBRARIES \
 	distclean-libtool distclean-tags distcleancheck distdir \
 	distuninstallcheck dvi dvi-am html html-am info info-am \
 	install install-am install-data install-data-am \
-	install-data-local install-deprecatedHEADERS install-dvi \
-	install-dvi-am install-exec install-exec-am install-html \
-	install-html-am install-info install-info-am \
-	install-libLTLIBRARIES install-man \
+	install-data-local install-dvi install-dvi-am install-exec \
+	install-exec-am install-html install-html-am install-info \
+	install-info-am install-libLTLIBRARIES install-man \
 	install-nodist_pkgincludeHEADERS install-pdf install-pdf-am \
 	install-pkgconfigDATA install-pkgincludeHEADERS install-ps \
 	install-ps-am install-strip installcheck installcheck-am \
@@ -2290,9 +2242,9 @@ uninstall-am: uninstall-deprecatedHEADERS uninstall-libLTLIBRARIES \
 	maintainer-clean-generic mostlyclean mostlyclean-compile \
 	mostlyclean-generic mostlyclean-libtool pdf pdf-am ps ps-am \
 	recheck tags tags-am uninstall uninstall-am \
-	uninstall-deprecatedHEADERS uninstall-libLTLIBRARIES \
-	uninstall-local uninstall-nodist_pkgincludeHEADERS \
-	uninstall-pkgconfigDATA uninstall-pkgincludeHEADERS
+	uninstall-libLTLIBRARIES uninstall-local \
+	uninstall-nodist_pkgincludeHEADERS uninstall-pkgconfigDATA \
+	uninstall-pkgincludeHEADERS
 
 .PRECIOUS: Makefile
 
