@@ -66,6 +66,8 @@ add_library(PollyCore OBJECT
   Transform/MaximalStaticExpansion.cpp
   Transform/RewriteByReferenceParameters.cpp
   Transform/ScopInliner.cpp
+  Consecutivity/consecutivity.c
+  Consecutivity/util.c
   ${POLLY_HEADER_FILES}
   )
 set_target_properties(PollyCore PROPERTIES FOLDER "Polly")
