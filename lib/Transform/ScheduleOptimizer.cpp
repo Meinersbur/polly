@@ -1471,6 +1471,18 @@ static void walkScheduleTreeForStatistics(isl::schedule Schedule, int Version) {
       &Version);
 }
 
+/// Tag the @p Relation domain with @p TagId
+static __isl_give isl_map *tag(__isl_take isl_map *Relation,
+                               __isl_take isl_id *TagId) {
+  isl_space *Space = isl_map_get_space(Relation);
+  Space = isl_space_drop_dims(Space, isl_dim_out, 0,
+                              isl_map_dim(Relation, isl_dim_out));
+  Space = isl_space_set_tuple_id(Space, isl_dim_out, TagId);
+  isl_multi_aff *Tag = isl_multi_aff_domain_map(Space);
+  Relation = isl_map_preimage_domain_multi_aff(Relation, Tag);
+  return Relation;
+}
+
 bool IslScheduleOptimizer::runOnScop(Scop &S) {
   // Skip SCoPs in case they're already optimised by PPCGCodeGeneration
   if (S.isToBeSkipped())
@@ -1604,7 +1616,38 @@ bool IslScheduleOptimizer::runOnScop(Scop &S) {
         isl_space_list_add(arraySpaces, m.get_space().range().release());
     return isl::stat::ok;
   });
+
   auto consecutive = ppcg_consecutive_from_array_list(arraySpaces);
+
+  auto DomainParamSpace = S.getDomains().get_space();
+  isl::union_map TaggedReads = isl::union_map::empty(DomainParamSpace);
+  isl::union_map TaggedWrites = isl::union_map::empty(DomainParamSpace);
+  isl::union_map TaggedMustWrites = isl::union_map::empty(DomainParamSpace);
+  for (const auto &Stmt : S) {
+    for (auto MemAccess : Stmt) {
+      auto Access = MemAccess->getAccessRelation();
+      auto RefId = MemAccess->getId();
+      Access = isl::manage(tag(Access.release(), RefId.release()));
+      if (MemAccess->isRead()) {
+        TaggedReads = TaggedReads.unite(Access);
+      } else if (MemAccess->isWrite()) {
+        TaggedWrites = TaggedWrites.unite(Access);
+      }
+
+      if (MemAccess->isMustWrite()) {
+        TaggedMustWrites = TaggedMustWrites.unite(Access);
+      }
+    }
+  }
+
+  consecutive = ppcg_consecutive_set_tagged_reads(
+      consecutive, TaggedReads.release());
+  consecutive = ppcg_consecutive_set_tagged_writes(
+      consecutive, TaggedWrites.release());
+  consecutive = ppcg_consecutive_set_tagged_kills(
+      consecutive, TaggedMustWrites.release());
+  consecutive = ppcg_consecutive_set_schedule(
+      consecutive, S.getScheduleTree().release());
 
   auto SC = isl::schedule_constraints::on_domain(Domain);
   SC = SC.set_proximity(Proximity);
