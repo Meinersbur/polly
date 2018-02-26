@@ -1616,6 +1616,10 @@ bool IslScheduleOptimizer::runOnScop(Scop &S) {
           isl_space_list_add(arraySpaces, Array->getSpace().release());
     }
   }
+  arraySpaces = isl_space_list_sort(arraySpaces,
+      [](isl_space *s1, isl_space *s2, void*) -> int {
+        return isl_space_dim(s1, isl_dim_set) < isl_space_dim(s2, isl_dim_set);
+      }, NULL);
 
   auto consecutive = ppcg_consecutive_from_array_list(arraySpaces);
 
