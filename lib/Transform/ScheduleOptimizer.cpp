@@ -1608,14 +1608,14 @@ bool IslScheduleOptimizer::runOnScop(Scop &S) {
   isl_options_set_on_error(Ctx, ISL_ON_ERROR_CONTINUE);
 
   // Construct the consecutivity constraints.
-  auto allAccesses = S.getAccesses();
   isl_space_list *arraySpaces =
-      isl_space_list_alloc(allAccesses.get_ctx().get(), 1);
-  allAccesses.foreach_map([&arraySpaces](isl::map m) {
-    arraySpaces =
-        isl_space_list_add(arraySpaces, m.get_space().range().release());
-    return isl::stat::ok;
-  });
+      isl_space_list_alloc(S.getIslCtx().get(), 1);
+  for (auto Array : S.arrays()) {
+    if (Array->getNumberOfDimensions() > 0) {
+      arraySpaces =
+          isl_space_list_add(arraySpaces, Array->getSpace().release());
+    }
+  }
 
   auto consecutive = ppcg_consecutive_from_array_list(arraySpaces);
 
