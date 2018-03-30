@@ -1468,6 +1468,94 @@ static void walkScheduleTreeForStatistics(isl::schedule Schedule, int Version) {
       &Version);
 }
 
+
+static void applyLoopReversal(Scop &S, isl::schedule &Sched, isl::schedule_constraints &SC, Loop *L, isl::schedule_node band, int member) {
+
+}
+
+
+static bool applyManualTransformation(Scop &S, isl::schedule &Sched, isl::schedule_constraints &SC, Loop *L, isl::schedule_node band, int member ) {
+
+}
+
+static void getBandChildren(isl::schedule_node Parent, SmallVectorImpl<isl::schedule_node> &SubBands) {
+	auto NumChildren = isl_schedule_node_n_children(Parent.get()); 
+	for (int i = 0; i < NumChildren; i += 1) {
+		auto Child = Parent.child(i);
+
+		if (isl_schedule_node_get_type(Child.get()) == isl_schedule_node_band) {
+			
+			SubBands.push_back(Child);
+			continue;
+		}
+
+		getBandChildren(Parent, SubBands);
+	}
+}
+
+static void recursiveApplyTransformationHints(Scop &S, isl::schedule &Sched, isl::schedule_constraints &SC,  isl::schedule_node Parent, Loop *L, int Dim) {
+	if (S.contains(L)) {
+		if (!Parent )
+			Parent = Sched.get_root();
+
+		SmallVector<isl::schedule_node, 4> SubBands;
+		getBandChildren(Parent, SubBands);
+
+		SmallDenseMap<Loop*, isl::schedule_node> LoopToBand;
+
+		for (auto SubBand : SubBands) {
+			assert(isl_schedule_node_band_n_member(SubBand.get()) == 1 && "The schedule tree must not been transformed yet");
+			auto Dom = SubBand.get_domain();
+			auto UDom = SubBand.get_universe_domain();
+
+			UDom.foreach_set([&](isl::set StmtDom)->isl::stat {
+				auto Stmt = static_cast<ScopStmt*> (StmtDom.get_tuple_id().get_user());
+
+				auto Loop = Stmt->getLoopForDimension(Dim);
+				assert(!LoopToBand.count(Loop) && "Just one band per loop");
+				LoopToBand[Loop] = SubBand;
+
+				return isl::stat::ok;
+			});
+		}
+
+		for (auto *SubLoop : *L) {
+			auto Band = LoopToBand.find(L);
+			assert(Band != LoopToBand.end() && "Every Loop must have a band");
+
+			recursiveApplyTransformationHints(S, Sched, SC, Parent, SubLoop, Dim+1);
+
+			// Remove so we can check that every band has a loop
+			LoopToBand.erase(L);
+		}
+
+		assert(LoopToBand.size() == 0 && );
+	}
+	else {
+		for (auto *SubLoop : *L) {
+			recursiveApplyTransformationHints(S, Sched, SC, nullptr, SubLoop, 0);
+		}
+	}
+}
+
+
+static bool applyTransformationHints(Scop &S, isl::schedule &Sched, isl::schedule_constraints &SC) {
+	bool Changed = false;
+
+	 auto *LI = S.getLI();
+
+	 LI->getLoopsInPreorder();
+	 LI->getLoopsInReverseSiblingPreorder();
+
+	 for (auto *TopLevelLoop : *LI) {
+		 isl::schedule_node Parent = nullptr;
+		 recursiveApplyTransformationHints(S, Sched,  SC, nullptr, TopLevelLoop, 0);
+	}
+
+
+	return Changed;
+}
+
 bool IslScheduleOptimizer::runOnScop(Scop &S) {
   // Skip SCoPs in case they're already optimised by PPCGCodeGeneration
   if (S.isToBeSkipped())
@@ -1578,7 +1666,7 @@ bool IslScheduleOptimizer::runOnScop(Scop &S) {
     errs() << "warning: Option -polly-opt-outer-coincidence should either be "
               "'yes' or 'no'. Falling back to default: 'no'\n";
     IslOuterCoincidence = 0;
-  }
+  } 
 
   isl_ctx *Ctx = S.getIslCtx().get();
 
@@ -1596,6 +1684,10 @@ bool IslScheduleOptimizer::runOnScop(Scop &S) {
   SC = SC.set_proximity(Proximity);
   SC = SC.set_validity(Validity);
   SC = SC.set_coincidence(Validity);
+
+  auto ManualSchedule = S.getScheduleTree();
+  applyTransformationHints(S, ManualSchedule, SC);
+
   auto Schedule = SC.compute_schedule();
   isl_options_set_on_error(Ctx, OnErrorStatus);
 
