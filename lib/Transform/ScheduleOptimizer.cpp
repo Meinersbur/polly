@@ -1494,21 +1494,21 @@ template <typename SC, typename RetVal = void> struct ScheduleTreeVisitor {
   }
 
   RetVal visitDomain(const isl::schedule_node &Domain) {
-    return visitOther(Domain);
+    return ((SC *)this)->visitOther(Domain);
   }
 
-  RetVal visitBand(const isl::schedule_node &Band) { return visitOther(Band); }
+  RetVal visitBand(const isl::schedule_node &Band) { return ((SC *)this)->visitOther(Band); }
 
   RetVal visitSequence(const isl::schedule_node &Sequence) {
-    return visitOther(Sequence);
+    return ((SC *)this)->visitOther(Sequence);
   }
 
   RetVal visitSet(const isl::schedule_node &Set) {
-    return visitOther(Sequence);
+    return ((SC *)this)->visitOther(Set);
   }
 
   RetVal visitLeaf(const isl::schedule_node &Leaf) {
-    return visitOther(Sequence);
+    return ((SC *)this)->visitOther(Leaf);
   }
 
   RetVal visitOther(const isl::schedule_node &Other) {
@@ -1520,30 +1520,30 @@ template <typename SC>
 struct ScheduleTreeRewriteVisitor
     : public ScheduleTreeVisitor<SC, isl::schedule> {
   isl::schedule visitDomain(const isl::schedule_node &Domain) {
-    return visit(Domain.child(0));
+    return  ((SC *)this)->visit(Domain.child(0));
   }
 
   isl::schedule visitBand(const isl::schedule_node &Band) {
     // TODO: apply band properties
     auto PartialSched =
         isl::manage(isl_schedule_node_band_get_partial_schedule(Band.get()));
-    auto NewChild = visit(Band.child(0));
+    auto NewChild = ((SC *)this)->visit(Band.child(0));
     return NewChild.insert_partial_schedule(PartialSched);
   }
 
   isl::schedule visitSequence(const isl::schedule_node &Sequence) {
     auto NumChildren = isl_schedule_node_n_children(Sequence.get());
-    auto Result = visit(Sequence.child(0));
+    auto Result = ((SC *)this)->visit(Sequence.child(0));
     for (int i = 1; i < NumChildren; i += 1)
-      Result = Result.sequence(visit(Sequence.child(i)));
+      Result = Result.sequence(((SC *)this)->visit(Sequence.child(i)));
     return Result;
   }
 
   isl::schedule visitSet(const isl::schedule_node &Set) {
     auto NumChildren = isl_schedule_node_n_children(Set.get());
-    auto Result = visit(Set.child(0));
+    auto Result = ((SC *)this)->visit(Set.child(0));
     for (int i = 1; i < NumChildren; i += 1)
-      Result = Result.sequence(visit(Set.child(i)));
+      Result = Result.sequence(((SC *)this)->visit(Set.child(i)));
     return Result;
   }
 
@@ -1662,6 +1662,7 @@ static isl::schedule applyReverseLoopHint(isl::schedule OrigBand, Loop *Loop,
   if (!EnableReverse)
     return OrigBand;
 
+  DEBUG(dbgs() << "Applying manual loop reversal\n");
   Changed = true;
   return applyLoopReversal(OrigBand.get_root());
 }
@@ -2007,11 +2008,17 @@ static Loop* getSurroundingLoop(Scop &S) {
 static bool applyTransformationHints(Scop &S, isl::schedule &Sched, isl::schedule_constraints &SC) {
 	bool Changed = false;
 
-        auto OuterL = getSurroundingLoop(S);
-        auto Result = walkScheduleTreeForTransformationHints(Sched.get_root(),
-                                                             OuterL, Changed);
-        if (Changed)
-          Sched = Result;
+	DEBUG(dbgs() << "Looking for loop transformation metadata...\n");
+
+		auto OuterL = getSurroundingLoop(S);
+	auto Result = walkScheduleTreeForTransformationHints(Sched.get_root(),
+		OuterL, Changed);
+	if (Changed) {
+		DEBUG(dbgs() << "At least one manual loop transformation applied\n");
+		Sched = Result;
+	}	else {
+		DEBUG(dbgs() << "No loop transformation applied\n");
+	}
 
 #if 0
 	auto *LI = S.getLI();
