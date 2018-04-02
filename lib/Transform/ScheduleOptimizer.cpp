@@ -1600,21 +1600,6 @@ static isl::schedule applyLoopReversal(isl::schedule_node BandToReverse) {
   return Result;
 }
 
-static void getBandChildren(isl::schedule_node Parent,
-                            SmallVectorImpl<isl::schedule_node> &SubBands) {
-  auto NumChildren = isl_schedule_node_n_children(Parent.get());
-  for (int i = 0; i < NumChildren; i += 1) {
-    auto Child = Parent.child(i);
-
-    if (isl_schedule_node_get_type(Child.get()) == isl_schedule_node_band) {
-      SubBands.push_back(Child);
-      continue;
-    }
-
-    getBandChildren(Child, SubBands);
-  }
-}
-
 static Loop *getBandLoop(isl::schedule_node Band) {
   assert(isl_schedule_node_get_type(Band.get()) == isl_schedule_node_band);
   assert(isl_schedule_node_band_n_member(Band.get()) == 1 &&
@@ -1659,53 +1644,6 @@ static isl::schedule applyTransformationHints(isl::schedule Band, Loop *Loop,
   return applyReverseLoopHint(Band, Loop, Changed);
 }
 
-static isl::schedule copySubScheduleTree(isl::schedule_node Node) {
-  auto NodeType = isl_schedule_node_get_type(Node.get());
-
-  auto NumChildren = isl_schedule_node_n_children(Node.get());
-  SmallVector<isl::schedule, 16> Subnodes;
-  Subnodes.reserve(NumChildren);
-  for (int i = 0; i < NumChildren; i += 1) {
-    auto Child = Node.child(i);
-    Subnodes.push_back(copySubScheduleTree(Child));
-  }
-  assert(Subnodes.size() == (size_t)NumChildren);
-
-  switch (NodeType) {
-  case isl_schedule_node_domain: {
-    assert(NumChildren == 1);
-    return Subnodes[0];
-  } break;
-  case isl_schedule_node_band: {
-    assert(NumChildren == 1);
-    auto PartialSched =
-        isl::manage(isl_schedule_node_band_get_partial_schedule(Node.get()));
-    return Subnodes[0].insert_partial_schedule(PartialSched);
-  } break;
-  case isl_schedule_node_sequence: {
-    assert(!Subnodes.empty());
-    auto Result = Subnodes[0];
-    for (int i = 1; i < NumChildren; i += 1)
-      Result = Result.sequence(Subnodes[i]);
-    return Result;
-  } break;
-  case isl_schedule_node_set: {
-    assert(!Subnodes.empty());
-    auto Result = Subnodes[0];
-    for (int i = 1; i < NumChildren; i += 1)
-      Result = Result.set(Subnodes[i]);
-    return Result;
-  } break;
-  case isl_schedule_node_leaf: {
-    assert(Subnodes.empty());
-    auto Dom = Node.get_domain();
-    return isl::schedule::from_domain(Dom);
-  } break;
-  default:
-    llvm_unreachable("unimplemented");
-  }
-}
-
 static isl::schedule
 walkScheduleTreeForTransformationHints(isl::schedule_node Parent,
                                        Loop *ParentLoop, bool &Changed) {
@@ -1735,37 +1673,6 @@ walkScheduleTreeForTransformationHints(isl::schedule_node Parent,
 
   auto Result = Transformator.visit(Parent);
   return Result;
-}
-
-static isl::schedule
-recursiveSearchBands(Scop &S, isl::schedule &Sched,
-                     isl::schedule_constraints &SC, isl::schedule_node Parent,
-                     isl::schedule_node ParentBand, Loop *ParentLoop, int Dim,
-                     const std::vector<Loop *> &SubLoops, bool InsideScop) {
-  switch (isl_schedule_node_get_type(Parent.get())) {
-  case isl_schedule_node_band:
-    break;
-  case isl_schedule_node_leaf:
-    // isl_schedule_from_domain();
-    break;
-  case isl_schedule_node_sequence:
-    break;
-  default:
-    llvm_unreachable("not implemented");
-  }
-
-  auto NumChildren = isl_schedule_node_n_children(Parent.get());
-  for (int i = 0; i < NumChildren; i += 1) {
-    auto Child = Parent.child(i);
-
-    if (isl_schedule_node_get_type(Child.get()) == isl_schedule_node_band) {
-
-      continue;
-    }
-
-    recursiveSearchBands(S, Sched, SC, Child, ParentBand, ParentLoop, Dim,
-                         SubLoops, InsideScop);
-  }
 }
 
 static Loop *getSurroundingLoop(Scop &S) {
