@@ -1572,12 +1572,60 @@ static void getBandAssoc(isl::schedule_node Parent,  SmallVectorImpl<isl::schedu
 }
 #endif
 
+static isl::schedule applyLoopReversal(Scop &S, isl::schedule &Sched, isl::schedule_constraints &SC, isl::schedule_node OrigBand, isl::schedule NewChild,  Loop *L) {
+	auto PartialSched = isl::manage(isl_schedule_node_band_get_partial_schedule(OrigBand.get()));
+	assert(PartialSched.dim(isl::dim::out) == 1);
+	auto ParentParentBand = OrigBand.parent();
 
-static void recursiveApplyTransformationHints(Scop &S, isl::schedule &Sched, isl::schedule_constraints &SC,  isl::schedule_node Parent, isl::schedule_node ParentBand, Loop *ParentLoop, int Dim, const std::vector <Loop*> &SubLoops, bool InsideScop) {
+	auto OrigChild = OrigBand.get_child(0);
+	assert(OrigChild);
+
+	OrigChild.get_schedule();
+
+
+	auto MPA = PartialSched.get_union_pw_aff(0);
+	auto Neg = MPA.neg();
+	PartialSched = PartialSched.set_union_pw_aff(0, Neg);
+	auto Insdertd = OrigBand.insert_partial_schedule(PartialSched);
+
+	auto NewSchedule = NewChild.insert_partial_schedule(Neg);
+	return NewSchedule;
+}
+
+
+static isl::schedule recursiveSearchBands(Scop &S, isl::schedule &Sched, isl::schedule_constraints &SC, isl::schedule_node Parent, isl::schedule_node ParentBand, Loop *ParentLoop, int Dim, const std::vector <Loop*> &SubLoops, bool InsideScop) {
+	switch (isl_schedule_node_get_type(Parent.get())) {
+	case isl_schedule_node_band:
+		break;
+	case isl_schedule_node_leaf:
+		isl_schedule_from_domain();
+		break;
+	case isl_schedule_node_sequence:
+		break;
+	default:
+		llvm_unreachable("not implemented");
+	}
+	
+	
+	auto NumChildren = isl_schedule_node_n_children(Parent.get());
+	for (int i = 0; i < NumChildren; i += 1) {
+		auto Child = Parent.child(i);
+
+		if (isl_schedule_node_get_type(Child.get()) == isl_schedule_node_band) {
+			
+			continue;
+		}
+
+		recursiveSearchBands(S, Sched, SC, Child, ParentBand, ParentLoop, Dim , SubLoops, InsideScop);
+	}
+}
+
+
+static isl::schedule recursiveApplyTransformationHints(Scop &S, isl::schedule &Sched, isl::schedule_constraints &SC,  isl::schedule_node Parent, isl::schedule_node ParentBand, Loop *ParentLoop, int Dim, const std::vector <Loop*> &SubLoops, bool InsideScop) {
 	SmallVector<isl::schedule_node, 4> SubBands;
 	getBandChildren(Parent, SubBands);
-	SmallDenseMap<Loop*, isl::schedule_node> LoopToBand;
-	getLoopToBandMap(SubBands, LoopToBand);
+	SmallDenseMap<Loop*, isl::schedule_node> LoopToOldBand;
+	getLoopToBandMap(SubBands, LoopToOldBand);
 	
 	SmallVector<Loop*, 4> FoundLoops;
 
@@ -1586,10 +1634,10 @@ static void recursiveApplyTransformationHints(Scop &S, isl::schedule &Sched, isl
 			continue;
 		FoundLoops.push_back(SubLoop);
 
-			auto Band = LoopToBand.find(SubLoop);
-			assert(Band != LoopToBand.end() && "Every Loop in the SCoP must have a band");
+			auto Band = LoopToOldBand.find(SubLoop);
+			assert(Band != LoopToOldBand.end() && "Every Loop in the SCoP must have a band");
 
-			recursiveApplyTransformationHints(S, Sched, SC, Band->second, Band->second, SubLoop, Dim+1, SubLoop->getSubLoops(),true);
+			auto NewSubSchedule = recursiveApplyTransformationHints(S, Sched, SC, Band->second, Band->second, SubLoop, Dim+1, SubLoop->getSubLoops(),true);
 	}
 
 	assert(Dim==0 || FoundLoops.size()== SubLoops.size() );
@@ -1609,16 +1657,7 @@ static void recursiveApplyTransformationHints(Scop &S, isl::schedule &Sched, isl
 
 
 		if (EnableReverse) {
-			auto PartialSched = isl::manage(  isl_schedule_node_band_get_partial_schedule(ParentBand.get())); 
-			assert(PartialSched.dim(isl::dim::out)==1);
-			auto ParentParentBand = ParentBand.parent();
-
-			 auto MPA = PartialSched.get_union_pw_aff(0);
-			auto Neg= MPA.neg();
-			PartialSched.set_union_pw_aff(0, Neg);
-			auto Insdertd = ParentBand.insert_partial_schedule(PartialSched);
-			
-
+			applyLoopReversal(S, Sched, SC, ParentBand, ParentLoop);
 		}
 	}
 
