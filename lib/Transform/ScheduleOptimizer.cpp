@@ -56,6 +56,7 @@
 #include "polly/Simplify.h"
 #include "polly/Support/GICHelper.h"
 #include "polly/Support/ISLOStream.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/Function.h"
@@ -63,6 +64,7 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/Utils/LoopUtils.h"
 #include "isl/constraint.h"
 #include "isl/ctx.h"
 #include "isl/map.h"
@@ -73,8 +75,6 @@
 #include "isl/space.h"
 #include "isl/union_map.h"
 #include "isl/union_set.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/Transforms/Utils/LoopUtils.h"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -1497,7 +1497,9 @@ template <typename SC, typename RetVal = void> struct ScheduleTreeVisitor {
     return ((SC *)this)->visitOther(Domain);
   }
 
-  RetVal visitBand(const isl::schedule_node &Band) { return ((SC *)this)->visitOther(Band); }
+  RetVal visitBand(const isl::schedule_node &Band) {
+    return ((SC *)this)->visitOther(Band);
+  }
 
   RetVal visitSequence(const isl::schedule_node &Sequence) {
     return ((SC *)this)->visitOther(Sequence);
@@ -1520,7 +1522,7 @@ template <typename SC>
 struct ScheduleTreeRewriteVisitor
     : public ScheduleTreeVisitor<SC, isl::schedule> {
   isl::schedule visitDomain(const isl::schedule_node &Domain) {
-    return  ((SC *)this)->visit(Domain.child(0));
+    return ((SC *)this)->visit(Domain.child(0));
   }
 
   isl::schedule visitBand(const isl::schedule_node &Band) {
@@ -1591,41 +1593,44 @@ static isl::schedule applyLoopReversal(isl::schedule_node BandToReverse) {
   return Result;
 }
 
+static bool applyManualTransformation(Scop &S, isl::schedule &Sched,
+                                      isl::schedule_constraints &SC, Loop *L,
+                                      isl::schedule_node band, int member) {}
 
-static bool applyManualTransformation(Scop &S, isl::schedule &Sched, isl::schedule_constraints &SC, Loop *L, isl::schedule_node band, int member ) {
+static void getBandChildren(isl::schedule_node Parent,
+                            SmallVectorImpl<isl::schedule_node> &SubBands) {
+  auto NumChildren = isl_schedule_node_n_children(Parent.get());
+  for (int i = 0; i < NumChildren; i += 1) {
+    auto Child = Parent.child(i);
 
+    if (isl_schedule_node_get_type(Child.get()) == isl_schedule_node_band) {
+      SubBands.push_back(Child);
+      continue;
+    }
+
+    getBandChildren(Child, SubBands);
+  }
 }
 
-static void getBandChildren(isl::schedule_node Parent, SmallVectorImpl<isl::schedule_node> &SubBands) {
-	auto NumChildren = isl_schedule_node_n_children(Parent.get()); 
-	for (int i = 0; i < NumChildren; i += 1) {
-		auto Child = Parent.child(i);
+static void
+getLoopToBandMap(const SmallVectorImpl<isl::schedule_node> &Bands,
+                 SmallDenseMap<Loop *, isl::schedule_node> &LoopToBand) {
+  for (auto SubBand : Bands) {
+    assert(isl_schedule_node_band_n_member(SubBand.get()) == 1 &&
+           "The schedule tree must not been transformed yet");
+    auto Dom = SubBand.get_domain();
+    auto UDom = SubBand.get_universe_domain();
 
-		if (isl_schedule_node_get_type(Child.get()) == isl_schedule_node_band) {
-			SubBands.push_back(Child);
-			continue;
-		}
+    UDom.foreach_set([&](isl::set StmtDom) -> isl::stat {
+      auto Stmt = static_cast<ScopStmt *>(StmtDom.get_tuple_id().get_user());
 
-		getBandChildren(Child, SubBands);
-	}
-}
+      auto Loop = Stmt->getLoopForDimension(0);
+      assert(!LoopToBand.count(Loop) && "Just one band per loop");
+      LoopToBand[Loop] = SubBand;
 
-static void getLoopToBandMap(const SmallVectorImpl<isl::schedule_node> &Bands, SmallDenseMap<Loop*, isl::schedule_node> &LoopToBand) {
-	for (auto SubBand : Bands) {
-		assert(isl_schedule_node_band_n_member(SubBand.get()) == 1 && "The schedule tree must not been transformed yet");
-		auto Dom = SubBand.get_domain();
-		auto UDom = SubBand.get_universe_domain();
-
-		UDom.foreach_set([&](isl::set StmtDom)->isl::stat {
-			auto Stmt = static_cast<ScopStmt*> (StmtDom.get_tuple_id().get_user());
-
-			auto Loop = Stmt->getLoopForDimension(0);
-			assert(!LoopToBand.count(Loop) && "Just one band per loop");
-			LoopToBand[Loop] = SubBand;
-
-			return isl::stat::ok;
-		});
-	}
+      return isl::stat::ok;
+    });
+  }
 }
 
 static Loop *getBandLoop(isl::schedule_node Band) {
@@ -1997,28 +2002,29 @@ recursiveSearchBands(Scop &S, isl::schedule &Sched,
   }
 }
 
-static Loop* getSurroundingLoop(Scop &S) {
-	auto EntryBB = S.getEntry();
-	auto L = S.getLI()->getLoopFor(EntryBB);
-	while (L && S.contains(L))
-		L = L->getParentLoop();
-	return L;
+static Loop *getSurroundingLoop(Scop &S) {
+  auto EntryBB = S.getEntry();
+  auto L = S.getLI()->getLoopFor(EntryBB);
+  while (L && S.contains(L))
+    L = L->getParentLoop();
+  return L;
 }
 
-static bool applyTransformationHints(Scop &S, isl::schedule &Sched, isl::schedule_constraints &SC) {
-	bool Changed = false;
+static bool applyTransformationHints(Scop &S, isl::schedule &Sched,
+                                     isl::schedule_constraints &SC) {
+  bool Changed = false;
 
-	DEBUG(dbgs() << "Looking for loop transformation metadata...\n");
+  DEBUG(dbgs() << "Looking for loop transformation metadata...\n");
 
-		auto OuterL = getSurroundingLoop(S);
-	auto Result = walkScheduleTreeForTransformationHints(Sched.get_root(),
-		OuterL, Changed);
-	if (Changed) {
-		DEBUG(dbgs() << "At least one manual loop transformation applied\n");
-		Sched = Result;
-	}	else {
-		DEBUG(dbgs() << "No loop transformation applied\n");
-	}
+  auto OuterL = getSurroundingLoop(S);
+  auto Result =
+      walkScheduleTreeForTransformationHints(Sched.get_root(), OuterL, Changed);
+  if (Changed) {
+    DEBUG(dbgs() << "At least one manual loop transformation applied\n");
+    Sched = Result;
+  } else {
+    DEBUG(dbgs() << "No loop transformation applied\n");
+  }
 
 #if 0
 	auto *LI = S.getLI();
@@ -2032,7 +2038,7 @@ static bool applyTransformationHints(Scop &S, isl::schedule &Sched, isl::schedul
 	}
 #endif
 
-        return Changed;
+  return Changed;
 }
 
 bool IslScheduleOptimizer::runOnScop(Scop &S) {
@@ -2145,7 +2151,7 @@ bool IslScheduleOptimizer::runOnScop(Scop &S) {
     errs() << "warning: Option -polly-opt-outer-coincidence should either be "
               "'yes' or 'no'. Falling back to default: 'no'\n";
     IslOuterCoincidence = 0;
-  } 
+  }
 
   isl_ctx *Ctx = S.getIslCtx().get();
 
