@@ -1555,12 +1555,15 @@ struct ScheduleTreeRewriteVisitor
   }
 };
 
-class LoopNest {
+class LoopNestTransformation {
 public:
   isl::schedule Sched;
   isl::schedule_constraints SC;
+  isl::union_map TransformativeConstraints;
+
   StringMap<int> LoopNames;
 };
+
 
 static isl::schedule applyLoopReversal(isl::schedule_node BandToReverse) {
   struct LoopReversalVisitor
@@ -1599,6 +1602,29 @@ static isl::schedule applyLoopReversal(isl::schedule_node BandToReverse) {
   assert(Visitor.Applied && "Band must be in schedule tree");
   return Result;
 }
+
+static LoopNestTransformation applyLoopReversal(const LoopNestTransformation&Trans, isl::schedule_node BandToReverse, bool CheckValidity, bool ApplyOnSchedule, bool AddTransformativeConstraints, bool RemoveContradictingConstraints) {
+	if (CheckValidity) {
+
+	}
+	
+	LoopNestTransformation Result = Trans;
+
+	if (ApplyOnSchedule) {
+		Result.Sched = applyLoopReversal(BandToReverse);
+	}
+
+	if (RemoveContradictingConstraints) {
+
+	}
+
+	if (AddTransformativeConstraints) {
+
+	}
+
+	return Result;
+}
+
 
 static Loop *getBandLoop(isl::schedule_node Band) {
   assert(isl_schedule_node_get_type(Band.get()) == isl_schedule_node_band);
