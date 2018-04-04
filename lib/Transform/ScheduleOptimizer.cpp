@@ -1558,7 +1558,8 @@ struct ScheduleTreeRewriteVisitor
 class LoopNestTransformation {
 public:
   isl::schedule Sched;
-  isl::schedule_constraints SC;
+ 
+  isl::union_map ValidityConstraints;
   isl::union_map TransformativeConstraints;
 
   StringMap<int> LoopNames;
