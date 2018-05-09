@@ -24,6 +24,7 @@
 #include "polly/ScopDetection.h"
 #include "polly/Support/GICHelper.h"
 #include "polly/Support/ISLOStream.h"
+#include "polly/Support/ISLTools.h"
 #include "polly/Support/SCEVAffinator.h"
 #include "polly/Support/SCEVValidator.h"
 #include "polly/Support/ScopHelper.h"
@@ -879,8 +880,7 @@ void MemoryAccess::foldAccessRelation() {
     isl::pw_aff DimSize = getPwAff(Sizes[i + 1]);
 
     isl::space SpaceSize = DimSize.get_space();
-    isl::id ParamId =
-        give(isl_space_get_dim_id(SpaceSize.get(), isl_dim_param, 0));
+    isl::id ParamId = SpaceSize.get_dim_id(isl::dim::param, 0);
 
     Space = AccessRelation.get_space();
     Space = Space.range().map_from_set();
@@ -1240,7 +1240,7 @@ bool MemoryAccess::isLatestPartialAccess() const {
   isl::set StmtDom = getStatement()->getDomain();
   isl::set AccDom = getLatestAccessRelation().domain();
 
-  return isl_set_is_subset(StmtDom.keep(), AccDom.keep()) == isl_bool_false;
+  return !StmtDom.is_subset(AccDom);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1420,7 +1420,7 @@ getPwAff(Scop &S, BasicBlock *BB,
          bool NonNegative = false) {
   PWACtx PWAC = S.getPwAff(E, BB, NonNegative);
   InvalidDomainMap[BB] = InvalidDomainMap[BB].unite(PWAC.second);
-  return PWAC.first.take();
+  return PWAC.first.release();
 }
 
 /// Build the conditions sets for the switch @p SI in the @p Domain.
@@ -2308,12 +2308,12 @@ buildMinMaxAccess(isl::set Set, Scop::MinMaxVectorTy &MinMaxAccesses, Scop &S) {
   isl::pw_aff LastDimAff;
   isl::aff OneAff;
   unsigned Pos;
-  isl::ctx Ctx = Set.get_ctx();
 
   Set = Set.remove_divs();
+  polly::simplify(Set);
 
-  if (isl_set_n_basic_set(Set.get()) >= MaxDisjunctsInDomain)
-    return isl::stat::error;
+  if (isl_set_n_basic_set(Set.get()) > RunTimeChecksMaxAccessDisjuncts)
+    Set = Set.simple_hull();
 
   // Restrict the number of parameters involved in the access as the lexmin/
   // lexmax computation will take too long if this number is high.
@@ -2339,14 +2339,8 @@ buildMinMaxAccess(isl::set Set, Scop::MinMaxVectorTy &MinMaxAccesses, Scop &S) {
       return isl::stat::error;
   }
 
-  if (isl_set_n_basic_set(Set.get()) > RunTimeChecksMaxAccessDisjuncts)
-    return isl::stat::error;
-
   MinPMA = Set.lexmin_pw_multi_aff();
   MaxPMA = Set.lexmax_pw_multi_aff();
-
-  if (isl_ctx_last_error(Ctx.get()) == isl_error_quota)
-    return isl::stat::error;
 
   MinPMA = MinPMA.coalesce();
   MaxPMA = MaxPMA.coalesce();
@@ -2355,13 +2349,18 @@ buildMinMaxAccess(isl::set Set, Scop::MinMaxVectorTy &MinMaxAccesses, Scop &S) {
   // enclose the accessed memory region by MinPMA and MaxPMA. The pointer
   // we test during code generation might now point after the end of the
   // allocated array but we will never dereference it anyway.
-  assert(MaxPMA.dim(isl::dim::out) && "Assumed at least one output dimension");
+  assert((!MaxPMA || MaxPMA.dim(isl::dim::out)) &&
+         "Assumed at least one output dimension");
+
   Pos = MaxPMA.dim(isl::dim::out) - 1;
   LastDimAff = MaxPMA.get_pw_aff(Pos);
   OneAff = isl::aff(isl::local_space(LastDimAff.get_domain_space()));
   OneAff = OneAff.add_constant_si(1);
   LastDimAff = LastDimAff.add(OneAff);
   MaxPMA = MaxPMA.set_pw_aff(Pos, LastDimAff);
+
+  if (!MinPMA || !MaxPMA)
+    return isl::stat::error;
 
   MinMaxAccesses.push_back(std::make_pair(MinPMA, MaxPMA));
 
@@ -2383,12 +2382,10 @@ static bool calculateMinMaxAccess(Scop::AliasGroupTy AliasGroup, Scop &S,
   isl::union_map Accesses = isl::union_map::empty(S.getParamSpace());
 
   for (MemoryAccess *MA : AliasGroup)
-    Accesses = Accesses.add_map(give(MA->getAccessRelation().release()));
+    Accesses = Accesses.add_map(MA->getAccessRelation());
 
   Accesses = Accesses.intersect_domain(Domains);
   isl::union_set Locations = Accesses.range();
-  Locations = Locations.coalesce();
-  Locations = Locations.detect_equalities();
 
   auto Lambda = [&MinMaxAccesses, &S](isl::set Set) -> isl::stat {
     return buildMinMaxAccess(Set, MinMaxAccesses, S);
@@ -3330,8 +3327,8 @@ Scop::Scop(Region &R, ScalarEvolution &ScalarEvolution, LoopInfo &LI,
            DominatorTree &DT, ScopDetection::DetectionContext &DC,
            OptimizationRemarkEmitter &ORE)
     : IslCtx(isl_ctx_alloc(), isl_ctx_free), SE(&ScalarEvolution), DT(&DT),
-      R(R), HasSingleExitEdge(R.getExitingBlock()), DC(DC), ORE(ORE),
-      Affinator(this, LI),
+      R(R), name(R.getNameStr()), HasSingleExitEdge(R.getExitingBlock()),
+      DC(DC), ORE(ORE), Affinator(this, LI),
       ID(getNextID((*R.getEntry()->getParent()).getName().str())) {
   if (IslOnErrorAbort)
     isl_options_set_on_error(getIslCtx().get(), ISL_ON_ERROR_ABORT);
@@ -3848,7 +3845,7 @@ isl::set Scop::getNonHoistableCtx(MemoryAccess *Access, isl::union_map Writes) {
   if (hasNonHoistableBasePtrInScop(Access, Writes))
     return nullptr;
 
-  isl::map AccessRelation = give(Access->getAccessRelation().release());
+  isl::map AccessRelation = Access->getAccessRelation();
   assert(!AccessRelation.is_empty());
 
   if (AccessRelation.involves_dims(isl::dim::in, 0, Stmt.getNumIterators()))
@@ -4526,7 +4523,7 @@ isl_bool isNotExtNode(__isl_keep isl_schedule_node *Node, void *User) {
 
 bool Scop::containsExtensionNode(isl::schedule Schedule) {
   return isl_schedule_foreach_schedule_node_top_down(
-             Schedule.keep(), isNotExtNode, nullptr) == isl_stat_error;
+             Schedule.get(), isNotExtNode, nullptr) == isl_stat_error;
 }
 
 isl::union_map Scop::getSchedule() const {
