@@ -1,0 +1,120 @@
+diff --git a/isl_coalesce.c b/isl_coalesce.c
+index 598eac23d7..859127c954 100644
+--- a/isl_coalesce.c
++++ b/isl_coalesce.c
+@@ -2387,17 +2387,17 @@ static isl_stat shift_div(struct isl_coalesce_info *info, int div,
+ 
+ /* If the integer division at position "div" is defined by an equality,
+  * i.e., a stride constraint, then change the integer division expression
+- * to have a constant term equal to zero.
++ * to have a constant term close to zero.
+  *
+  * Let the equality constraint be
+  *
+  *	c + f + m a = 0
+  *
+- * The integer division expression is then of the form
++ * The integer division expression is then expected to be of the form
+  *
+  *	a = floor((-f - c')/m)
+  *
+- * The integer division is first shifted by t = floor(c/m),
++ * The integer division is shifted by t = floor(c/m),
+  * turning the equality constraint into
+  *
+  *	c - m floor(c/m) + f + m a' = 0
+@@ -2411,7 +2411,7 @@ static isl_stat shift_div(struct isl_coalesce_info *info, int div,
+  *	a' = (-f - (c mod m))/m = floor((-f)/m)
+  *
+  * because a' is an integer and 0 <= (c mod m) < m.
+- * The constant term of a' can therefore be zeroed out.
++ * The constant term of a' could therefore be zeroed out.
+  */
+ static isl_stat normalize_stride_div(struct isl_coalesce_info *info, int div)
+ {
+@@ -2439,10 +2439,6 @@ static isl_stat normalize_stride_div(struct isl_coalesce_info *info, int div)
+ 	isl_constraint_free(c);
+ 	if (r < 0)
+ 		return isl_stat_error;
+-	info->bmap = isl_basic_map_set_div_expr_constant_num_si_inplace(
+-							    info->bmap, div, 0);
+-	if (!info->bmap)
+-		return isl_stat_error;
+ 	return isl_stat_ok;
+ }
+ 
+@@ -2454,9 +2450,9 @@ static isl_stat normalize_stride_div(struct isl_coalesce_info *info, int div)
+  * In particular, look for any pair of integer divisions that
+  * only differ in their constant terms.
+  * If either of these integer divisions is defined
+- * by stride constraints, then modify it to have a zero constant term.
++ * by stride constraints, then modify it to have a constant term close to zero.
+  * If both are defined by stride constraints then in the end they will have
+- * the same (zero) constant term.
++ * a constant term that only differs by at most a small rational constant.
+  */
+ static isl_stat harmonize_stride_divs(struct isl_coalesce_info *info1,
+ 	struct isl_coalesce_info *info2)
+diff --git a/isl_map.c b/isl_map.c
+index 47e7acd7bb..bdabc9f33b 100644
+--- a/isl_map.c
++++ b/isl_map.c
+@@ -13463,22 +13463,6 @@ isl_bool isl_basic_map_equal_div_expr_except_constant(
+ 						2, total);
+ }
+ 
+-/* Replace the numerator of the constant term of the integer division
+- * expression at position "div" in "bmap" by "value".
+- * The caller guarantees that this does not change the meaning
+- * of the input.
+- */
+-__isl_give isl_basic_map *isl_basic_map_set_div_expr_constant_num_si_inplace(
+-	__isl_take isl_basic_map *bmap, int div, int value)
+-{
+-	if (isl_basic_map_check_range(bmap, isl_dim_div, div, 1) < 0)
+-		return isl_basic_map_free(bmap);
+-
+-	isl_int_set_si(bmap->div[div][1], value);
+-
+-	return bmap;
+-}
+-
+ /* Is the point "inner" internal to inequality constraint "ineq"
+  * of "bset"?
+  * The point is considered to be internal to the inequality constraint,
+diff --git a/isl_map_private.h b/isl_map_private.h
+index cfe7272929..5eca6bb939 100644
+--- a/isl_map_private.h
++++ b/isl_map_private.h
+@@ -544,7 +544,5 @@ isl_bool isl_basic_map_equal_div_expr_part(__isl_keep isl_basic_map *bmap1,
+ isl_bool isl_basic_map_equal_div_expr_except_constant(
+ 	__isl_keep isl_basic_map *bmap1, int pos1,
+ 	__isl_keep isl_basic_map *bmap2, int pos2);
+-__isl_give isl_basic_map *isl_basic_map_set_div_expr_constant_num_si_inplace(
+-	__isl_take isl_basic_map *bmap, int div, int value);
+ 
+ #endif
+diff --git a/isl_test.c b/isl_test.c
+index f6ad0a0ad7..470ec5365f 100644
+--- a/isl_test.c
++++ b/isl_test.c
+@@ -1891,6 +1891,10 @@ struct {
+ 	{ 0, "{ [a, b] : a >= 0 and 0 <= b <= 1 - a; [-1, 3] }" },
+ 	{ 1, "{ [a, b] : a, b >= 0 and a + 2b <= 2; [1, 1] }" },
+ 	{ 0, "{ [a, b] : a, b >= 0 and a + 2b <= 2; [2, 1] }" },
++	{ 0, "{ [a, c] : (2 + a) mod 4 = 0 or "
++		"(c = 4 + a and 4 * floor((a)/4) = a and a >= 0 and a <= 4) or "
++		"(c = 3 + a and 4 * floor((-1 + a)/4) = -1 + a and "
++		    "a > 0 and a <= 5) }" },
+ };
+ 
+ /* A specialized coalescing test case that would result
+-- 
+2.11.0
+
+-- 
+
+--- 
+You received this message because you are subscribed to the Google Groups "isl Development" group.
+To unsubscribe from this group and stop receiving emails from it, send an email to isl-development+unsubscribe@googlegroups.com.
+For more options, visit https://groups.google.com/d/optout.
