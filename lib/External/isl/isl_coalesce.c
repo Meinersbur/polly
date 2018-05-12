@@ -2387,17 +2387,17 @@ static isl_stat shift_div(struct isl_coalesce_info *info, int div,
 
 /* If the integer division at position "div" is defined by an equality,
  * i.e., a stride constraint, then change the integer division expression
- * to have a constant term close to zero.
+ * to have a constant term equal to zero.
  *
  * Let the equality constraint be
  *
  *	c + f + m a = 0
  *
- * The integer division expression is then expected to be of the form
+ * The integer division expression is then typically of the form
  *
  *	a = floor((-f - c')/m)
  *
- * The integer division is shifted by t = floor(c/m),
+ * The integer division is first shifted by t = floor(c/m),
  * turning the equality constraint into
  *
  *	c - m floor(c/m) + f + m a' = 0
@@ -2411,11 +2411,12 @@ static isl_stat shift_div(struct isl_coalesce_info *info, int div,
  *	a' = (-f - (c mod m))/m = floor((-f)/m)
  *
  * because a' is an integer and 0 <= (c mod m) < m.
- * The constant term of a' could therefore be zeroed out.
+ * The constant term of a' can therefore be zeroed out,
+ * but only if the integer division expression is of the expected form.
  */
 static isl_stat normalize_stride_div(struct isl_coalesce_info *info, int div)
 {
-	isl_bool defined;
+	isl_bool defined, valid;
 	isl_stat r;
 	isl_constraint *c;
 	isl_int shift, stride;
@@ -2428,6 +2429,7 @@ static isl_stat normalize_stride_div(struct isl_coalesce_info *info, int div)
 		return isl_stat_ok;
 	if (!c)
 		return isl_stat_error;
+	valid = isl_constraint_is_div_equality(c, div);
 	isl_int_init(shift);
 	isl_int_init(stride);
 	isl_constraint_get_constant(c, &shift);
@@ -2437,7 +2439,13 @@ static isl_stat normalize_stride_div(struct isl_coalesce_info *info, int div)
 	isl_int_clear(stride);
 	isl_int_clear(shift);
 	isl_constraint_free(c);
-	if (r < 0)
+	if (r < 0 || valid < 0)
+		return isl_stat_error;
+	if (!valid)
+		return isl_stat_ok;
+	info->bmap = isl_basic_map_set_div_expr_constant_num_si_inplace(
+							    info->bmap, div, 0);
+	if (!info->bmap)
 		return isl_stat_error;
 	return isl_stat_ok;
 }
@@ -2450,9 +2458,9 @@ static isl_stat normalize_stride_div(struct isl_coalesce_info *info, int div)
  * In particular, look for any pair of integer divisions that
  * only differ in their constant terms.
  * If either of these integer divisions is defined
- * by stride constraints, then modify it to have a constant term close to zero.
+ * by stride constraints, then modify it to have a zero constant term.
  * If both are defined by stride constraints then in the end they will have
- * a constant term that only differs by at most a small rational constant.
+ * the same (zero) constant term.
  */
 static isl_stat harmonize_stride_divs(struct isl_coalesce_info *info1,
 	struct isl_coalesce_info *info2)

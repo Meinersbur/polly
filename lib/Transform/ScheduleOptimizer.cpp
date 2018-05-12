@@ -46,11 +46,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "polly/ScheduleOptimizer.h"
 #include "polly/CodeGen/CodeGeneration.h"
 #include "polly/DependenceInfo.h"
 #include "polly/LinkAllPasses.h"
 #include "polly/Options.h"
+#include "polly/ScheduleOptimizer.h"
 #include "polly/ScopInfo.h"
 #include "polly/ScopPass.h"
 #include "polly/Simplify.h"
@@ -1469,86 +1469,91 @@ static void walkScheduleTreeForStatistics(isl::schedule Schedule, int Version) {
       &Version);
 }
 
-template <typename SC, typename RetVal = void> struct ScheduleTreeVisitor {
-  RetVal visit(const isl::schedule_node &Node) {
+template <typename SC, typename RetVal = void, typename... Args>
+struct ScheduleTreeVisitor {
+  RetVal visit(const isl::schedule_node &Node, Args... args) {
     switch (isl_schedule_node_get_type(Node.get())) {
     case isl_schedule_node_domain:
       assert(isl_schedule_node_n_children(Node.get()) == 1);
-      return ((SC *)this)->visitDomain(Node);
+      return ((SC *)this)->visitDomain(Node, args...);
     case isl_schedule_node_band:
       assert(isl_schedule_node_n_children(Node.get()) == 1);
-      return ((SC *)this)->visitBand(Node);
+      return ((SC *)this)->visitBand(Node, args...);
     case isl_schedule_node_sequence:
       assert(isl_schedule_node_n_children(Node.get()) >= 2);
-      return ((SC *)this)->visitSequence(Node);
+      return ((SC *)this)->visitSequence(Node, args...);
     case isl_schedule_node_set:
-      return ((SC *)this)->visitSet(Node);
+      return ((SC *)this)->visitSet(Node, args...);
       assert(isl_schedule_node_n_children(Node.get()) >= 2);
     case isl_schedule_node_leaf:
       assert(isl_schedule_node_n_children(Node.get()) == 0);
-      return ((SC *)this)->visitLeaf(Node);
+      return ((SC *)this)->visitLeaf(Node, args...);
     default:
       llvm_unreachable("unimplemented schedule node type");
     }
   }
 
-  RetVal visitDomain(const isl::schedule_node &Domain) {
-    return ((SC *)this)->visitOther(Domain);
+  RetVal visitDomain(const isl::schedule_node &Domain, Args... args) {
+    return ((SC *)this)->visitOther(Domain, args...);
   }
 
-  RetVal visitBand(const isl::schedule_node &Band) {
-    return ((SC *)this)->visitOther(Band);
+  RetVal visitBand(const isl::schedule_node &Band, Args... args) {
+    return ((SC *)this)->visitOther(Band, args...);
   }
 
-  RetVal visitSequence(const isl::schedule_node &Sequence) {
-    return ((SC *)this)->visitOther(Sequence);
+  RetVal visitSequence(const isl::schedule_node &Sequence, Args... args) {
+    return ((SC *)this)->visitOther(Sequence, args...);
   }
 
-  RetVal visitSet(const isl::schedule_node &Set) {
-    return ((SC *)this)->visitOther(Set);
+  RetVal visitSet(const isl::schedule_node &Set, Args... args) {
+    return ((SC *)this)->visitOther(Set, args...);
   }
 
-  RetVal visitLeaf(const isl::schedule_node &Leaf) {
-    return ((SC *)this)->visitOther(Leaf);
+  RetVal visitLeaf(const isl::schedule_node &Leaf, Args... args) {
+    return ((SC *)this)->visitOther(Leaf, args...);
   }
 
-  RetVal visitOther(const isl::schedule_node &Other) {
+  RetVal visitOther(const isl::schedule_node &Other, Args... args) {
     llvm_unreachable("Unimplemented other");
   }
 };
 
-template <typename SC>
+template <typename SC, typename... Args>
 struct ScheduleTreeRewriteVisitor
-    : public ScheduleTreeVisitor<SC, isl::schedule> {
-  isl::schedule visitDomain(const isl::schedule_node &Domain) {
-    return ((SC *)this)->visit(Domain.child(0));
+    : public ScheduleTreeVisitor<SC, isl::schedule, Args...> {
+  isl::schedule visitDomain(const isl::schedule_node &Domain, Args... args) {
+    return ((SC *)this)->visit(Domain.child(0), args...);
   }
 
-  isl::schedule visitBand(const isl::schedule_node &Band) {
-    // TODO: apply band properties
+  isl::schedule visitBand(const isl::schedule_node &Band, Args... args) {
+    // TODO: apply band properties (conicident, permutable)
+    // TODO: Reuse if not changed
     auto PartialSched =
         isl::manage(isl_schedule_node_band_get_partial_schedule(Band.get()));
-    auto NewChild = ((SC *)this)->visit(Band.child(0));
+    auto NewChild = ((SC *)this)->visit(Band.child(0), args...);
     return NewChild.insert_partial_schedule(PartialSched);
   }
 
-  isl::schedule visitSequence(const isl::schedule_node &Sequence) {
+  isl::schedule visitSequence(const isl::schedule_node &Sequence,
+                              Args... args) {
     auto NumChildren = isl_schedule_node_n_children(Sequence.get());
-    auto Result = ((SC *)this)->visit(Sequence.child(0));
+    assert(NumChildren >= 1);
+    auto Result = ((SC *)this)->visit(Sequence.child(0), args...);
     for (int i = 1; i < NumChildren; i += 1)
-      Result = Result.sequence(((SC *)this)->visit(Sequence.child(i)));
+      Result = Result.sequence(((SC *)this)->visit(Sequence.child(i), args...));
     return Result;
   }
 
-  isl::schedule visitSet(const isl::schedule_node &Set) {
+  isl::schedule visitSet(const isl::schedule_node &Set, Args... args) {
     auto NumChildren = isl_schedule_node_n_children(Set.get());
-    auto Result = ((SC *)this)->visit(Set.child(0));
+    assert(NumChildren >= 1);
+    auto Result = ((SC *)this)->visit(Set.child(0), args...);
     for (int i = 1; i < NumChildren; i += 1)
-      Result = Result.sequence(((SC *)this)->visit(Set.child(i)));
+      Result = Result.set(((SC *)this)->visit(Set.child(i), args...));
     return Result;
   }
 
-  isl::schedule visitLeaf(const isl::schedule_node &Leaf) {
+  isl::schedule visitLeaf(const isl::schedule_node &Leaf, Args... args) {
     auto Dom = Leaf.get_domain();
     return isl::schedule::from_domain(Dom);
   }
@@ -1557,13 +1562,12 @@ struct ScheduleTreeRewriteVisitor
 class LoopNestTransformation {
 public:
   isl::schedule Sched;
- 
+
   isl::union_map ValidityConstraints;
   isl::union_map TransformativeConstraints;
 
   StringMap<int> LoopNames;
 };
-
 
 static isl::schedule applyLoopReversal(isl::schedule_node BandToReverse) {
   struct LoopReversalVisitor
@@ -1603,28 +1607,28 @@ static isl::schedule applyLoopReversal(isl::schedule_node BandToReverse) {
   return Result;
 }
 
-static LoopNestTransformation applyLoopReversal(const LoopNestTransformation&Trans, isl::schedule_node BandToReverse, bool CheckValidity, bool ApplyOnSchedule, bool AddTransformativeConstraints, bool RemoveContradictingConstraints) {
-	if (CheckValidity) {
+static LoopNestTransformation
+applyLoopReversal(const LoopNestTransformation &Trans,
+                  isl::schedule_node BandToReverse, bool CheckValidity,
+                  bool ApplyOnSchedule, bool AddTransformativeConstraints,
+                  bool RemoveContradictingConstraints) {
+  if (CheckValidity) {
+  }
 
-	}
-	
-	LoopNestTransformation Result = Trans;
+  LoopNestTransformation Result = Trans;
 
-	if (ApplyOnSchedule) {
-		Result.Sched = applyLoopReversal(BandToReverse);
-	}
+  if (ApplyOnSchedule) {
+    Result.Sched = applyLoopReversal(BandToReverse);
+  }
 
-	if (RemoveContradictingConstraints) {
+  if (RemoveContradictingConstraints) {
+  }
 
-	}
+  if (AddTransformativeConstraints) {
+  }
 
-	if (AddTransformativeConstraints) {
-
-	}
-
-	return Result;
+  return Result;
 }
-
 
 static Loop *getBandLoop(isl::schedule_node Band) {
   assert(isl_schedule_node_get_type(Band.get()) == isl_schedule_node_band);
@@ -1637,7 +1641,7 @@ static Loop *getBandLoop(isl::schedule_node Band) {
   UDom.foreach_set([&Result](isl::set StmtDom) -> isl::stat {
     auto Stmt = static_cast<ScopStmt *>(StmtDom.get_tuple_id().get_user());
 
-    auto Loop = Stmt->getLoopForDimension(0);
+    auto Loop = Stmt->getLoopForDimension(0); // ?? Need relative depth?
     assert(Loop);
     assert(!Result || Loop == Result);
     Result = Loop;
@@ -1707,6 +1711,80 @@ static Loop *getSurroundingLoop(Scop &S) {
   while (L && S.contains(L))
     L = L->getParentLoop();
   return L;
+}
+
+static isl::schedule walkScheduleTreeForNamedLoops(const isl::schedule_node &Node, Loop *ParentLoop) {
+  struct NameMarker : public ScheduleTreeRewriteVisitor<NameMarker, Loop *> {
+    typedef ScheduleTreeRewriteVisitor<NameMarker, Loop *> Super;
+
+    isl::schedule visitBand(const isl::schedule_node &OrigBand,
+                            Loop *ParentLoop) {
+      auto L = getBandLoop(OrigBand);
+      assert(ParentLoop == L->getParentLoop() &&
+             "Loop nest must be the original");
+
+      auto BandSchedule = Super::visitBand(OrigBand, L);
+
+	auto  LoopId = L->getLoopID();
+      auto LoopName = findStringMetadataForLoop(L,  "llvm.loop.id");
+
+	  /// FIXME: is this id sufficient?
+      isl::id id;
+      if (LoopName) {
+		  auto ValOp = LoopName.getValue();
+		  auto ValStr = dyn_cast<MDString>(ValOp->get());
+		 id = isl::id::alloc( OrigBand.get_ctx(),  ValStr ->getString() , LoopId);
+      } else {
+		  id = isl::id::alloc( OrigBand.get_ctx(),   nullptr , LoopId);
+      }
+
+
+     auto Marked =  isl::manage(  isl_schedule_node_insert_mark(BandSchedule.get_root().release(), id.copy()));
+
+      return Marked.get_schedule();
+    }
+  } Transformator;
+
+  auto Result = Transformator.visit(Node, ParentLoop);
+  return Result;
+
+#if 0
+	while (true) {
+		if (auto Child = Node.first_child()) {
+
+			if (isl_schedule_node_get_)
+
+			Node = Child;
+		continue;
+		}
+
+		if (auto Sibling = Node.next_sibling()) {
+
+			Node = Sibling;
+		continue;
+		}
+
+		if (auto Parent = Node.parent()) {
+
+			Node = Parent;
+			continue;
+		}
+
+		break;
+	}
+#endif
+}
+
+static isl::schedule annotateBands(Scop &S, isl::schedule Sched) {
+  DEBUG(dbgs() << "Mark named loops...\n");
+
+  auto Root = Sched.get_root();
+  // Root.insert_mark
+
+  auto OuterL = getSurroundingLoop(S);
+
+  return  walkScheduleTreeForNamedLoops(Root, OuterL);
+ // return Root.get_schedule();
 }
 
 static bool applyTransformationHints(Scop &S, isl::schedule &Sched,
@@ -1857,6 +1935,7 @@ bool IslScheduleOptimizer::runOnScop(Scop &S) {
   SC = SC.set_coincidence(Validity);
 
   auto ManualSchedule = S.getScheduleTree();
+  auto AnnotatedSchedule = annotateBands(S, ManualSchedule);
   auto ManuallyTransformed = applyTransformationHints(S, ManualSchedule, SC);
 
   isl::schedule Schedule;
