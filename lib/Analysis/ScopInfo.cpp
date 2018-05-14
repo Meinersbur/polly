@@ -3292,7 +3292,7 @@ bool Scop::buildAliasGroup(Scop::AliasGroupTy &AliasGroup,
 }
 
 /// Get the smallest loop that contains @p S but is not in @p S.
-static Loop *getLoopSurroundingScop(Scop &S, LoopInfo &LI) {
+ Loop *polly::getLoopSurroundingScop(Scop &S, LoopInfo &LI) {
   // Start with the smallest loop containing the entry and expand that
   // loop until it contains all blocks in the region. If there is a loop
   // containing all blocks in the region check if it is itself contained

@@ -3215,6 +3215,8 @@ public:
 
   void getAnalysisUsage(AnalysisUsage &AU) const override;
 };
+
+ Loop *getLoopSurroundingScop(Scop &S, LoopInfo &LI) ;
 } // end namespace polly
 
 #endif // POLLY_SCOPINFO_H

@@ -1781,7 +1781,7 @@ static isl::schedule annotateBands(Scop &S, isl::schedule Sched) {
   auto Root = Sched.get_root();
   // Root.insert_mark
 
-  auto OuterL = getSurroundingLoop(S);
+  auto OuterL = getLoopSurroundingScop(S, S.getLI());
 
   return  walkScheduleTreeForNamedLoops(Root, OuterL);
  // return Root.get_schedule();
