@@ -4739,6 +4739,8 @@ void Scop::buildSchedule(Region *R, LoopStackTy &LoopStack, LoopInfo &LI) {
   }
 }
 
+
+
 void Scop::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack, LoopInfo &LI) {
   if (RN->isSubRegion()) {
     auto *LocalRegion = RN->getNodeAs<Region>();
@@ -4774,6 +4776,7 @@ void Scop::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack, LoopInfo &LI) {
     auto NumBlocksProcessed = LoopData->NumBlocksProcessed;
 
     assert(std::next(LoopData) != LoopStack.rend());
+	auto L = LoopData->L ;
     ++LoopData;
     --Dimension;
 
@@ -4781,6 +4784,12 @@ void Scop::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack, LoopInfo &LI) {
       isl::union_set Domain = Schedule.get_domain();
       isl::multi_union_pw_aff MUPA = mapToDimension(Domain, Dimension);
       Schedule = Schedule.insert_partial_schedule(MUPA);
+
+	 // auto LoopId  = LoopData->L->getLoopID();
+	  auto IslLoopId = getIslLoopId( getIslCtx(), L);
+	  if (IslLoopId)
+	    Schedule = Schedule.get_root().get_child(0).insert_mark(IslLoopId).get_schedule();
+
       LoopData->Schedule = combineInSequence(LoopData->Schedule, Schedule);
     }
 
