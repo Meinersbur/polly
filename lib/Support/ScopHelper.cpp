@@ -11,10 +11,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "polly/Support/ScopHelper.h"
 #include "polly/Options.h"
 #include "polly/ScopInfo.h"
 #include "polly/Support/SCEVValidator.h"
+#include "polly/Support/ScopHelper.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/RegionInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
@@ -24,6 +24,7 @@
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include "llvm/Transforms/Utils/LoopUtils.h"
 
 using namespace llvm;
 using namespace polly;
@@ -637,4 +638,25 @@ bool polly::hasDebugCall(ScopStmt *Stmt) {
   }
 
   return false;
+}
+
+isl::id polly::getIslLoopId(isl::ctx Ctx, Loop *L) {
+	// Root of loop tree
+	if (!L)
+    return {};
+
+  auto LoopID = L->getLoopID();
+  if (!LoopID)
+    return {};
+
+    auto LoopName = findStringMetadataForLoop(L, "llvm.loop.id");
+	if (!LoopName)
+		return  isl::id::alloc(Ctx, nullptr, LoopID);
+
+
+
+
+        auto ValOp = LoopName.getValue();
+        auto ValStr = dyn_cast<MDString>(ValOp->get());
+       return isl::id::alloc(Ctx, ValStr->getString(), LoopID);
 }
