@@ -651,12 +651,9 @@ isl::id polly::getIslLoopId(isl::ctx Ctx, Loop *L) {
 
     auto LoopName = findStringMetadataForLoop(L, "llvm.loop.id");
 	if (!LoopName)
-		return  isl::id::alloc(Ctx, nullptr, LoopID);
-
-
-
+		return  isl::id::alloc(Ctx, "", L);
 
         auto ValOp = LoopName.getValue();
-        auto ValStr = dyn_cast<MDString>(ValOp->get());
-       return isl::id::alloc(Ctx, ValStr->getString(), LoopID);
+        auto ValStr = cast<MDString>(ValOp->get());
+       return isl::id::alloc(Ctx, ValStr->getString(), L);
 }

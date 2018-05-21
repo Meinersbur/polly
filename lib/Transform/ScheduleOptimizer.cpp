@@ -1841,6 +1841,61 @@ static isl::schedule_node findBand(const isl::schedule Sched, StringRef Name) {
   return Result;
 }
 
+
+static bool isSameLoopId(isl::id LHS, isl::id RHS) {
+ if (LHS.get() == RHS.get()) return true;
+ assert (LHS.get_user() != RHS.get_user());
+ return false;
+}
+
+
+static isl::schedule_node findBand(const isl::schedule Sched, isl::id Name) {
+  isl::schedule_node Result;
+  foreachTopdown(
+      Sched, [Name, &Result](isl::schedule_node Node) -> isl::boolean {
+        if (isl_schedule_node_get_type(Node.get()) != isl_schedule_node_mark)
+          return true;
+
+        auto MarkId = Node.mark_get_id();
+        if (isSameLoopId(MarkId, Name)) {
+          auto NewResult = Node.get_child(0);
+          assert(!Result || (Result.get() == NewResult.get()));
+          Result = NewResult;
+          return isl::boolean(); // abort();
+        }
+
+        return true;
+      });
+  return Result;
+}
+
+
+static bool isSameLoopId(isl::id LHS, MDNode * RHS) {
+	auto L = static_cast<Loop*>(LHS.get_user());
+	return L->getLoopID() == RHS;
+}
+
+static isl::schedule_node findBand(const isl::schedule Sched, MDNode *LoopId) {
+  isl::schedule_node Result;
+  foreachTopdown(
+      Sched, [LoopId, &Result](isl::schedule_node Node) -> isl::boolean {
+        if (isl_schedule_node_get_type(Node.get()) != isl_schedule_node_mark)
+          return true;
+
+        auto MarkId = Node.mark_get_id();
+        if (isSameLoopId(MarkId, LoopId) ) {
+          auto NewResult = Node.get_child(0);
+          assert(!Result || (Result.get() == NewResult.get()));
+          Result = NewResult;
+          return isl::boolean(); // abort();
+        }
+
+        return true;
+      });
+  return Result;
+}
+
+
 static void applyLoopReversal(isl::schedule &Sched, StringRef ApplyOn) {
   // TODO: Can do in a single traversal
   // TODO: Remove mark?
@@ -1848,8 +1903,21 @@ static void applyLoopReversal(isl::schedule &Sched, StringRef ApplyOn) {
   Sched = applyLoopReversal(Band);
 }
 
-static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
-                                                isl::schedule_constraints &SC) {
+static void applyLoopReversal(isl::schedule &Sched, isl::id ApplyOn) {
+  // TODO: Can do in a single traversal
+  // TODO: Remove mark?
+  auto Band = findBand(Sched, ApplyOn);
+  Sched = applyLoopReversal(Band);
+}
+
+static void applyLoopReversal(isl::schedule &Sched, MDNode *ApplyOn) {
+  // TODO: Can do in a single traversal
+  // TODO: Remove mark?
+  auto Band = findBand(Sched, ApplyOn);
+  Sched = applyLoopReversal(Band);
+}
+
+static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched, isl::schedule_constraints &SC) {
   auto &F = S.getFunction();
   bool Changed = false;
 
@@ -1860,8 +1928,16 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
     auto Which = OpMD->getOperand(0).get();
     auto WhichStr = cast<MDString>(Which)->getString();
     if (WhichStr == "llvm.loop.reverse") {
-      auto ApplyOn = cast<MDString>(OpMD->getOperand(1).get())->getString();
-      applyLoopReversal(Sched, ApplyOn);
+	  auto ApplyOnArg = OpMD->getOperand(1).get();
+
+	  	  // TODO: Either templated version of applyLoopReversal or generalized method to get the isl::id of either a loop name or MDNode
+	  if (auto MDApplyOn = dyn_cast<MDString>(ApplyOnArg)) {
+		 applyLoopReversal(Sched, MDApplyOn->getString());
+	  } else {
+		  auto MDNodeApplyOn = cast<MDNode>(ApplyOnArg) ;
+		    applyLoopReversal(Sched, MDNodeApplyOn);
+	  }
+
 	  Changed=true;
     }
   }
