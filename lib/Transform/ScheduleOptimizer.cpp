@@ -2096,6 +2096,17 @@ static isl::schedule_node ignoreMarkParent(isl::schedule_node Node) {
 	return Node;
 }
 
+static isl::schedule_node moveToBandMark(isl::schedule_node Band) {
+	if (isl_schedule_node_get_type(Band.get()) != isl_schedule_node_band)
+		return Band;
+	while (true) {
+		auto Parent = Band.parent();
+		if (isl_schedule_node_get_type(Band.get()) != isl_schedule_node_mark)
+			break;
+		Band = Parent;
+	}
+	return Band;
+}
 
 static isl::schedule_node collapseBands(isl::schedule_node FirstBand, int NumBands) {
 	auto Ctx = FirstBand.get_ctx();
@@ -2103,15 +2114,17 @@ static isl::schedule_node collapseBands(isl::schedule_node FirstBand, int NumBan
 	SmallVector<isl::union_pw_aff,4> PartialSchedules;
 	isl::multi_union_pw_aff CombinedSchedule;
 
+		 FirstBand = moveToBandMark(FirstBand);
+
 	int CollapsedBands = 0;
 	int CollapsedLoops = 0;
-	assert(isl_schedule_node_get_type(FirstBand.get()) == isl_schedule_node_band);
+	// assert(isl_schedule_node_get_type(FirstBand.get()) == isl_schedule_node_band);
 	auto Band = FirstBand;
 
 	while (CollapsedBands < NumBands) {
 		if (CollapsedBands )
 		while (isl_schedule_node_get_type(Band.get()) == isl_schedule_node_mark)
-			Band = Band.cut();
+			Band = isl::manage( isl_schedule_node_delete(Band.release()));
 		assert(isl_schedule_node_get_type(Band.get()) == isl_schedule_node_band);
 
 		auto X = isl::manage(isl_schedule_node_band_get_partial_schedule(Band.get()));
@@ -2182,7 +2195,8 @@ static void applyLoopTiling(isl::schedule &Sched, ArrayRef<LoopIdentification> T
 		auto TheBand = findBand(Sched, TheLoop);
 		Bands.push_back(TheBand);
 	}
- 
+
+
 	auto TheBand = collapseBands(Bands[0], Bands.size());
 	TheBand = tileBand(TheBand);
 	TheBand = separateBand(TheBand);
@@ -2216,7 +2230,20 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched, is
 	} 
 	
 	if (WhichStr == "llvm.loop.tile") {
-		// asdfgsdf
+		SmallVector<LoopIdentification,4> TiledLoops;
+		auto ApplyOnArg = cast<MDNode> (OpMD->getOperand(1).get());
+		for (auto &X : ApplyOnArg->operands() ) {
+			auto TheMetadata = X.get();
+				  if (auto MDApplyOn = dyn_cast<MDString>(TheMetadata)) {
+		 TiledLoops.push_back( LoopIdentification::createFromName( MDApplyOn->getString()));
+	  } else {
+		  auto MDNodeApplyOn = cast<MDNode>(TheMetadata) ;
+		  TiledLoops.push_back( LoopIdentification::createFromMetadata( MDNodeApplyOn));
+	  }
+		}
+
+
+		applyLoopTiling(Sched, TiledLoops);
 
 		Changed = true;
 		continue;
