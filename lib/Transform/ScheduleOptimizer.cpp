@@ -1825,7 +1825,7 @@ static isl::schedule applyReverseLoopHint(isl::schedule OrigBand, Loop *Loop,
   if (!EnableReverse)
     return OrigBand;
 
-  DEBUG(dbgs() << "Applying manual loop reversal\n");
+  LLVM_DEBUG(dbgs() << "Applying manual loop reversal\n");
   Changed = true;
   return applyLoopReversal(OrigBand.get_root());
 }
@@ -1907,7 +1907,7 @@ walkScheduleTreeForNamedLoops(const isl::schedule_node &Node,
 }
 
 static isl::schedule annotateBands(Scop &S, isl::schedule Sched) {
-  DEBUG(dbgs() << "Mark named loops...\n");
+  LLVM_DEBUG(dbgs() << "Mark named loops...\n");
 
   auto Root = Sched.get_root();
   // Root.insert_mark
@@ -1922,16 +1922,16 @@ static bool applyTransformationHints(Scop &S, isl::schedule &Sched,
                                      isl::schedule_constraints &SC) {
   bool Changed = false;
 
-  DEBUG(dbgs() << "Looking for loop transformation metadata...\n");
+  LLVM_DEBUG(dbgs() << "Looking for loop transformation metadata...\n");
 
   auto OuterL = getSurroundingLoop(S);
   auto Result =
       walkScheduleTreeForTransformationHints(Sched.get_root(), OuterL, Changed);
   if (Changed) {
-    DEBUG(dbgs() << "At least one manual loop transformation applied\n");
+    LLVM_DEBUG(dbgs() << "At least one manual loop transformation applied\n");
     Sched = Result;
   } else {
-    DEBUG(dbgs() << "No loop transformation applied\n");
+    LLVM_DEBUG(dbgs() << "No loop transformation applied\n");
   }
 
   return Changed;
@@ -2101,7 +2101,8 @@ static isl::schedule_node moveToBandMark(isl::schedule_node Band) {
 		return Band;
 	while (true) {
 		auto Parent = Band.parent();
-		if (isl_schedule_node_get_type(Band.get()) != isl_schedule_node_mark)
+		assert(Parent);
+		if (isl_schedule_node_get_type(Parent.get()) != isl_schedule_node_mark)
 			break;
 		Band = Parent;
 	}
@@ -2109,12 +2110,13 @@ static isl::schedule_node moveToBandMark(isl::schedule_node Band) {
 }
 
 static isl::schedule_node collapseBands(isl::schedule_node FirstBand, int NumBands) {
+	assert(NumBands >= 2);
 	auto Ctx = FirstBand.get_ctx();
 	SmallVector<isl::multi_union_pw_aff,4> PartialMultiSchedules;
 	SmallVector<isl::union_pw_aff,4> PartialSchedules;
 	isl::multi_union_pw_aff CombinedSchedule;
 
-		 FirstBand = moveToBandMark(FirstBand);
+	FirstBand = moveToBandMark(FirstBand);
 
 	int CollapsedBands = 0;
 	int CollapsedLoops = 0;
@@ -2122,7 +2124,6 @@ static isl::schedule_node collapseBands(isl::schedule_node FirstBand, int NumBan
 	auto Band = FirstBand;
 
 	while (CollapsedBands < NumBands) {
-		if (CollapsedBands )
 		while (isl_schedule_node_get_type(Band.get()) == isl_schedule_node_mark)
 			Band = isl::manage( isl_schedule_node_delete(Band.release()));
 		assert(isl_schedule_node_get_type(Band.get()) == isl_schedule_node_band);
@@ -2144,6 +2145,8 @@ static isl::schedule_node collapseBands(isl::schedule_node FirstBand, int NumBan
     }
 
 		CollapsedBands+=1;
+
+		Band = isl::manage( isl_schedule_node_delete(Band.release()));
 	}
 
 	//auto DomainSpace = PartialSchedules[0].get_space();
@@ -2182,7 +2185,7 @@ static isl::schedule_node tileBand(isl::schedule_node BandToTile) {
     Sizes = Sizes.set_val(i, isl::val(Ctx, tileSize));
   }
 
-		auto Result =  isl::manage(  isl_schedule_node_band_tile(BandToTile.get(), Sizes.release()));
+		auto Result =  isl::manage(  isl_schedule_node_band_tile(BandToTile.release(), Sizes.release()));
 		return Result;
 }
 
@@ -2193,15 +2196,21 @@ static void applyLoopTiling(isl::schedule &Sched, ArrayRef<LoopIdentification> T
 	Bands.reserve(TheLoops.size());
 	for (auto TheLoop : TheLoops) {
 		auto TheBand = findBand(Sched, TheLoop);
+		assert(TheBand);
 		Bands.push_back(TheBand);
 	}
 
-
 	auto TheBand = collapseBands(Bands[0], Bands.size());
 	TheBand = tileBand(TheBand);
-	TheBand = separateBand(TheBand);
 
-	Sched = TheBand.get_schedule();
+	auto OuterBand = TheBand;
+	auto InnerBand = TheBand.get_child(0);
+
+	InnerBand = separateBand(InnerBand);
+	OuterBand = InnerBand.parent();
+	OuterBand =  separateBand(OuterBand);
+
+	Sched = OuterBand.get_schedule();
 }
 
 static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched, isl::schedule_constraints &SC) {
