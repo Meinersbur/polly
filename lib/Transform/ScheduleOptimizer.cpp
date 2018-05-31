@@ -2174,14 +2174,14 @@ static isl::schedule_node separateBand(isl::schedule_node Band) {
 
 
 // TODO: Use ScheduleTreeOptimizer::tileNode
-static isl::schedule_node tileBand(isl::schedule_node BandToTile) {
+static isl::schedule_node tileBand(isl::schedule_node BandToTile, ArrayRef<int64_t> TileSizes) {
 		  auto Ctx = BandToTile.get_ctx();
 
 	 auto Space =isl::manage(isl_schedule_node_band_get_space(BandToTile.get()));
 	 auto Dims = Space.dim(isl::dim::set);
 	 auto Sizes = isl::multi_val::zero(Space);
   for (unsigned i = 0; i < Dims; i+=1) {
-    auto tileSize = 32;
+    auto tileSize = TileSizes[i];
     Sizes = Sizes.set_val(i, isl::val(Ctx, tileSize));
   }
 
@@ -2191,7 +2191,7 @@ static isl::schedule_node tileBand(isl::schedule_node BandToTile) {
 
 
 
-static void applyLoopTiling(isl::schedule &Sched, ArrayRef<LoopIdentification> TheLoops) {
+static void applyLoopTiling(isl::schedule &Sched, ArrayRef<LoopIdentification> TheLoops, ArrayRef<int64_t> TileSizes) {
 	SmallVector<isl::schedule_node , 4> Bands;
 	Bands.reserve(TheLoops.size());
 	for (auto TheLoop : TheLoops) {
@@ -2201,7 +2201,7 @@ static void applyLoopTiling(isl::schedule &Sched, ArrayRef<LoopIdentification> T
 	}
 
 	auto TheBand = collapseBands(Bands[0], Bands.size());
-	TheBand = tileBand(TheBand);
+	TheBand = tileBand(TheBand, TileSizes);
 
 	auto OuterBand = TheBand;
 	auto InnerBand = TheBand.get_child(0);
@@ -2251,8 +2251,21 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched, is
 	  }
 		}
 
+		SmallVector<int64_t,4> TileSizes;
+		auto TileSizesArg = cast<MDNode> (OpMD->getOperand(2).get());
+		for (auto &X : TileSizesArg->operands() ) {
+			auto TheMetadata = X.get();
+			auto TheTypedMetadata = cast<ConstantAsMetadata>(TheMetadata);
+			TileSizes.push_back(cast<ConstantInt>( TheTypedMetadata->getValue())->getValue().getSExtValue());
+         }
 
-		applyLoopTiling(Sched, TiledLoops);
+		while (TileSizes.size() < TiledLoops.size()) 
+			TileSizes.push_back(32);
+		
+
+
+		assert(TiledLoops.size() == TileSizes.size());
+		applyLoopTiling(Sched, TiledLoops, TileSizes);
 
 		Changed = true;
 		continue;
