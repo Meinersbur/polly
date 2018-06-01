@@ -46,11 +46,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "polly/ScheduleOptimizer.h"
 #include "polly/CodeGen/CodeGeneration.h"
 #include "polly/DependenceInfo.h"
 #include "polly/LinkAllPasses.h"
 #include "polly/Options.h"
+#include "polly/ScheduleOptimizer.h"
 #include "polly/ScopInfo.h"
 #include "polly/ScopPass.h"
 #include "polly/Simplify.h"
@@ -1584,6 +1584,60 @@ struct ScheduleTreeRewriteVisitor
   }
 };
 
+
+class LoopRegistry {
+	isl::ctx Ctx;
+  DenseMap<MDNode *, Loop *> MetadataToLoop;
+
+
+public:
+  LoopRegistry(isl::ctx Ctx): Ctx(Ctx){}
+
+    void addLoop(Loop *L) {
+	  assert(L);
+	  auto LoopMD = L->getLoopID();
+	  assert(!MetadataToLoop.count (LoopMD) || MetadataToLoop.lookup(LoopMD) == L );
+	  MetadataToLoop.insert({ LoopMD, L}); 
+	}
+
+
+
+  void addLoopRecursive(LoopInfo *LI, Loop* L)  {
+	if (!L) {
+		for (auto SubL : *LI)
+			addLoopRecursive(LI, SubL);
+		return;
+    }
+	addLoop(L);
+	for (auto SubL : *L)
+			addLoopRecursive(LI, SubL);
+  }
+
+ 
+
+ Loop * getLoop(MDNode* MD) const {  
+	return MetadataToLoop.lookup(MD);
+ }
+
+ isl::id getIslId(Loop *L )const { 
+	return getIslLoopId(Ctx, L);
+ }
+
+ MDNode *getMetadata(Loop *L) const { return L->getLoopID(); }
+
+ StringRef getName(Loop *L) const {
+       auto IdVal = findStringMetadataForLoop(L, "llvm.loop.id");
+      if (!IdVal)
+         return {};
+      return  cast<MDString>(IdVal.getValue()->get())->getString();
+ }
+
+
+};
+
+
+
+
 class LoopIdentification {
   Loop *ByLoop = nullptr;
   isl::id ByIslId;
@@ -1594,8 +1648,14 @@ public:
   Loop *getLoop() const {
     if (ByLoop)
       return ByLoop;
-    if (ByIslId)
-      return static_cast<Loop *>(ByIslId.get_user());
+    if (ByIslId) {
+		auto User= IslLoopIdUserTy::getFromOpaqueValue(ByIslId.get_user());
+		if (User.is<Loop*>())
+			return User.get<Loop*>();
+    }
+    if (ByMetadata) {
+     //llvm_unreachable("TODO: Implement lookup metadata-to-loop");
+    }
     return nullptr;
   }
 
@@ -1628,8 +1688,14 @@ public:
   MDNode *getMetadata() const {
     if (ByMetadata)
       return ByMetadata;
+	if (ByIslId) {
+		auto User= IslLoopIdUserTy::getFromOpaqueValue(ByIslId.get_user());
+		if (User.is<MDNode*>())
+			return User.get<MDNode*>();
+    }
     if (auto L = getLoop())
       return L->getLoopID();
+
     return nullptr;
   }
 
@@ -1652,9 +1718,9 @@ public:
     assert(!Id.is_null());
     LoopIdentification Result;
     Result.ByIslId = Id;
-    Result.ByLoop = static_cast<Loop *>(Id.get_user());
+  //  Result.ByLoop = static_cast<Loop *>(Id.get_user());
     Result.ByName = Id.get_name();
-    Result.ByMetadata = Result.ByLoop->getLoopID();
+   // Result.ByMetadata = Result.ByLoop->getLoopID();
 #if 0
 		if (Result.ByMetadata) {
 		 	auto IdVal = findStringMetadataForLoop(Result.ByLoop, "llvm.loop.id");
@@ -1677,7 +1743,7 @@ public:
     assert(!Name.empty());
 
     LoopIdentification Result;
-    Result.ByName = Name;
+    Result.ByName = (Twine("Loop_") + Name).str();
     return Result;
   }
 };
@@ -1717,6 +1783,10 @@ static bool operator==(const LoopIdentification &LHS,
   llvm_unreachable("No means to determine whether both define the same loop");
 }
 
+isl::id getIslTransformedId(isl::ctx Ctx, MDNode *Transform, StringRef Name) {
+  return isl::id::alloc(Ctx, Name, Transform);
+}
+
 class LoopNestTransformation {
 public:
   isl::schedule Sched;
@@ -1727,14 +1797,64 @@ public:
   StringMap<int> LoopNames;
 };
 
-static isl::schedule applyLoopReversal(isl::schedule_node BandToReverse) {
+
+
+static isl::schedule_node moveToBandMark(isl::schedule_node Band) {
+  if (isl_schedule_node_get_type(Band.get()) != isl_schedule_node_band)
+    return Band;
+  while (true) {
+    auto Parent = Band.parent();
+    assert(Parent);
+    if (isl_schedule_node_get_type(Parent.get()) != isl_schedule_node_mark)
+      break;
+    Band = Parent;
+  }
+  return Band;
+}
+
+static isl::schedule_node removeMark(isl::schedule_node MarkOrBand) {
+	MarkOrBand = moveToBandMark(MarkOrBand);
+  while (isl_schedule_node_get_type(MarkOrBand.get()) == isl_schedule_node_mark)
+	  MarkOrBand =isl::manage( isl_schedule_node_delete(MarkOrBand.release()));
+  return MarkOrBand;
+}
+
+static isl::schedule_node insertMark(isl::schedule_node Band, isl::id Mark) {
+	assert(isl_schedule_node_get_type(Band.get()) == isl_schedule_node_band);
+	assert(moveToBandMark(Band) .is_equal( Band) && "Don't add a two marks for a band");
+ 	 Band = isl::manage( isl_schedule_node_insert_mark(Band.release(), Mark.release()));
+	return Band.get_child(0);
+}
+
+static isl::schedule applyLoopReversal(isl::schedule_node BandToReverse, isl::id NewBandId) {
+	assert(BandToReverse);
+
+	BandToReverse = moveToBandMark(BandToReverse);
+	BandToReverse = removeMark(BandToReverse);
+
+	auto PartialSched = isl::manage(isl_schedule_node_band_get_partial_schedule(BandToReverse.get()));
+	    assert(PartialSched.dim(isl::dim::out) == 1);
+     
+      auto MPA = PartialSched.get_union_pw_aff(0);
+      auto Neg = MPA.neg();
+
+	  auto Node =isl::manage( isl_schedule_node_delete(BandToReverse.copy()));
+	  Node = Node.insert_partial_schedule(Neg);
+	 
+	  if (NewBandId)
+	  Node = insertMark(Node, NewBandId);
+
+	  return Node.get_schedule();
+
+
   struct LoopReversalVisitor
       : public ScheduleTreeRewriteVisitor<LoopReversalVisitor> {
     typedef ScheduleTreeRewriteVisitor<LoopReversalVisitor> Super;
     isl::schedule_node ReverseBand;
+    isl::id NewBandId;
     bool Applied = false;
-    LoopReversalVisitor(isl::schedule_node ReverseBand)
-        : ReverseBand(ReverseBand) {}
+    LoopReversalVisitor(isl::schedule_node ReverseBand, isl::id NewBandId)
+        : ReverseBand(ReverseBand), NewBandId(NewBandId) {}
 
     isl::schedule visitBand(const isl::schedule_node &OrigBand) {
       if (!OrigBand.is_equal(ReverseBand))
@@ -1757,13 +1877,18 @@ static isl::schedule applyLoopReversal(isl::schedule_node BandToReverse) {
       auto MPA = PartialSched.get_union_pw_aff(0);
       auto Neg = MPA.neg();
 
-      return NewChild.insert_partial_schedule(Neg);
+      auto ReversedBand = NewChild.insert_partial_schedule(Neg);
+      if (NewBandId.is_null())
+        return ReversedBand;
+
+      return ReverseBand.insert_mark(NewBandId).get_schedule();
     }
-  } Visitor(BandToReverse);
+  } Visitor(BandToReverse, NewBandId);
   auto Result = Visitor.visit(BandToReverse.get_schedule().get_root());
   assert(Visitor.Applied && "Band must be in schedule tree");
   return Result;
 }
+
 
 static LoopNestTransformation
 applyLoopReversal(const LoopNestTransformation &Trans,
@@ -1776,7 +1901,7 @@ applyLoopReversal(const LoopNestTransformation &Trans,
   LoopNestTransformation Result = Trans;
 
   if (ApplyOnSchedule) {
-    Result.Sched = applyLoopReversal(BandToReverse);
+    Result.Sched = applyLoopReversal(BandToReverse, {});
   }
 
   if (RemoveContradictingConstraints) {
@@ -1787,6 +1912,7 @@ applyLoopReversal(const LoopNestTransformation &Trans,
 
   return Result;
 }
+
 
 static Loop *getBandLoop(isl::schedule_node Band) {
   assert(isl_schedule_node_get_type(Band.get()) == isl_schedule_node_band);
@@ -1824,7 +1950,7 @@ static isl::schedule applyReverseLoopHint(isl::schedule OrigBand, Loop *Loop,
 
   LLVM_DEBUG(dbgs() << "Applying manual loop reversal\n");
   Changed = true;
-  return applyLoopReversal(OrigBand.get_root());
+  return applyLoopReversal(OrigBand.get_root(), nullptr);
 }
 
 static isl::schedule applyTransformationHints(isl::schedule Band, Loop *Loop,
@@ -2051,25 +2177,13 @@ static isl::schedule_node findBand(const isl::schedule Sched,
   return Result;
 }
 
-static void applyLoopReversal(isl::schedule &Sched, StringRef ApplyOn) {
-  // TODO: Can do in a single traversal
-  // TODO: Remove mark?
-  auto Band = findBand(Sched, ApplyOn);
-  Sched = applyLoopReversal(Band);
-}
 
-static void applyLoopReversal(isl::schedule &Sched, isl::id ApplyOn) {
-  // TODO: Can do in a single traversal
-  // TODO: Remove mark?
-  auto Band = findBand(Sched, ApplyOn);
-  Sched = applyLoopReversal(Band);
-}
 
-static void applyLoopReversal(isl::schedule &Sched, MDNode *ApplyOn) {
+static void applyLoopReversal(isl::schedule &Sched, LoopIdentification ApplyOn,   isl::id NewBandId) {
   // TODO: Can do in a single traversal
   // TODO: Remove mark?
   auto Band = findBand(Sched, ApplyOn);
-  Sched = applyLoopReversal(Band);
+  Sched = applyLoopReversal(Band,NewBandId);
 }
 
 static isl::schedule_node ignoreMarkChild(isl::schedule_node Node) {
@@ -2089,21 +2203,13 @@ static isl::schedule_node ignoreMarkParent(isl::schedule_node Node) {
   return Node;
 }
 
-static isl::schedule_node moveToBandMark(isl::schedule_node Band) {
-  if (isl_schedule_node_get_type(Band.get()) != isl_schedule_node_band)
-    return Band;
-  while (true) {
-    auto Parent = Band.parent();
-    assert(Parent);
-    if (isl_schedule_node_get_type(Parent.get()) != isl_schedule_node_mark)
-      break;
-    Band = Parent;
-  }
-  return Band;
-}
+
 
 static isl::schedule_node collapseBands(isl::schedule_node FirstBand,
                                         int NumBands) {
+	if (NumBands==1)
+		return ignoreMarkChild(FirstBand);
+	
   assert(NumBands >= 2);
   auto Ctx = FirstBand.get_ctx();
   SmallVector<isl::multi_union_pw_aff, 4> PartialMultiSchedules;
@@ -2159,7 +2265,10 @@ static isl::schedule_node separateBand(isl::schedule_node Band) {
   auto PartialSched =
       isl::manage(isl_schedule_node_band_get_partial_schedule(Band.get()));
   auto NumDims = PartialSched.dim(isl::dim::out);
+  if (NumDims==1)
+	  return Band;
 
+  assert(NumDims>=2);
   Band = isl::manage(isl_schedule_node_delete(Band.release()));
 
   for (unsigned i = 0; i < NumDims; i += 1) {
@@ -2174,6 +2283,8 @@ static isl::schedule_node tileBand(isl::schedule_node BandToTile,
                                    ArrayRef<int64_t> TileSizes) {
   auto Ctx = BandToTile.get_ctx();
 
+ BandToTile = removeMark(BandToTile);
+
   auto Space = isl::manage(isl_schedule_node_band_get_space(BandToTile.get()));
   auto Dims = Space.dim(isl::dim::set);
   auto Sizes = isl::multi_val::zero(Space);
@@ -2182,8 +2293,7 @@ static isl::schedule_node tileBand(isl::schedule_node BandToTile,
     Sizes = Sizes.set_val(i, isl::val(Ctx, tileSize));
   }
 
-  auto Result = isl::manage(
-      isl_schedule_node_band_tile(BandToTile.release(), Sizes.release()));
+  auto Result = isl::manage(isl_schedule_node_band_tile(BandToTile.release(), Sizes.release()));
   return Result;
 }
 
@@ -2211,6 +2321,28 @@ static void applyLoopTiling(isl::schedule &Sched,
   Sched = OuterBand.get_schedule();
 }
 
+LoopIdentification identifyLoopBy(Metadata *TheMetadata) {
+  if (auto MDApplyOn = dyn_cast<MDString>(TheMetadata)) {
+    return LoopIdentification::createFromName(MDApplyOn->getString());
+  }
+
+  auto MDNodeApplyOn = cast<MDNode>(TheMetadata);
+  return LoopIdentification::createFromMetadata(MDNodeApplyOn);
+}
+
+
+
+isl::id makeTransformLoopId(isl::ctx Ctx, MDNode *TheTransformation, StringRef TransName, StringRef Name = StringRef()) {
+  IslLoopIdUserTy User {TheTransformation};
+  std::string TheName;
+  if (!Name.empty())
+    TheName = (Twine("Loop_") + Name).str();
+  else if (!TransName.empty())
+	  TheName = TransName;
+  return isl::id::alloc(Ctx, TheName, User.getOpaqueValue());
+}
+
+
 static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
                                                 isl::schedule_constraints &SC) {
   auto &F = S.getFunction();
@@ -2225,14 +2357,9 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
     if (WhichStr == "llvm.loop.reverse") {
       auto ApplyOnArg = OpMD->getOperand(1).get();
 
-      // TODO: Either templated version of applyLoopReversal or generalized
-      // method to get the isl::id of either a loop name or MDNode
-      if (auto MDApplyOn = dyn_cast<MDString>(ApplyOnArg)) {
-        applyLoopReversal(Sched, MDApplyOn->getString());
-      } else {
-        auto MDNodeApplyOn = cast<MDNode>(ApplyOnArg);
-        applyLoopReversal(Sched, MDNodeApplyOn);
-      }
+	  auto LoopToReverse = identifyLoopBy(ApplyOnArg);
+	  auto NewBandId = makeTransformLoopId(S.getIslCtx(),OpMD, "reversed");
+       applyLoopReversal(Sched, LoopToReverse, NewBandId);
 
       Changed = true;
       continue;
@@ -2243,14 +2370,7 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
       auto ApplyOnArg = cast<MDNode>(OpMD->getOperand(1).get());
       for (auto &X : ApplyOnArg->operands()) {
         auto TheMetadata = X.get();
-        if (auto MDApplyOn = dyn_cast<MDString>(TheMetadata)) {
-          TiledLoops.push_back(
-              LoopIdentification::createFromName(MDApplyOn->getString()));
-        } else {
-          auto MDNodeApplyOn = cast<MDNode>(TheMetadata);
-          TiledLoops.push_back(
-              LoopIdentification::createFromMetadata(MDNodeApplyOn));
-        }
+		  TiledLoops.push_back(identifyLoopBy(TheMetadata));
       }
 
       SmallVector<int64_t, 4> TileSizes;
@@ -2409,8 +2529,7 @@ bool IslScheduleOptimizer::runOnScop(Scop &S) {
   auto ManualSchedule = S.getScheduleTree();
   auto AnnotatedSchedule = ManualSchedule; // annotateBands(S, ManualSchedule);
 
-  auto ManuallyTransformed =
-      applyManualTransformations(S, AnnotatedSchedule, SC);
+  auto ManuallyTransformed = applyManualTransformations(S, AnnotatedSchedule, SC);
   if (AnnotatedSchedule.plain_is_equal(ManuallyTransformed))
     ManuallyTransformed = nullptr;
 

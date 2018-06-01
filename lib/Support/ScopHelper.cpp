@@ -649,11 +649,13 @@ isl::id polly::getIslLoopId(isl::ctx Ctx, Loop *L) {
   if (!LoopID)
     return {};
 
+  IslLoopIdUserTy User {L};
+
   auto LoopName = findStringMetadataForLoop(L, "llvm.loop.id");
   if (!LoopName)
-    return isl::id::alloc(Ctx, "", L);
+    return isl::id::alloc(Ctx, "", User.getOpaqueValue());
 
   auto ValOp = LoopName.getValue();
   auto ValStr = cast<MDString>(ValOp->get());
-  return isl::id::alloc(Ctx, ValStr->getString(), L);
+  return isl::id::alloc(Ctx, (Twine("Loop_") + ValStr->getString()).str(), User.getOpaqueValue());
 }

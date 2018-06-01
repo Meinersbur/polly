@@ -480,6 +480,7 @@ bool isDebugCall(llvm::Instruction *Inst);
 /// Such a statement must not be removed, even if has no side-effects.
 bool hasDebugCall(ScopStmt *Stmt);
 
+using IslLoopIdUserTy =llvm:: PointerUnion<llvm::Loop *,llvm:: MDNode *>;
 isl::id getIslLoopId(isl::ctx Ctx, llvm::Loop *L);
 } // namespace polly
 #endif
