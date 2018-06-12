@@ -11,10 +11,10 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "polly/Support/ScopHelper.h"
 #include "polly/Options.h"
 #include "polly/ScopInfo.h"
 #include "polly/Support/SCEVValidator.h"
-#include "polly/Support/ScopHelper.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/RegionInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
@@ -641,22 +641,22 @@ bool polly::hasDebugCall(ScopStmt *Stmt) {
 }
 
 isl::id polly::getIslLoopId(isl::ctx Ctx, Loop *L) {
-	// Root of loop tree
-	if (!L)
+  // Root of loop tree
+  if (!L)
     return {};
 
   auto LoopID = L->getLoopID();
   if (!LoopID)
     return {};
 
-    auto LoopName = findStringMetadataForLoop(L, "llvm.loop.id");
-	if (!LoopName)
-		return  isl::id::alloc(Ctx, nullptr, LoopID);
+  IslLoopIdUserTy User{L};
 
+  auto LoopName = findStringMetadataForLoop(L, "llvm.loop.id");
+  if (!LoopName)
+    return isl::id::alloc(Ctx, "", User.getOpaqueValue());
 
-
-
-        auto ValOp = LoopName.getValue();
-        auto ValStr = dyn_cast<MDString>(ValOp->get());
-       return isl::id::alloc(Ctx, ValStr->getString(), LoopID);
+  auto ValOp = LoopName.getValue();
+  auto ValStr = cast<MDString>(ValOp->get());
+  return isl::id::alloc(Ctx, (Twine("Loop_") + ValStr->getString()).str(),
+                        User.getOpaqueValue());
 }

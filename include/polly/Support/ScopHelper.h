@@ -19,9 +19,9 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/ValueHandle.h"
+#include "isl/isl-noexceptions.h"
 #include <tuple>
 #include <vector>
-#include "isl/isl-noexceptions.h"
 
 namespace llvm {
 class LoopInfo;
@@ -480,6 +480,7 @@ bool isDebugCall(llvm::Instruction *Inst);
 /// Such a statement must not be removed, even if has no side-effects.
 bool hasDebugCall(ScopStmt *Stmt);
 
-isl::id  getIslLoopId(isl::ctx Ctx,llvm::Loop* L);
+using IslLoopIdUserTy = llvm::PointerUnion<llvm::Loop *, llvm::MDNode *>;
+isl::id getIslLoopId(isl::ctx Ctx, llvm::Loop *L);
 } // namespace polly
 #endif
