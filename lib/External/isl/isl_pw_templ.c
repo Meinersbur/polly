@@ -290,7 +290,7 @@ __isl_give PW *FN(PW,realign_domain)(__isl_take PW *pw,
 			goto error;
 	}
 
-	pw = FN(PW,reset_domain_space)(pw, isl_space_copy(exp->dim));
+	pw = FN(PW,reset_domain_space)(pw, isl_reordering_get_space(exp));
 
 	isl_reordering_free(exp);
 	return pw;
@@ -330,10 +330,6 @@ __isl_give PW *FN(PW,align_params)(__isl_take PW *pw, __isl_take isl_space *mode
 	if (!equal_params) {
 		isl_reordering *exp;
 
-		model = isl_space_drop_dims(model, isl_dim_in,
-					0, isl_space_dim(model, isl_dim_in));
-		model = isl_space_drop_dims(model, isl_dim_out,
-					0, isl_space_dim(model, isl_dim_out));
 		exp = isl_parameter_alignment_reordering(pw->dim, model);
 		exp = isl_reordering_extend_space(exp,
 					FN(PW,get_domain_space)(pw));
@@ -352,7 +348,6 @@ static __isl_give PW *FN(PW,align_params_pw_pw_and)(__isl_take PW *pw1,
 	__isl_take PW *pw2,
 	__isl_give PW *(*fn)(__isl_take PW *pw1, __isl_take PW *pw2))
 {
-	isl_ctx *ctx;
 	isl_bool equal_params;
 
 	if (!pw1 || !pw2)
@@ -362,7 +357,6 @@ static __isl_give PW *FN(PW,align_params_pw_pw_and)(__isl_take PW *pw1,
 		goto error;
 	if (equal_params)
 		return fn(pw1, pw2);
-	ctx = FN(PW,get_ctx)(pw1);
 	if (FN(PW,check_named_params)(pw1) < 0 ||
 	    FN(PW,check_named_params)(pw2) < 0)
 		goto error;
@@ -2118,7 +2112,6 @@ static __isl_give PW *FN(PW,align_params_pw_pw_multi_aff_and)(__isl_take PW *pw,
 	__isl_give PW *(*fn)(__isl_take PW *pw,
 		__isl_take isl_pw_multi_aff *ma))
 {
-	isl_ctx *ctx;
 	isl_bool equal_params;
 	isl_space *pma_space;
 
@@ -2132,7 +2125,6 @@ static __isl_give PW *FN(PW,align_params_pw_pw_multi_aff_and)(__isl_take PW *pw,
 		isl_space_free(pma_space);
 		return fn(pw, pma);
 	}
-	ctx = FN(PW,get_ctx)(pw);
 	if (FN(PW,check_named_params)(pw) < 0 ||
 	    isl_pw_multi_aff_check_named_params(pma) < 0)
 		goto error;
