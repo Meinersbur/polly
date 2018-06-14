@@ -2303,6 +2303,9 @@ static void applyLoopTiling(isl::schedule &Sched,
   Sched = OuterBand.get_schedule();
 }
 
+static void applyLoopInterchange(isl::schedule &Sched, ArrayRef<LoopIdentification> TheLoops, ArrayRef<LoopIdentification> Permutation) {
+}
+
 LoopIdentification identifyLoopBy(Metadata *TheMetadata) {
   if (auto MDApplyOn = dyn_cast<MDString>(TheMetadata)) {
     return LoopIdentification::createFromName(MDApplyOn->getString());
@@ -2372,6 +2375,26 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
       Changed = true;
       continue;
     }
+
+
+      if (WhichStr == "llvm.loop.interchange") {
+                SmallVector<LoopIdentification, 4> InterchangeLoops;
+      auto ApplyOnArg = cast<MDNode>(OpMD->getOperand(1).get());
+      for (auto &X : ApplyOnArg->operands()) {
+        auto TheMetadata = X.get();
+        InterchangeLoops.push_back(identifyLoopBy(TheMetadata));
+      }
+
+       SmallVector<LoopIdentification, 4> Permutation;
+          auto PermutationArg = cast<MDNode>(OpMD->getOperand(2).get());
+          for (auto &X : PermutationArg->operands()) {
+            auto TheMetadata = X.get();
+            Permutation.push_back(identifyLoopBy(TheMetadata));
+          }
+
+          applyLoopInterchange(Sched, InterchangeLoops, Permutation);
+
+      }
 
     llvm_unreachable("unknown loop transformation");
   }
