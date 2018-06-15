@@ -1623,6 +1623,20 @@ public:
   }
 };
 
+static isl::schedule_node moveToBandMark(isl::schedule_node Band) {
+  if (isl_schedule_node_get_type(Band.get()) != isl_schedule_node_band)
+    return Band;
+  while (true) {
+    auto Parent = Band.parent();
+    assert(Parent);
+    if (isl_schedule_node_get_type(Parent.get()) != isl_schedule_node_mark)
+      break;
+    Band = Parent;
+  }
+  return Band;
+}
+
+
 class LoopIdentification {
   Loop *ByLoop = nullptr;
   isl::id ByIslId;
@@ -1731,6 +1745,15 @@ public:
     Result.ByName = (Twine("Loop_") + Name).str();
     return Result;
   }
+  
+
+
+    static LoopIdentification createFromBand(isl::schedule_node Band) {
+        auto Marker=moveToBandMark(Band);
+        assert( isl_schedule_node_get_type(Marker.get()) == isl_schedule_node_mark);
+        // TODO: somehow get Loop id even if there is no marker
+        return createFromIslId(Marker.mark_get_id());
+    }
 };
 
 static bool operator==(const LoopIdentification &LHS,
@@ -1782,18 +1805,6 @@ public:
   StringMap<int> LoopNames;
 };
 
-static isl::schedule_node moveToBandMark(isl::schedule_node Band) {
-  if (isl_schedule_node_get_type(Band.get()) != isl_schedule_node_band)
-    return Band;
-  while (true) {
-    auto Parent = Band.parent();
-    assert(Parent);
-    if (isl_schedule_node_get_type(Parent.get()) != isl_schedule_node_mark)
-      break;
-    Band = Parent;
-  }
-  return Band;
-}
 
 static isl::schedule_node removeMark(isl::schedule_node MarkOrBand) {
   MarkOrBand = moveToBandMark(MarkOrBand);
@@ -2303,8 +2314,77 @@ static void applyLoopTiling(isl::schedule &Sched,
   Sched = OuterBand.get_schedule();
 }
 
-static void applyLoopInterchange(isl::schedule &Sched, ArrayRef<LoopIdentification> TheLoops, ArrayRef<LoopIdentification> Permutation) {
+
+static isl::schedule_node findBand(ArrayRef<isl::schedule_node> Bands, LoopIdentification Identifier) {
+        for (auto OldBand : Bands) {
+        auto OldId = LoopIdentification::createFromBand(OldBand);
+        if (OldId == Identifier)
+            return OldBand;
+       }
+        return {};
 }
+
+
+static isl::schedule_node interchangeBands(isl::schedule_node Band,  ArrayRef<LoopIdentification> NewOrder) {
+   auto NumBands = NewOrder.size();
+    Band =  moveToBandMark(Band);
+
+    SmallVector<isl::schedule_node,4> OldBands;
+
+    int NumRemoved = 0;
+    int NodesToRemove = 0;
+    auto BandIt = Band;
+    while (true) {
+    if (NumRemoved>=NumBands)
+        break;
+
+        if (isl_schedule_node_get_type(BandIt.get())==isl_schedule_node_band) {
+            OldBands.push_back(BandIt);
+            NumRemoved+=1;
+        }
+        assert(BandIt.n_children() == 1);
+        BandIt  = BandIt.get_child(0);
+      // Band = isl::manage(isl_schedule_node_delete(Band.release()));
+        NodesToRemove+= 1;
+    }
+
+    // Remove old order
+    for (int i = 0; i < NodesToRemove; i+=1) {
+         Band = isl::manage(isl_schedule_node_delete(Band.release()));
+    }
+
+
+    // Rebuild loop nest bottom-up according to new order.
+   for (auto & NewBandId : reverse( NewOrder)) {
+       auto OldBand = findBand(OldBands, NewBandId);
+    assert(OldBand);
+    // TODO: Check that no band is used twice
+        auto OldMarker = LoopIdentification::createFromBand(OldBand);
+        auto TheOldBand = ignoreMarkChild(OldBand);
+        auto TheOldSchedule = isl::manage( isl_schedule_node_band_get_partial_schedule(TheOldBand.get()));
+
+
+        Band = Band.insert_partial_schedule( TheOldSchedule  );
+        Band = Band.insert_mark(  OldMarker.getIslId() );
+   }
+
+   return Band; // returns innermsot body?
+}
+
+static void applyLoopInterchange(isl::schedule &Sched, ArrayRef<LoopIdentification> TheLoops, ArrayRef<LoopIdentification> Permutation) {
+    SmallVector<isl::schedule_node, 4> Bands;
+      for (auto TheLoop : TheLoops) {
+    auto TheBand = findBand(Sched, TheLoop);
+    assert(TheBand);
+    Bands.push_back(TheBand);
+  }
+
+  auto OutermostBand = Bands[0];
+
+  auto Result = interchangeBands(OutermostBand,Permutation );
+  Sched = Result.get_schedule();
+}
+
 
 LoopIdentification identifyLoopBy(Metadata *TheMetadata) {
   if (auto MDApplyOn = dyn_cast<MDString>(TheMetadata)) {
@@ -2393,7 +2473,7 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
           }
 
           applyLoopInterchange(Sched, InterchangeLoops, Permutation);
-
+          continue;
       }
 
     llvm_unreachable("unknown loop transformation");
