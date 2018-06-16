@@ -2385,6 +2385,16 @@ static void applyLoopInterchange(isl::schedule &Sched, ArrayRef<LoopIdentificati
   Sched = Result.get_schedule();
 }
 
+static void applyDataPack(ScopInfo *scop, isl::schedule &Sched, LoopIdentification TheLoop, StringRef TheArray) {
+    auto TheBand = findBand(Sched, TheLoop);
+
+  //  scop->getScopArrayInfoOrNull();
+
+    ScopArrayInfo *SAI ;
+ // auto Result = packArray(TheBand,Permutation );
+ // Sched = Result.get_schedule();
+}
+
 
 LoopIdentification identifyLoopBy(Metadata *TheMetadata) {
   if (auto MDApplyOn = dyn_cast<MDString>(TheMetadata)) {
@@ -2475,6 +2485,13 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
           applyLoopInterchange(Sched, InterchangeLoops, Permutation);
           continue;
       }
+
+
+            if (WhichStr == "llvm.data.pack") {
+               // applyDataPack(Sched);
+                continue;
+            }
+
 
     llvm_unreachable("unknown loop transformation");
   }
