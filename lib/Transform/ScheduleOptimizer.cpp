@@ -1568,7 +1568,7 @@ struct ScheduleTreeRewriteVisitor
     assert(NumChildren >= 1);
     auto Result = getDerived().visit(Set.child(0), args...);
     for (int i = 1; i < NumChildren; i += 1)
-      Result = Result.set(getDerived().visit(Set.child(i), args...));
+      Result = isl::manage(  isl_schedule_set(Result.release(), getDerived().visit(Set.child(i), args...).release()));
     return Result;
   }
 
@@ -1925,7 +1925,7 @@ static Loop *getBandLoop(isl::schedule_node Band) {
     assert(!Result || Loop == Result);
     Result = Loop;
 
-    return isl::stat::ok;
+    return isl::stat::ok();
   });
   assert(Result);
   return Result;
