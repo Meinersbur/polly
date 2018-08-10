@@ -2170,12 +2170,16 @@ static isl::schedule_node findBand(const isl::schedule Sched,
   return Result;
 }
 
-static void applyLoopReversal(isl::schedule &Sched, LoopIdentification ApplyOn,
-                              isl::id NewBandId) {
+static void applyLoopReversal(ScopInfo &S, isl::schedule &Sched, LoopIdentification ApplyOn,
+                              isl::id NewBandId, const Dependences &D) {
   // TODO: Can do in a single traversal
   // TODO: Remove mark?
   auto Band = findBand(Sched, ApplyOn);
-  Sched = applyLoopReversal(Band, NewBandId);
+
+  auto Transformed  = applyLoopReversal(Band, NewBandId);
+
+  if (D.isValidSchedule(S, Transformed))
+
 }
 
 static isl::schedule_node ignoreMarkChild(isl::schedule_node Node) {
@@ -2385,13 +2389,12 @@ static void applyLoopInterchange(isl::schedule &Sched,
   Sched = Result.get_schedule();
 }
 
-static void applyDataPack(ScopInfo *scop, isl::schedule &Sched,
-                          LoopIdentification TheLoop, StringRef TheArray) {
+static void applyDataPack(Scop &S, isl::schedule &Sched, LoopIdentification TheLoop, const ScopArrayInfo *SAI) {
   auto TheBand = findBand(Sched, TheLoop);
 
-  //  scop->getScopArrayInfoOrNull();
 
-  ScopArrayInfo *SAI;
+
+  //  scop->getScopArrayInfoOrNull();
   // auto Result = packArray(TheBand,Permutation );
   // Sched = Result.get_schedule();
 }
@@ -2414,6 +2417,34 @@ isl::id makeTransformLoopId(isl::ctx Ctx, MDNode *TheTransformation,
   else if (!TransName.empty())
     TheName = TransName;
   return isl::id::alloc(Ctx, TheName, User.getOpaqueValue());
+}
+
+
+static void collectAccessInstList(SmallVectorImpl<Instruction*> &Insts,  DenseSet<MDNode*> InstMDs, Function &F, StringRef MetadataName = "llvm.access") {
+    Insts.reserve(InstMDs.size());
+    for (auto &BB : F) {
+        for (auto &Inst : BB) {
+           auto MD = Inst.getMetadata(MetadataName);
+           if (InstMDs.count(MD))
+               Insts.push_back(&Inst);
+        }
+    }
+}
+
+static void collectMemoryAccessList(SmallVectorImpl<MemoryAccess *> &MemAccs, ArrayRef<Instruction*> Insts, Scop &S) {
+    auto &R = S.getRegion();
+
+    for (auto Inst : Insts) {
+        if (!R.contains(Inst))
+            continue;
+
+        auto Stmt = S.getStmtFor(Inst);
+        assert(Stmt && "All memory accesses should be modeled");
+        auto MemAcc = Stmt->getArrayAccessOrNULLFor(Inst);
+        assert(MemAcc  && "All memory accesses should be modeled by a MemoryAccess");
+        if (MemAcc)
+        MemAccs.push_back(MemAcc);
+    }
 }
 
 static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
@@ -2486,7 +2517,32 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
     }
 
     if (WhichStr == "llvm.data.pack") {
-      // applyDataPack(Sched);
+      auto ApplyOnArg = OpMD->getOperand(1).get();
+      auto LoopToPack = identifyLoopBy(ApplyOnArg);
+
+      auto AccessList = cast<MDNode>( OpMD->getOperand(2).get());
+
+      DenseSet<MDNode*> AccMDs;
+      AccMDs.reserve(AccessList->getNumOperands());
+      for (auto &AccMD :AccessList->operands() ) {
+        AccMDs.insert(cast<MDNode>( AccMD.get()));
+      }
+
+
+      SmallVector<Instruction*,32> AccInsts;
+      collectAccessInstList(AccInsts, AccMDs, F);
+       SmallVector<MemoryAccess*,32> MemAccs;
+      collectMemoryAccessList(MemAccs, AccInsts, S);
+
+      SmallPtrSet<const ScopArrayInfo*, 2> SAIs;
+      for (auto MemAcc : MemAccs) {
+        SAIs.insert(MemAcc->getLatestScopArrayInfo());
+      }
+      // TODO: Check consistency: Are all MemoryAccesses for all selected SAIs in MemAccs?
+      // TODO: What should happen for MemoryAccess that got their SAI changed?
+
+      for (auto *SAI : SAIs)
+        applyDataPack(S, Sched, LoopToPack, SAI);
       continue;
     }
 

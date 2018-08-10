@@ -735,6 +735,16 @@ void Dependences::calculateDependences(Scop &S) {
   LLVM_DEBUG(dump());
 }
 
+
+ bool Dependences:: isValidSchedule(Scop &S, isl::schedule NewSched) const{
+     StatementToIslMapTy NewSchedules;
+
+     for (auto &Stmt : S) 
+         NewSchedules[&Stmt] = Stmt.getSchedule().release();
+     
+auto Result = isValidSchedule(S,& NewSchedules);
+ }
+
 bool Dependences::isValidSchedule(Scop &S,
                                   StatementToIslMapTy *NewSchedule) const {
   if (LegalityCheckDisabled)
