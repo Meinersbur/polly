@@ -25,6 +25,7 @@
 
 #include "polly/ScopPass.h"
 #include "isl/ctx.h"
+#include "isl/isl-noexceptions.h"
 
 struct isl_pw_aff;
 struct isl_union_map;
@@ -135,7 +136,7 @@ struct Dependences {
   ///
   /// @return True if the new schedule is valid, false if it reverses
   ///         dependences.
-  bool isValidSchedule(Scop &S, StatementToIslMapTy *NewSchedules) const;
+  bool isValidSchedule(Scop &S, const StatementToIslMapTy &NewSchedules) const;
 
     bool isValidSchedule(Scop &S, isl::schedule NewSched) const;
 
