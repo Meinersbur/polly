@@ -735,26 +735,20 @@ void Dependences::calculateDependences(Scop &S) {
   LLVM_DEBUG(dump());
 }
 
-<<<<<<< HEAD
 
  bool Dependences:: isValidSchedule(Scop &S, isl::schedule NewSched) const{
      StatementToIslMapTy NewSchedules;
-
-     for (auto &Stmt : S) 
-         NewSchedules[&Stmt] = Stmt.getSchedule().release();
-     
-auto Result = isValidSchedule(S,& NewSchedules);
+     for (auto NewMap : NewSched.get_map().get_map_list()) {
+        auto Stmt = reinterpret_cast<ScopStmt*> (NewMap.get_tuple_id(isl::dim::in).get_user());
+        NewSchedules[Stmt] = NewMap;
+     }
+   
+return isValidSchedule(S, NewSchedules);
  }
 
-bool Dependences::isValidSchedule(Scop &S,
-                                  StatementToIslMapTy *NewSchedule) const {
-||||||| merged common ancestors
-bool Dependences::isValidSchedule(Scop &S,
-                                  StatementToIslMapTy *NewSchedule) const {
-=======
+
 bool Dependences::isValidSchedule(
     Scop &S, const StatementToIslMapTy &NewSchedule) const {
->>>>>>> official/master
   if (LegalityCheckDisabled)
     return true;
 

@@ -2170,7 +2170,7 @@ static isl::schedule_node findBand(const isl::schedule Sched,
   return Result;
 }
 
-static void applyLoopReversal(ScopInfo &S, isl::schedule &Sched, LoopIdentification ApplyOn,
+static void applyLoopReversal(Scop &S, isl::schedule &Sched, LoopIdentification ApplyOn,
                               isl::id NewBandId, const Dependences &D) {
   // TODO: Can do in a single traversal
   // TODO: Remove mark?
@@ -2178,8 +2178,12 @@ static void applyLoopReversal(ScopInfo &S, isl::schedule &Sched, LoopIdentificat
 
   auto Transformed  = applyLoopReversal(Band, NewBandId);
 
-  if (D.isValidSchedule(S, Transformed))
+  if (!D.isValidSchedule(S, Transformed)) {
+      LLVM_DEBUG(dbgs() << "LoopReversal not semantically legal\n");
+      return;
+  }
 
+  Sched = Transformed;
 }
 
 static isl::schedule_node ignoreMarkChild(isl::schedule_node Node) {
@@ -2448,7 +2452,7 @@ static void collectMemoryAccessList(SmallVectorImpl<MemoryAccess *> &MemAccs, Ar
 }
 
 static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
-                                                isl::schedule_constraints &SC) {
+                                                isl::schedule_constraints &SC, const Dependences &D) {
   auto &F = S.getFunction();
   bool Changed = false;
 
@@ -2463,7 +2467,7 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
 
       auto LoopToReverse = identifyLoopBy(ApplyOnArg);
       auto NewBandId = makeTransformLoopId(S.getIslCtx(), OpMD, "reversed");
-      applyLoopReversal(Sched, LoopToReverse, NewBandId);
+      applyLoopReversal(S, Sched, LoopToReverse, NewBandId, D);
 
       Changed = true;
       continue;
@@ -2683,7 +2687,7 @@ bool IslScheduleOptimizer::runOnScop(Scop &S) {
   auto AnnotatedSchedule = ManualSchedule; // annotateBands(S, ManualSchedule);
 
   auto ManuallyTransformed =
-      applyManualTransformations(S, AnnotatedSchedule, SC);
+      applyManualTransformations(S, AnnotatedSchedule, SC, D);
   if (AnnotatedSchedule.plain_is_equal(ManuallyTransformed))
     ManuallyTransformed = nullptr;
 
