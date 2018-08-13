@@ -2296,9 +2296,9 @@ static isl::schedule_node tileBand(isl::schedule_node BandToTile,
   return Result;
 }
 
-static void applyLoopTiling(isl::schedule &Sched,
+static void applyLoopTiling(Scop &S, isl::schedule &Sched,
                             ArrayRef<LoopIdentification> TheLoops,
-                            ArrayRef<int64_t> TileSizes) {
+                            ArrayRef<int64_t> TileSizes, const Dependences &D) {
   SmallVector<isl::schedule_node, 4> Bands;
   Bands.reserve(TheLoops.size());
   for (auto TheLoop : TheLoops) {
@@ -2317,7 +2317,14 @@ static void applyLoopTiling(isl::schedule &Sched,
   OuterBand = InnerBand.parent();
   OuterBand = separateBand(OuterBand);
 
-  Sched = OuterBand.get_schedule();
+  auto Transformed = OuterBand.get_schedule();
+
+    if (!D.isValidSchedule(S, Transformed)) {
+      LLVM_DEBUG(dbgs() << "LoopReversal not semantically legal\n");
+      return;
+  }
+
+  Sched = Transformed;
 }
 
 static isl::schedule_node findBand(ArrayRef<isl::schedule_node> Bands,
@@ -2377,9 +2384,9 @@ interchangeBands(isl::schedule_node Band,
   return Band; // returns innermsot body?
 }
 
-static void applyLoopInterchange(isl::schedule &Sched,
+static void applyLoopInterchange(Scop &S, isl::schedule &Sched,
                                  ArrayRef<LoopIdentification> TheLoops,
-                                 ArrayRef<LoopIdentification> Permutation) {
+                                 ArrayRef<LoopIdentification> Permutation, const Dependences &D) {
   SmallVector<isl::schedule_node, 4> Bands;
   for (auto TheLoop : TheLoops) {
     auto TheBand = findBand(Sched, TheLoop);
@@ -2390,7 +2397,14 @@ static void applyLoopInterchange(isl::schedule &Sched,
   auto OutermostBand = Bands[0];
 
   auto Result = interchangeBands(OutermostBand, Permutation);
-  Sched = Result.get_schedule();
+  auto Transformed = Result.get_schedule();
+
+    if (!D.isValidSchedule(S, Transformed)) {
+      LLVM_DEBUG(dbgs() << "LoopReversal not semantically legal\n");
+      return;
+  }
+
+  Sched = Transformed;
 }
 
 static void applyDataPack(Scop &S, isl::schedule &Sched, LoopIdentification TheLoop, const ScopArrayInfo *SAI) {
@@ -2495,7 +2509,7 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
         TileSizes.push_back(32);
 
       assert(TiledLoops.size() == TileSizes.size());
-      applyLoopTiling(Sched, TiledLoops, TileSizes);
+      applyLoopTiling(S, Sched, TiledLoops, TileSizes, D);
 
       Changed = true;
       continue;
@@ -2516,7 +2530,7 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
         Permutation.push_back(identifyLoopBy(TheMetadata));
       }
 
-      applyLoopInterchange(Sched, InterchangeLoops, Permutation);
+      applyLoopInterchange(S, Sched, InterchangeLoops, Permutation, D);
       continue;
     }
 
