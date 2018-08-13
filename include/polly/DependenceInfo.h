@@ -138,7 +138,7 @@ struct Dependences {
   ///         dependences.
   bool isValidSchedule(Scop &S, const StatementToIslMapTy &NewSchedules) const;
 
-    bool isValidSchedule(Scop &S, isl::schedule NewSched) const;
+  bool isValidSchedule(Scop &S, isl::schedule NewSched) const;
 
   /// Print the stored dependence information.
   void print(llvm::raw_ostream &OS) const;

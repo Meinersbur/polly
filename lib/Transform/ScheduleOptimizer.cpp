@@ -2170,17 +2170,18 @@ static isl::schedule_node findBand(const isl::schedule Sched,
   return Result;
 }
 
-static void applyLoopReversal(Scop &S, isl::schedule &Sched, LoopIdentification ApplyOn,
-                              isl::id NewBandId, const Dependences &D) {
+static void applyLoopReversal(Scop &S, isl::schedule &Sched,
+                              LoopIdentification ApplyOn, isl::id NewBandId,
+                              const Dependences &D) {
   // TODO: Can do in a single traversal
   // TODO: Remove mark?
   auto Band = findBand(Sched, ApplyOn);
 
-  auto Transformed  = applyLoopReversal(Band, NewBandId);
+  auto Transformed = applyLoopReversal(Band, NewBandId);
 
   if (!D.isValidSchedule(S, Transformed)) {
-      LLVM_DEBUG(dbgs() << "LoopReversal not semantically legal\n");
-      return;
+    LLVM_DEBUG(dbgs() << "LoopReversal not semantically legal\n");
+    return;
   }
 
   Sched = Transformed;
@@ -2319,9 +2320,9 @@ static void applyLoopTiling(Scop &S, isl::schedule &Sched,
 
   auto Transformed = OuterBand.get_schedule();
 
-    if (!D.isValidSchedule(S, Transformed)) {
-      LLVM_DEBUG(dbgs() << "LoopReversal not semantically legal\n");
-      return;
+  if (!D.isValidSchedule(S, Transformed)) {
+    LLVM_DEBUG(dbgs() << "LoopReversal not semantically legal\n");
+    return;
   }
 
   Sched = Transformed;
@@ -2386,7 +2387,8 @@ interchangeBands(isl::schedule_node Band,
 
 static void applyLoopInterchange(Scop &S, isl::schedule &Sched,
                                  ArrayRef<LoopIdentification> TheLoops,
-                                 ArrayRef<LoopIdentification> Permutation, const Dependences &D) {
+                                 ArrayRef<LoopIdentification> Permutation,
+                                 const Dependences &D) {
   SmallVector<isl::schedule_node, 4> Bands;
   for (auto TheLoop : TheLoops) {
     auto TheBand = findBand(Sched, TheLoop);
@@ -2399,18 +2401,18 @@ static void applyLoopInterchange(Scop &S, isl::schedule &Sched,
   auto Result = interchangeBands(OutermostBand, Permutation);
   auto Transformed = Result.get_schedule();
 
-    if (!D.isValidSchedule(S, Transformed)) {
-      LLVM_DEBUG(dbgs() << "LoopReversal not semantically legal\n");
-      return;
+  if (!D.isValidSchedule(S, Transformed)) {
+    LLVM_DEBUG(dbgs() << "LoopReversal not semantically legal\n");
+    return;
   }
 
   Sched = Transformed;
 }
 
-static void applyDataPack(Scop &S, isl::schedule &Sched, LoopIdentification TheLoop, const ScopArrayInfo *SAI) {
+static void applyDataPack(Scop &S, isl::schedule &Sched,
+                          LoopIdentification TheLoop,
+                          const ScopArrayInfo *SAI) {
   auto TheBand = findBand(Sched, TheLoop);
-
-
 
   //  scop->getScopArrayInfoOrNull();
   // auto Result = packArray(TheBand,Permutation );
@@ -2437,36 +2439,39 @@ isl::id makeTransformLoopId(isl::ctx Ctx, MDNode *TheTransformation,
   return isl::id::alloc(Ctx, TheName, User.getOpaqueValue());
 }
 
-
-static void collectAccessInstList(SmallVectorImpl<Instruction*> &Insts,  DenseSet<MDNode*> InstMDs, Function &F, StringRef MetadataName = "llvm.access") {
-    Insts.reserve(InstMDs.size());
-    for (auto &BB : F) {
-        for (auto &Inst : BB) {
-           auto MD = Inst.getMetadata(MetadataName);
-           if (InstMDs.count(MD))
-               Insts.push_back(&Inst);
-        }
+static void collectAccessInstList(SmallVectorImpl<Instruction *> &Insts,
+                                  DenseSet<MDNode *> InstMDs, Function &F,
+                                  StringRef MetadataName = "llvm.access") {
+  Insts.reserve(InstMDs.size());
+  for (auto &BB : F) {
+    for (auto &Inst : BB) {
+      auto MD = Inst.getMetadata(MetadataName);
+      if (InstMDs.count(MD))
+        Insts.push_back(&Inst);
     }
+  }
 }
 
-static void collectMemoryAccessList(SmallVectorImpl<MemoryAccess *> &MemAccs, ArrayRef<Instruction*> Insts, Scop &S) {
-    auto &R = S.getRegion();
+static void collectMemoryAccessList(SmallVectorImpl<MemoryAccess *> &MemAccs,
+                                    ArrayRef<Instruction *> Insts, Scop &S) {
+  auto &R = S.getRegion();
 
-    for (auto Inst : Insts) {
-        if (!R.contains(Inst))
-            continue;
+  for (auto Inst : Insts) {
+    if (!R.contains(Inst))
+      continue;
 
-        auto Stmt = S.getStmtFor(Inst);
-        assert(Stmt && "All memory accesses should be modeled");
-        auto MemAcc = Stmt->getArrayAccessOrNULLFor(Inst);
-        assert(MemAcc  && "All memory accesses should be modeled by a MemoryAccess");
-        if (MemAcc)
-        MemAccs.push_back(MemAcc);
-    }
+    auto Stmt = S.getStmtFor(Inst);
+    assert(Stmt && "All memory accesses should be modeled");
+    auto MemAcc = Stmt->getArrayAccessOrNULLFor(Inst);
+    assert(MemAcc && "All memory accesses should be modeled by a MemoryAccess");
+    if (MemAcc)
+      MemAccs.push_back(MemAcc);
+  }
 }
 
 static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
-                                                isl::schedule_constraints &SC, const Dependences &D) {
+                                                isl::schedule_constraints &SC,
+                                                const Dependences &D) {
   auto &F = S.getFunction();
   bool Changed = false;
 
@@ -2538,25 +2543,25 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
       auto ApplyOnArg = OpMD->getOperand(1).get();
       auto LoopToPack = identifyLoopBy(ApplyOnArg);
 
-      auto AccessList = cast<MDNode>( OpMD->getOperand(2).get());
+      auto AccessList = cast<MDNode>(OpMD->getOperand(2).get());
 
-      DenseSet<MDNode*> AccMDs;
+      DenseSet<MDNode *> AccMDs;
       AccMDs.reserve(AccessList->getNumOperands());
-      for (auto &AccMD :AccessList->operands() ) {
-        AccMDs.insert(cast<MDNode>( AccMD.get()));
+      for (auto &AccMD : AccessList->operands()) {
+        AccMDs.insert(cast<MDNode>(AccMD.get()));
       }
 
-
-      SmallVector<Instruction*,32> AccInsts;
+      SmallVector<Instruction *, 32> AccInsts;
       collectAccessInstList(AccInsts, AccMDs, F);
-       SmallVector<MemoryAccess*,32> MemAccs;
+      SmallVector<MemoryAccess *, 32> MemAccs;
       collectMemoryAccessList(MemAccs, AccInsts, S);
 
-      SmallPtrSet<const ScopArrayInfo*, 2> SAIs;
+      SmallPtrSet<const ScopArrayInfo *, 2> SAIs;
       for (auto MemAcc : MemAccs) {
         SAIs.insert(MemAcc->getLatestScopArrayInfo());
       }
-      // TODO: Check consistency: Are all MemoryAccesses for all selected SAIs in MemAccs?
+      // TODO: Check consistency: Are all MemoryAccesses for all selected SAIs
+      // in MemAccs?
       // TODO: What should happen for MemoryAccess that got their SAI changed?
 
       for (auto *SAI : SAIs)
