@@ -65,6 +65,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/LoopUtils.h"
+#include "polly/Support/ISLTools.h"
 #include "isl/constraint.h"
 #include "isl/ctx.h"
 #include "isl/map.h"
@@ -1705,10 +1706,10 @@ public:
     Result.ByLoop = L;
     Result.ByMetadata = L->getLoopID();
 #if 0
-		if (Result.ByMetadata) {
-		 	auto IdVal = findStringMetadataForLoop(L, "llvm.loop.id");
-			if (IdVal) 
-				Result.ByName = cast<MDString>(IdVal.getValue()->get())->getString();
+        if (Result.ByMetadata) {
+            auto IdVal = findStringMetadataForLoop(L, "llvm.loop.id");
+            if (IdVal) 
+                Result.ByName = cast<MDString>(IdVal.getValue()->get())->getString();
           }
 #endif
     return Result;
@@ -1722,10 +1723,10 @@ public:
     Result.ByName = Id.get_name();
     // Result.ByMetadata = Result.ByLoop->getLoopID();
 #if 0
-		if (Result.ByMetadata) {
-		 	auto IdVal = findStringMetadataForLoop(Result.ByLoop, "llvm.loop.id");
-			if (IdVal) 
-				Result.ByName = cast<MDString>(IdVal.getValue())->getString();
+        if (Result.ByMetadata) {
+            auto IdVal = findStringMetadataForLoop(Result.ByLoop, "llvm.loop.id");
+            if (IdVal) 
+                Result.ByName = cast<MDString>(IdVal.getValue())->getString();
           }
 #endif
     return Result;
@@ -2409,15 +2410,342 @@ static void applyLoopInterchange(Scop &S, isl::schedule &Sched,
   Sched = Transformed;
 }
 
+
+
+static void collectStmtDomains(isl::schedule_node Node,isl::union_set &Result, bool Inclusive) {
+    switch (isl_schedule_node_get_type(Node.get()))    {
+    case isl_schedule_node_leaf:
+        if (Inclusive) {
+          auto Dom=  Node.get_domain();
+          if (Result)
+            Result = Result.unite(Dom);
+          else 
+              Result = Dom;
+        }
+        break;
+    default:
+        auto n =Node.n_children();
+        for (auto i=0; i< n;i+=1)
+            collectStmtDomains(Node.get_child(i), Result, true);
+        break;
+    }
+}
+
+
+/// @return { Outer[] -> Inner[] }
+static isl::union_map collectDefinedDomains(isl::schedule_node Node) {
+    switch (isl_schedule_node_get_type(Node.get()))    {
+    case isl_schedule_node_leaf: {
+          auto Dom=  Node.get_domain();
+          return isl::union_map::from_domain(Dom);
+    } break;
+    case isl_schedule_node_band: {
+                auto Partial = isl::manage(isl_schedule_node_band_get_partial_schedule( Node.get()));
+
+        };
+    default:
+        auto n =Node.n_children();
+        auto Result = isl::union_map::empty( Node.get_universe_domain().get_space().params());
+        for (auto i=0; i< n;i+=1) {
+          auto Res =  collectDefinedDomains(Node.get_child(i));
+          Result = Result.unite(Res);
+        }
+        return Result;
+        break;
+    }
+}
+
+static isl::union_map collectParentSchedules(isl::schedule_node Node) {
+    auto ParamSpace =   Node.get_universe_domain().get_space();
+    isl::union_set Doms = isl::union_set::empty(ParamSpace);
+    collectStmtDomains(Node, Doms, false);
+
+    // { [] -> Stmt[] }
+    auto Result = isl::union_map::from_range(Doms);
+
+    SmallVector<isl::schedule_node, 4> Ancestors;
+    auto Anc = Node.parent();
+    while (true) {
+        Ancestors.push_back(Anc);
+        if (!Anc.has_parent())
+            break;
+        Anc = Anc.parent();
+    }
+
+
+    for (auto Ancestor : reverse( Ancestors)) {
+        switch (isl_schedule_node_get_type(Ancestor.get()))    {
+        case isl_schedule_node_band: {
+
+         // { Stmt[] -> PartialSched[] }
+         auto Partial = isl::union_map::from( isl::manage(isl_schedule_node_band_get_partial_schedule(Ancestor.get())));
+
+         Result = Result.flat_domain_product(Partial.reverse());
+        } break;
+        case isl_schedule_node_domain: // root node
+        case isl_schedule_node_mark:
+            break; 
+        default:
+            llvm_unreachable("X");
+    }
+    }
+
+    return Result;
+}
+
+static isl::union_map collectPartialSchedules(isl::schedule_node Node) {
+    switch (isl_schedule_node_get_type(Node.get()))    {
+    case isl_schedule_node_leaf: {
+          auto Dom=  Node.get_domain();
+
+          // { [] -> Stmt[] }
+          return isl::union_map::from_domain(Dom);
+    } break;
+    case isl_schedule_node_band: {
+        auto Child = Node.get_child(0);
+
+        // { SchedSuffix[] -> Stmt[] }
+        auto ChildPartialSched = collectPartialSchedules(Child);
+
+        // { Stmt[] -> PartialSched[] }
+         auto Partial = isl::manage(isl_schedule_node_band_get_partial_schedule( Node.get()));
+    };
+    default:
+        llvm_unreachable("X");
+        auto n =Node.n_children();
+        auto Result = isl::union_map::empty( Node.get_universe_domain().get_space().params());
+        for (auto i=0; i< n;i+=1) {
+          auto Res =  collectDefinedDomains(Node.get_child(i));
+          Result = Result.unite(Res);
+        }
+        return Result;
+        break;
+    }
+}
+
+
+
+
+static void collectMemAccsDomains(isl::schedule_node Node,const ScopArrayInfo *SAI, isl::union_map &Result,  bool Inclusive ) {
+    switch (isl_schedule_node_get_type(Node.get()))    {
+    case isl_schedule_node_leaf:
+        if (Inclusive) {
+          auto Doms=  Node.get_domain();
+          for (auto Dom : Doms.get_set_list()) {
+              auto Stmt = reinterpret_cast<ScopStmt*>( Dom.get_tuple_id().get_user());
+              for (auto MemAcc : *Stmt) {
+                if (MemAcc->getLatestScopArrayInfo() != SAI)
+                    continue;
+
+                auto AccDom =  MemAcc->getLatestAccessRelation().intersect_domain( Stmt->getDomain());
+            if (Result)
+                Result = Result.unite(AccDom);
+            else 
+              Result = AccDom;
+        }
+              }
+          }
+
+        break;
+    default:
+        auto n =Node.n_children();
+        for (auto i=0; i< n;i+=1)
+            collectMemAccsDomains(Node.get_child(i), SAI, Result, true);
+        break;
+    }
+}
+
+
+
+
 static void applyDataPack(Scop &S, isl::schedule &Sched,
                           LoopIdentification TheLoop,
                           const ScopArrayInfo *SAI) {
+    auto Ctx = S.getIslCtx();
   auto TheBand = findBand(Sched, TheLoop);
 
-  //  scop->getScopArrayInfoOrNull();
-  // auto Result = packArray(TheBand,Permutation );
-  // Sched = Result.get_schedule();
+  
+  isl::union_set Doms = isl::union_set::empty(S.getParamSpace());
+  collectStmtDomains(TheBand, Doms, false);
+
+  isl::union_map Accs = isl::union_map::empty(S.getParamSpace());
+  collectMemAccsDomains(TheBand, SAI, Accs, false);
+
+  // { PrefixSched[] -> Stmt[] }
+  auto InnerInstances = collectParentSchedules(TheBand);
+
+auto AccessedByPrefix = InnerInstances.apply_range(Accs);
+
+ 
+      auto WorkingSet = isl::map::from_union_map(AccessedByPrefix);
+      auto IndexSpace = WorkingSet.get_space().range();
+      auto LocalIndexSpace = isl::local_space( IndexSpace);
+
+      // { PrefixSched[] }
+      auto PrefixSpace = WorkingSet.get_space().domain(); 
+      auto PrefixUniverse = isl::set::universe(PrefixSpace);
+
+
+
+
+
+      // Get the rectangular shape
+      auto Dims = WorkingSet.dim(isl::dim::out);
+      SmallVector<isl::pw_aff, 4> Mins;
+      SmallVector<isl::pw_aff, 4> Lens;
+
+      isl::pw_aff_list FromDimTo = isl::pw_aff_list::alloc(Ctx, Dims );
+      isl::pw_aff_list DimSizes = isl::pw_aff_list::alloc(Ctx, Dims );
+       isl::pw_aff_list DimMins = isl::pw_aff_list::alloc(Ctx, Dims );
+      for (auto i = 0; i < Dims; i+=1) {
+          auto TheDim = WorkingSet.project_out(isl::dim::out, i+1, Dims-i-1).project_out(isl::dim::out, 0, i);
+          auto Min = TheDim.lexmin_pw_multi_aff().get_pw_aff(0);
+          auto Max = TheDim.lexmax_pw_multi_aff().get_pw_aff(0);
+       
+         
+          auto One =  isl::aff( isl::local_space( Min.get_space().domain() ) , isl::val(LocalIndexSpace.get_ctx(), 1));
+               auto Len =  Max.add (Min.neg()).add( One );
+
+              // auto Translate =  isl::pw_aff::var_on_domain(  LocalIndexSpace, isl::dim::set, i). add( Min.neg());
+
+            Mins.push_back(Min);
+            Lens.push_back(Len);
+
+           DimMins= DimMins.add(Min);
+           // FromDimTo.add( Translate );
+        DimSizes =    DimSizes.add(Len);
+      }
+
+      // { PrefixSched[] -> Data[] }
+      auto SourceSpace = PrefixSpace.map_from_domain_and_range(IndexSpace) ;
+      auto AllMins = isl::multi_pw_aff::from_pw_aff_list(SourceSpace , DimMins);
+
+       // {  PrefixSched[] -> [Data[] -> PackedData[]] } 
+      auto TargetSpace = PrefixSpace.map_from_domain_and_range(  IndexSpace.map_from_domain_and_range( IndexSpace).wrap() );
+      
+     auto Translator = isl::basic_map::universe( SourceSpace .wrap().map_from_domain_and_range(TargetSpace.wrap()));
+     auto TraslatorLS = Translator.get_local_space();
+
+     for (auto i=0;i<PrefixSpace.dim(isl::dim::set);i+=1) {
+                  auto C= isl::constraint::alloc_equality(TraslatorLS);
+         C=C.set_coefficient_si(isl::dim::in,  i, 1);
+         C= C.set_coefficient_si(isl::dim::out,  i, -1);
+   Translator=      Translator.add_constraint(C);
+     }
+     for (auto i=0;i<IndexSpace.dim(isl::dim::set);i+=1) {
+         auto C= isl::constraint::alloc_equality(TraslatorLS);
+      C=   C.set_coefficient_si(isl::dim::in, PrefixSpace.dim(isl::dim::set) + i, 1);
+       C=   C.set_coefficient_si(isl::dim::out, PrefixSpace.dim(isl::dim::set) + i, -1);
+       Translator=      Translator.add_constraint(C);
+     }
+     for (auto i=0;i<IndexSpace.dim(isl::dim::set);i+=1) {
+         auto C= isl::constraint::alloc_equality(TraslatorLS);
+        C= C.set_coefficient_si(isl::dim::in, PrefixSpace.dim(isl::dim::set) + i, 1); // Min
+        C= C.set_coefficient_si(isl::dim::out, PrefixSpace.dim(isl::dim::set) + i, -1); // i
+       C=  C.set_coefficient_si(isl::dim::out, PrefixSpace.dim(isl::dim::set) + IndexSpace.dim(isl::dim::set) + i, 1); // x
+      Translator=       Translator.add_constraint(C);
+     }
+   auto OrigToPackedIndexMap = isl::map::from_multi_pw_aff(AllMins).wrap().apply(Translator);
+
+// isl::map(  Translator).apply();// intersect_domain(AllMins.wrap());
+
+
+      // { Data[] -> Data[] } 
+      auto IndexIdentity = isl::multi_pw_aff::identity( IndexSpace );
+
+      // {  PrefixSched[] -> [Data[] -> Data[]] } 
+     auto IndexIdentity2 =  isl::map::from_domain_and_range(PrefixUniverse, isl::map::from_multi_pw_aff ( IndexIdentity).wrap() );
+      
+
+
+#if 0
+      for (auto i = 0; i < Dims; i+=1) {
+          // { PrefixSched[] -> Data[] }
+          auto Min = Mins[i];
+
+
+
+          // { Data[] -> Data[] }
+         auto Translate =  isl::pw_aff::var_on_domain(  LocalIndexSpace, isl::dim::set, i);
+
+
+         // { PrefixSched[] -> [Data[] -> Data[]] }
+
+
+          FromDimTo.add( Translate );
+      }
+      
+
+     auto IndexTranslator = isl::multi_pw_aff::from_pw_aff_list( IndexSpace.map_from_domain_and_range(IndexSpace)  , FromDimTo);
+     IndexTranslator.dump();
+     #endif
 }
+
+
+#if 0
+static isl::schedule_node packArray(isl::schedule_node Node, isl::map MapOldIndVar) {
+  auto InputDimsId = MapOldIndVar.get_tuple_id(isl::dim::in);
+  auto *Stmt = static_cast<ScopStmt *>(InputDimsId.get_user());
+
+  // Create a copy statement that corresponds to the memory access to the
+  // matrix B, the second operand of the matrix multiplication.
+  Node = Node.parent().parent().parent().parent().parent().parent();
+  Node = isl::manage(isl_schedule_node_band_split(Node.release(), 2)).child(0);
+  auto AccRel = getMatMulAccRel(MapOldIndVar, 3, 7);
+  unsigned FirstDimSize = MacroParams.Nc / MicroParams.Nr;
+  unsigned SecondDimSize = MacroParams.Kc;
+  unsigned ThirdDimSize = MicroParams.Nr;
+  auto *SAI = Stmt->getParent()->createScopArrayInfo(
+      MMI.B->getElementType(), "Packed_B",
+      {FirstDimSize, SecondDimSize, ThirdDimSize});
+  AccRel = AccRel.set_tuple_id(isl::dim::out, SAI->getBasePtrId());
+  auto OldAcc = MMI.B->getLatestAccessRelation();
+  MMI.B->setNewAccessRelation(AccRel);
+  auto ExtMap = MapOldIndVar.project_out(isl::dim::out, 2,
+                                         MapOldIndVar.dim(isl::dim::out) - 2);
+  ExtMap = ExtMap.reverse();
+  ExtMap = ExtMap.fix_si(isl::dim::out, MMI.i, 0);
+  auto Domain = Stmt->getDomain();
+
+  // Restrict the domains of the copy statements to only execute when also its
+  // originating statement is executed.
+  auto DomainId = Domain.get_tuple_id();
+  auto *NewStmt = Stmt->getParent()->addScopStmt(
+      OldAcc, MMI.B->getLatestAccessRelation(), Domain);
+  ExtMap = ExtMap.set_tuple_id(isl::dim::out, DomainId);
+  ExtMap = ExtMap.intersect_range(Domain);
+  ExtMap = ExtMap.set_tuple_id(isl::dim::out, NewStmt->getDomainId());
+  Node = createExtensionNode(Node, ExtMap);
+
+  // Create a copy statement that corresponds to the memory access
+  // to the matrix A, the first operand of the matrix multiplication.
+  Node = Node.child(0);
+  AccRel = getMatMulAccRel(MapOldIndVar, 4, 6);
+  FirstDimSize = MacroParams.Mc / MicroParams.Mr;
+  ThirdDimSize = MicroParams.Mr;
+  SAI = Stmt->getParent()->createScopArrayInfo(
+      MMI.A->getElementType(), "Packed_A",
+      {FirstDimSize, SecondDimSize, ThirdDimSize});
+  AccRel = AccRel.set_tuple_id(isl::dim::out, SAI->getBasePtrId());
+  OldAcc = MMI.A->getLatestAccessRelation();
+  MMI.A->setNewAccessRelation(AccRel);
+  ExtMap = MapOldIndVar.project_out(isl::dim::out, 3,
+                                    MapOldIndVar.dim(isl::dim::out) - 3);
+  ExtMap = ExtMap.reverse();
+  ExtMap = ExtMap.fix_si(isl::dim::out, MMI.j, 0);
+  NewStmt = Stmt->getParent()->addScopStmt(
+      OldAcc, MMI.A->getLatestAccessRelation(), Domain);
+
+  // Restrict the domains of the copy statements to only execute when also its
+  // originating statement is executed.
+  ExtMap = ExtMap.set_tuple_id(isl::dim::out, DomainId);
+  ExtMap = ExtMap.intersect_range(Domain);
+  ExtMap = ExtMap.set_tuple_id(isl::dim::out, NewStmt->getDomainId());
+  Node = createExtensionNode(Node, ExtMap);
+  return Node.child(0).child(0).child(0).child(0).child(0);
+}
+#endif
+
 
 LoopIdentification identifyLoopBy(Metadata *TheMetadata) {
   if (auto MDApplyOn = dyn_cast<MDString>(TheMetadata)) {
