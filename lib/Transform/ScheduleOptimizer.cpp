@@ -2578,8 +2578,8 @@ static void redirectAccesses(isl::schedule_node Node,
       auto Space = Domain.get_space();
       auto Id = Domain.get_tuple_id();
       auto Stmt = reinterpret_cast<ScopStmt *>(Id.get_user());
-      auto Domain = Stmt->getDomain();
-      assert(Domain.is_subset(Domain) &&
+      //auto Domain = Stmt->getDomain();
+      assert(Stmt->getDomain().is_subset(Domain) &&
              "Have to copy statement if not transforming all instances");
       auto DomainSpace = Domain.get_space();
 
@@ -2614,6 +2614,32 @@ static void redirectAccesses(isl::schedule_node Node,
   }
 }
 
+static void collectSubtreeAccesses(isl::schedule_node Node, const ScopArrayInfo *SAI, SmallVectorImpl<MemoryAccess*>& Accs) {
+  if (isl_schedule_node_get_type(Node.get()) == isl_schedule_node_leaf) {
+    auto UDomain = Node.get_domain();
+    for (auto Domain : UDomain.get_set_list()) {
+      auto Space = Domain.get_space();
+      auto Id = Domain.get_tuple_id();
+      auto Stmt = reinterpret_cast<ScopStmt *>(Id.get_user());
+
+
+      for (auto *MemAcc : *Stmt) {
+        if (MemAcc->getLatestScopArrayInfo() != SAI)
+          continue;
+
+        Accs.push_back(MemAcc);
+    }
+  }
+  }
+
+  auto n = Node.n_children();
+  for (auto i = 0; i < n; i += 1) {
+    auto Child = Node.get_child(i);
+    collectSubtreeAccesses(Child, SAI, Accs);
+  }
+}
+
+
 static void applyDataPack(Scop &S, isl::schedule &Sched,
                           LoopIdentification TheLoop,
                           const ScopArrayInfo *SAI) {
@@ -2628,6 +2654,19 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
 
   isl::union_map Accs = isl::union_map::empty(S.getParamSpace());
   collectMemAccsDomains(TheBand, SAI, Accs, false);
+
+  SmallVector<MemoryAccess*,16> MemAccs;
+  collectSubtreeAccesses(TheBand, SAI, MemAccs);
+
+
+  for (auto *Acc : MemAccs) {
+      if (Acc->isAffine())
+          continue;
+
+      LLVM_DEBUG(dbgs() << "#pragma clang loop pack failed: Can only transform affine access relations");
+      return;
+  }
+
 
   // { PrefixSched[] -> Domain[] }
   auto InnerInstances = collectParentSchedules(TheBand);
@@ -2766,6 +2805,7 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
   auto CopyOutId = CopyOutDomain.get_tuple_id();
 
   // Update all inner access-relations to access PackedSAI instead of SAI
+  // TODO: Use MemAccs instead of traversing the subtree again
   redirectAccesses(TheBand, OrigToPackedIndexMap, InnerInstances);
 
   // Insert Copy-In/Out into schedule tree
