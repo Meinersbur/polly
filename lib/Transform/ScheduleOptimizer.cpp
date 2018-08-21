@@ -2578,7 +2578,7 @@ static void redirectAccesses(isl::schedule_node Node,
       auto Space = Domain.get_space();
       auto Id = Domain.get_tuple_id();
       auto Stmt = reinterpret_cast<ScopStmt *>(Id.get_user());
-      //auto Domain = Stmt->getDomain();
+      // auto Domain = Stmt->getDomain();
       assert(Stmt->getDomain().is_subset(Domain) &&
              "Have to copy statement if not transforming all instances");
       auto DomainSpace = Domain.get_space();
@@ -2614,7 +2614,9 @@ static void redirectAccesses(isl::schedule_node Node,
   }
 }
 
-static void collectSubtreeAccesses(isl::schedule_node Node, const ScopArrayInfo *SAI, SmallVectorImpl<MemoryAccess*>& Accs) {
+static void collectSubtreeAccesses(isl::schedule_node Node,
+                                   const ScopArrayInfo *SAI,
+                                   SmallVectorImpl<MemoryAccess *> &Accs) {
   if (isl_schedule_node_get_type(Node.get()) == isl_schedule_node_leaf) {
     auto UDomain = Node.get_domain();
     for (auto Domain : UDomain.get_set_list()) {
@@ -2622,14 +2624,13 @@ static void collectSubtreeAccesses(isl::schedule_node Node, const ScopArrayInfo 
       auto Id = Domain.get_tuple_id();
       auto Stmt = reinterpret_cast<ScopStmt *>(Id.get_user());
 
-
       for (auto *MemAcc : *Stmt) {
         if (MemAcc->getLatestScopArrayInfo() != SAI)
           continue;
 
         Accs.push_back(MemAcc);
+      }
     }
-  }
   }
 
   auto n = Node.n_children();
@@ -2638,7 +2639,6 @@ static void collectSubtreeAccesses(isl::schedule_node Node, const ScopArrayInfo 
     collectSubtreeAccesses(Child, SAI, Accs);
   }
 }
-
 
 static void applyDataPack(Scop &S, isl::schedule &Sched,
                           LoopIdentification TheLoop,
@@ -2655,18 +2655,17 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
   isl::union_map Accs = isl::union_map::empty(S.getParamSpace());
   collectMemAccsDomains(TheBand, SAI, Accs, false);
 
-  SmallVector<MemoryAccess*,16> MemAccs;
+  SmallVector<MemoryAccess *, 16> MemAccs;
   collectSubtreeAccesses(TheBand, SAI, MemAccs);
 
-
   for (auto *Acc : MemAccs) {
-      if (Acc->isAffine())
-          continue;
+    if (Acc->isAffine())
+      continue;
 
-      LLVM_DEBUG(dbgs() << "#pragma clang loop pack failed: Can only transform affine access relations");
-      return;
+    LLVM_DEBUG(dbgs() << "#pragma clang loop pack failed: Can only transform "
+                         "affine access relations");
+    return;
   }
-
 
   // { PrefixSched[] -> Domain[] }
   auto InnerInstances = collectParentSchedules(TheBand);
