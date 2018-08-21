@@ -1211,7 +1211,7 @@ public:
 
   /// Create a copy statement.
   ///
-  /// @param Stmt       The parent statement.
+  /// @param Scop       The parent SCoP.
   /// @param SourceRel  The source location.
   /// @param TargetRel  The target location.
   /// @param Domain     The original domain under which the copy statement would
@@ -2402,7 +2402,6 @@ public:
   ///
   /// A new statement will be created and added to the statement vector.
   ///
-  /// @param Stmt       The parent statement.
   /// @param SourceRel  The source location.
   /// @param TargetRel  The target location.
   /// @param Domain     The original domain under which the copy statement would

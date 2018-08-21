@@ -3975,6 +3975,7 @@ ScopArrayInfo *Scop::createScopArrayInfo(Type *ElementType,
     else
       SCEVSizes.push_back(nullptr);
 
+  // FIXME: This could potentially just lookup a matching array
   auto *SAI = getOrCreateScopArrayInfo(nullptr, ElementType, SCEVSizes,
                                        MemoryKind::Array, BaseName.c_str());
   return SAI;

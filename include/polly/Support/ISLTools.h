@@ -186,6 +186,8 @@ isl::space getScatterSpace(const isl::union_map &Schedule);
 ///         A map that maps each value of @p USet to itself.
 isl::union_map makeIdentityMap(const isl::union_set &USet, bool RestrictDomain);
 
+isl::map castSpace(isl::map Orig, isl::space NewSpace);
+
 /// Reverse the nested map tuple in @p Map's domain.
 ///
 /// @param Map { [Space1[] -> Space2[]] -> Space3[] }
@@ -195,6 +197,10 @@ isl::map reverseDomain(isl::map Map);
 
 /// Piecewise reverseDomain(isl::map).
 isl::union_map reverseDomain(const isl::union_map &UMap);
+
+isl::map reverseRange(isl::map Map);
+
+isl::union_map reverseRange(const isl::union_map &UMap);
 
 /// Add a constant to one dimension of a set.
 ///

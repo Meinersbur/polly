@@ -183,6 +183,11 @@ isl::union_map polly::makeIdentityMap(const isl::union_set &USet,
   return Result;
 }
 
+isl::map polly:: castSpace(isl::map Orig, isl::space NewSpace) {
+   auto Identitiy = isl::map::identity(  Orig.get_space() .wrap().map_from_domain_and_range(NewSpace.wrap()) );
+   return Orig.wrap().apply(Identitiy).unwrap();
+}
+
 isl::map polly::reverseDomain(isl::map Map) {
   isl::space DomSpace = Map.get_space().domain().unwrap();
   isl::space Space1 = DomSpace.domain();
@@ -199,6 +204,24 @@ isl::union_map polly::reverseDomain(const isl::union_map &UMap) {
   }
   return Result;
 }
+
+isl::map polly::reverseRange(isl::map Map) {
+  isl::space RangeSpace = Map.get_space().range().unwrap();
+  isl::space Space1 = RangeSpace.domain();
+  isl::space Space2 = RangeSpace.range();
+  isl::map Swap = makeTupleSwapMap(Space1, Space2);
+  return Map.apply_range(Swap);
+}
+
+isl::union_map polly::reverseRange(const isl::union_map &UMap) {
+  isl::union_map Result = isl::union_map::empty(UMap.get_space());
+  for (isl::map Map : UMap.get_map_list()) {
+    auto Reversed = reverseRange(std::move(Map));
+    Result = Result.add_map(Reversed);
+  }
+  return Result;
+}
+
 
 isl::set polly::shiftDim(isl::set Set, int Pos, int Amount) {
   int NumDims = Set.dim(isl::dim::set);
