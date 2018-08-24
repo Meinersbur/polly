@@ -3095,8 +3095,8 @@ static isl::schedule hoistExtensionNodes(isl::schedule Sched) {
 }
 
 static void applyDataPack(Scop &S, isl::schedule &Sched,
-                          LoopIdentification TheLoop,
-                          const ScopArrayInfo *SAI) {
+                          LoopIdentification TheLoop, const ScopArrayInfo *SAI,
+                          bool OnHeap) {
   auto Ctx = S.getIslCtx();
   auto TheBand = findBand(Sched, TheLoop);
 
@@ -3194,6 +3194,7 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
       SAI->getElementType(), (llvm::Twine("Packed_") + SAI->getName()).str(),
       PackedSizes);
   auto PackedId = PackedSAI->getBasePtrId();
+  PackedSAI->setIsOnHeap(OnHeap);
   auto PackedSpace = IndexSpace.set_tuple_id(isl::dim::set, PackedId);
 
   // {  PrefixSched[] -> [Data[] -> PackedData[]] }
@@ -3279,70 +3280,6 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
   auto SchedWithoutExtensionNodes = hoistExtensionNodes(NewSched);
   Sched = SchedWithoutExtensionNodes;
 }
-
-#if 0
-static isl::schedule_node packArray(isl::schedule_node Node, isl::map MapOldIndVar) {
-  auto InputDimsId = MapOldIndVar.get_tuple_id(isl::dim::in);
-  auto *Stmt = static_cast<ScopStmt *>(InputDimsId.get_user());
-
-  // Create a copy statement that corresponds to the memory access to the
-  // matrix B, the second operand of the matrix multiplication.
-  Node = Node.parent().parent().parent().parent().parent().parent();
-  Node = isl::manage(isl_schedule_node_band_split(Node.release(), 2)).child(0);
-  auto AccRel = getMatMulAccRel(MapOldIndVar, 3, 7);
-  unsigned FirstDimSize = MacroParams.Nc / MicroParams.Nr;
-  unsigned SecondDimSize = MacroParams.Kc;
-  unsigned ThirdDimSize = MicroParams.Nr;
-  auto *SAI = Stmt->getParent()->createScopArrayInfo(
-      MMI.B->getElementType(), "Packed_B",
-      {FirstDimSize, SecondDimSize, ThirdDimSize});
-  AccRel = AccRel.set_tuple_id(isl::dim::out, SAI->getBasePtrId());
-  auto OldAcc = MMI.B->getLatestAccessRelation();
-  MMI.B->setNewAccessRelation(AccRel);
-  auto ExtMap = MapOldIndVar.project_out(isl::dim::out, 2,
-                                         MapOldIndVar.dim(isl::dim::out) - 2);
-  ExtMap = ExtMap.reverse();
-  ExtMap = ExtMap.fix_si(isl::dim::out, MMI.i, 0);
-  auto Domain = Stmt->getDomain();
-
-  // Restrict the domains of the copy statements to only execute when also its
-  // originating statement is executed.
-  auto DomainId = Domain.get_tuple_id();
-  auto *NewStmt = Stmt->getParent()->addScopStmt(
-      OldAcc, MMI.B->getLatestAccessRelation(), Domain);
-  ExtMap = ExtMap.set_tuple_id(isl::dim::out, DomainId);
-  ExtMap = ExtMap.intersect_range(Domain);
-  ExtMap = ExtMap.set_tuple_id(isl::dim::out, NewStmt->getDomainId());
-  Node = createExtensionNode(Node, ExtMap);
-
-  // Create a copy statement that corresponds to the memory access
-  // to the matrix A, the first operand of the matrix multiplication.
-  Node = Node.child(0);
-  AccRel = getMatMulAccRel(MapOldIndVar, 4, 6);
-  FirstDimSize = MacroParams.Mc / MicroParams.Mr;
-  ThirdDimSize = MicroParams.Mr;
-  SAI = Stmt->getParent()->createScopArrayInfo(
-      MMI.A->getElementType(), "Packed_A",
-      {FirstDimSize, SecondDimSize, ThirdDimSize});
-  AccRel = AccRel.set_tuple_id(isl::dim::out, SAI->getBasePtrId());
-  OldAcc = MMI.A->getLatestAccessRelation();
-  MMI.A->setNewAccessRelation(AccRel);
-  ExtMap = MapOldIndVar.project_out(isl::dim::out, 3,
-                                    MapOldIndVar.dim(isl::dim::out) - 3);
-  ExtMap = ExtMap.reverse();
-  ExtMap = ExtMap.fix_si(isl::dim::out, MMI.j, 0);
-  NewStmt = Stmt->getParent()->addScopStmt(
-      OldAcc, MMI.A->getLatestAccessRelation(), Domain);
-
-  // Restrict the domains of the copy statements to only execute when also its
-  // originating statement is executed.
-  ExtMap = ExtMap.set_tuple_id(isl::dim::out, DomainId);
-  ExtMap = ExtMap.intersect_range(Domain);
-  ExtMap = ExtMap.set_tuple_id(isl::dim::out, NewStmt->getDomainId());
-  Node = createExtensionNode(Node, ExtMap);
-  return Node.child(0).child(0).child(0).child(0).child(0);
-}
-#endif
 
 LoopIdentification identifyLoopBy(Metadata *TheMetadata) {
   if (auto MDApplyOn = dyn_cast<MDString>(TheMetadata)) {
@@ -3493,6 +3430,8 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
     }
 
     if (WhichStr == "llvm.data.pack") {
+      assert(OpMD->getNumOperands() == 4);
+
       auto ApplyOnArg = OpMD->getOperand(1).get();
       auto LoopToPack = identifyLoopBy(ApplyOnArg);
 
@@ -3517,8 +3456,11 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
       // in MemAccs?
       // TODO: What should happen for MemoryAccess that got their SAI changed?
 
+      auto OnHeap =
+          cast<MDString>(OpMD->getOperand(3).get())->getString() == "malloc";
+
       for (auto *SAI : SAIs)
-        applyDataPack(S, Sched, LoopToPack, SAI);
+        applyDataPack(S, Sched, LoopToPack, SAI, OnHeap);
       continue;
     }
 
