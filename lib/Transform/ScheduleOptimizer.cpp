@@ -1474,8 +1474,10 @@ static void walkScheduleTreeForStatistics(isl::schedule Schedule, int Version) {
 template <typename Derived, typename RetVal = void, typename... Args>
 struct ScheduleTreeVisitor {
   Derived &getDerived() { return *static_cast<Derived *>(this); }
-  const Derived &getDerived() const {
-    return *static_cast<const Derived *>(this);
+  const Derived &getDerived() const {    return *static_cast<const Derived *>(this);  }
+
+  RetVal visit(const isl::schedule &Schedule, Args... args) {
+    return visit( Schedule.get_root(), args... );
   }
 
   RetVal visit(const isl::schedule_node &Node, Args... args) {
@@ -1498,6 +1500,12 @@ struct ScheduleTreeVisitor {
     case isl_schedule_node_mark:
       assert(isl_schedule_node_n_children(Node.get()) == 1);
       return getDerived().visitMark(Node, args...);
+    case isl_schedule_node_extension:
+        assert(isl_schedule_node_n_children(Node.get()) == 1);
+         return getDerived().visitExtension(Node, args...);
+    case isl_schedule_node_filter:
+                assert(isl_schedule_node_n_children(Node.get()) == 1);
+         return getDerived().visitFilter(Node, args...);
     default:
       llvm_unreachable("unimplemented schedule node type");
     }
@@ -1527,21 +1535,137 @@ struct ScheduleTreeVisitor {
     return getDerived().visitOther(Mark, args...);
   }
 
+    RetVal visitExtension(const isl::schedule_node &Extension, Args... args) {
+    return getDerived().visitOther(Extension, args...);
+  }
+
+        RetVal visitFilter(const isl::schedule_node &Extension, Args... args) {
+    return getDerived().visitOther(Extension, args...);
+  }
+
   RetVal visitOther(const isl::schedule_node &Other, Args... args) {
     llvm_unreachable("Unimplemented other");
   }
 };
+
+
+template <typename Derived, typename RetTy = void, typename... Args>
+struct RecursiveScheduleTreeVisitor : public ScheduleTreeVisitor<Derived, RetTy,Args...> { 
+      Derived &getDerived() { return *static_cast<Derived *>(this); }
+  const Derived &getDerived() const {    return *static_cast<const Derived *>(this);  }
+
+
+  RetTy visitOther(const isl::schedule_node &Node, Args... args) {
+      getDerived().visitChildren(Node,args...);
+      return RetTy();
+  }
+
+    void visitChildren(const isl::schedule_node &Node, Args... args) {
+       auto NumChildren = isl_schedule_node_n_children(Node.get());
+       for (int i = 0; i < NumChildren; i += 1) {
+           auto Child = Node.child(i);
+            getDerived().visit(Child, args...);
+       }
+     }
+};
+
+#if 0
+template <typename Derived, typename RetTy = void, typename... Args>
+struct TopDownScheduleTreeVisitor { 
+      Derived &getDerived() { return *static_cast<Derived *>(this); }
+  const Derived &getDerived() const {
+    return *static_cast<const Derived *>(this);
+  }
+
+
+    RetTy visit(const isl::schedule_node &Node, Args... args) {
+    switch (isl_schedule_node_get_type(Node.get())) {
+    case isl_schedule_node_domain:
+      assert(isl_schedule_node_n_children(Node.get()) == 1);
+      return getDerived().visitDomain(Node, args...);
+    case isl_schedule_node_band:
+      assert(isl_schedule_node_n_children(Node.get()) == 1);
+      return getDerived().visitBand(Node, args...);
+    case isl_schedule_node_sequence:
+      assert(isl_schedule_node_n_children(Node.get()) >= 2);
+      return getDerived().visitSequence(Node, args...);
+    case isl_schedule_node_set:
+      return getDerived().visitSet(Node, args...);
+      assert(isl_schedule_node_n_children(Node.get()) >= 2);
+    case isl_schedule_node_leaf:
+      assert(isl_schedule_node_n_children(Node.get()) == 0);
+      return getDerived().visitLeaf(Node, args...);
+    case isl_schedule_node_mark:
+      assert(isl_schedule_node_n_children(Node.get()) == 1);
+      return getDerived().visitMark(Node, args...);
+    case isl_schedule_node_extension:
+        assert(isl_schedule_node_n_children(Node.get()) == 1);
+         return getDerived().visitExtension(Node, args...);
+    default:
+      llvm_unreachable("unimplemented schedule node type");
+    }
+  }
+
+     isl::schedule_node previsit( const isl::schedule_node &Node, const isl::schedule_node &NewParent) {
+    }
+
+     isl::schedule_node postvisit(const isl::schedule_node &Node, ArrayRef<isl::schedule_node> Children) {
+    }
+
+
+
+
+
+   isl::schedule_node visitDomain(const isl::schedule_node &Domain, Args... args) {
+        auto NewDomain = isl::schedule_node::from_domain(Domain.domain_get_domain());
+        return NewDomain;
+      }
+};
+#endif
+
+
+
+
+template <typename Derived, typename... Args>
+struct ScheduleNodeRewriteVisitor : public RecursiveScheduleTreeVisitor<Derived, isl::schedule_node, Args...> {
+          Derived &getDerived() { return *static_cast<Derived *>(this); }
+  const Derived &getDerived() const {
+    return *static_cast<const Derived *>(this);
+  }
+
+      isl::schedule_node visitDomain(const isl::schedule_node &Domain, Args... args) {
+                  auto Child = Domain.get_child(0);
+        auto NewChild = getDerived().visit(Child, args...);
+        if (Child.get() == NewChild.get())
+            return Domain;
+
+    auto X=    isl::schedule_node::from_domain(Domain.domain_get_domain());
+      }
+
+    isl::schedule_node visitBand(const isl::schedule_node &Band, Args... args) {
+        auto Child = Band.get_child(0);
+        auto NewChild = getDerived().visit(Child, args...);
+        if (Child.get() == NewChild.get())
+            return Band;
+
+            // TODO: apply band properties (coincident, permutable)
+    auto PartialSched = isl::manage(isl_schedule_node_band_get_partial_schedule(Band.get()));
+    return NewChild.insert_partial_schedule(PartialSched);
+    }
+};
+
 
 // TODO: Instead of always copying, an unmodified isl::schedule_tree could be
 // returned. Unfortunately, isl keeps the access to the data structure private
 // and forces users to create copies of the complete isl::schedule when
 // modifiying it.
 template <typename Derived, typename... Args>
-struct ScheduleTreeRewriteVisitor
-    : public ScheduleTreeVisitor<Derived, isl::schedule, Args...> {
-  Derived &getDerived() { return *static_cast<Derived *>(this); }
+struct ScheduleTreeRewriteVisitor : public RecursiveScheduleTreeVisitor<Derived, isl::schedule, Args...> {
+    Derived &getDerived() { return *static_cast<Derived *>(this); } const Derived &getDerived() const { return *static_cast<const Derived *>(this);    }
 
   isl::schedule visitDomain(const isl::schedule_node &Domain, Args... args) {
+      // Every isl::schedule implicitly has a domain node in its root, so no need to add a new one
+      // Extension nodes can also be roots; these would be converted to domain nodes then 
     return getDerived().visit(Domain.child(0), args...);
   }
 
@@ -1585,7 +1709,36 @@ struct ScheduleTreeRewriteVisitor
     auto NewChild = getDerived().visit(Mark.child(0), args...);
     return NewChild.get_root().get_child(0).insert_mark(TheMark).get_schedule();
   }
+
+  isl::schedule visitExtension(const isl::schedule_node &Extension, Args... args) {
+      llvm_unreachable("Not implemented");
+   // auto TheExtension = Extension.extension_get_extension();
+   // auto NewChild = getDerived().visit(Extension.child(0), args...);
+    //auto NewExtension = isl::manage( isl_schedule_node_insert_extension(NewChild.get_root().get_child(0).release(),TheExtension.release() ));
+   // return {};
+  }
+
+    isl::schedule visitFilter(const isl::schedule_node &Filter, Args... args) {
+    auto FilterDomain = Filter.filter_get_filter();
+    auto NewChild = getDerived().visit(Filter.child(0), args...);
+  auto NewSchedule =  NewChild.intersect_domain(FilterDomain);
+  return NewSchedule;
+
+    //auto NewExtension = isl::manage( isl_schedule_node_insert_extension(NewChild.get_root().get_child(0).release(),TheExtension.release() ));
+    //return {};
+  }
+
+     isl::schedule visitOther(const isl::schedule_node &Other, Args... args) {
+        llvm_unreachable("Not implemented");
+    }
 };
+
+
+
+
+
+
+
 
 class LoopRegistry {
   isl::ctx Ctx;
@@ -2301,7 +2454,9 @@ static isl::schedule_node tileBand(isl::schedule_node BandToTile,
 
 static void applyLoopTiling(Scop &S, isl::schedule &Sched,
                             ArrayRef<LoopIdentification> TheLoops,
-                            ArrayRef<int64_t> TileSizes, const Dependences &D) {
+                            ArrayRef<int64_t> TileSizes, const Dependences &D,  ArrayRef<StringRef> PitIds,  ArrayRef<StringRef> TileIds) {
+    auto IslCtx = S.getIslCtx();
+
   SmallVector<isl::schedule_node, 4> Bands;
   Bands.reserve(TheLoops.size());
   for (auto TheLoop : TheLoops) {
@@ -2317,11 +2472,36 @@ static void applyLoopTiling(Scop &S, isl::schedule &Sched,
   auto InnerBand = TheBand.get_child(0);
 
   InnerBand = separateBand(InnerBand);
+    for (auto TileId : TileIds) {
+        auto Mark = isl::id::alloc(IslCtx,( Twine( "Loop_") + TileId).str(), nullptr);
+        InnerBand =  insertMark(InnerBand, Mark);
+
+        InnerBand = InnerBand.get_child(0);
+  }
+
+    // Jump back to first of the tile loops
+for (int i = TileIds.size(); i >= 1; i-=1 ) {
+    InnerBand =   InnerBand.parent();
+    InnerBand = moveToBandMark(InnerBand);
+}
+
   OuterBand = InnerBand.parent();
+
   OuterBand = separateBand(OuterBand);
+    for (auto PitId : PitIds) {
+                auto Mark = isl::id::alloc(IslCtx,( Twine( "Loop_") + PitId).str(), nullptr);
+                 OuterBand =  insertMark(OuterBand, Mark);
+
+  OuterBand = OuterBand.get_child(0);
+  }
+
+        // Jump back to first of the pit loops
+for (int i = PitIds.size(); i >= 1; i-=1 ) {
+    OuterBand =   OuterBand.parent();
+    OuterBand = moveToBandMark(OuterBand);
+}
 
   auto Transformed = OuterBand.get_schedule();
-
   if (!D.isValidSchedule(S, Transformed)) {
     LLVM_DEBUG(dbgs() << "LoopReversal not semantically legal\n");
     return;
@@ -2586,9 +2766,12 @@ static void redirectAccesses(isl::schedule_node Node,
       // { Domain[] -> [Data[] -> PackedData[]] }
       auto PrefixDomainSpace =
           DomainSpace.map_from_domain_and_range(OrigToPackedSpace.wrap());
-      auto DomainOrigToPackedMap = singleton(
-          isl::union_map(OrigToPackedIndexMap).apply_domain(InnerInstances),
-          PrefixDomainSpace);
+      auto DomainOrigToPackedUMap = isl::union_map(OrigToPackedIndexMap).apply_domain(InnerInstances.intersect_range(Domain));
+      if (DomainOrigToPackedUMap.n_map() != 1) {
+          polly::dumpPw(DomainOrigToPackedUMap);
+          int a = 0;
+      }
+      auto DomainOrigToPackedMap = singleton(DomainOrigToPackedUMap          ,          PrefixDomainSpace);
 
       for (auto *MemAcc : *Stmt) {
         if (MemAcc->getLatestScopArrayInfo() != OrigSAI)
@@ -2596,12 +2779,14 @@ static void redirectAccesses(isl::schedule_node Node,
 
         // { Domain[] -> Data[] }
         auto OrigAccRel = MemAcc->getLatestAccessRelation();
+        auto OrigAccDom = OrigAccRel.domain().intersect(Domain) ; 
 
         // { Domain[] -> PackedData[] }
         auto PackedAccRel = OrigAccRel.domain_map()
                                 .apply_domain(DomainOrigToPackedMap.uncurry())
                                 .reverse();
 
+        assert ( OrigAccDom .is_subset( PackedAccRel.domain()) && "There must be a packed access for everything that the original access accessed");
         MemAcc->setNewAccessRelation(PackedAccRel);
       }
     }
@@ -2640,6 +2825,232 @@ static void collectSubtreeAccesses(isl::schedule_node Node,
   }
 }
 
+
+struct ScheduleTreeCollectDomains: public RecursiveScheduleTreeVisitor<ScheduleTreeCollectDomains> {
+       isl::union_set Domains;
+    void addDomain(isl::union_set Domain) {
+          assert(Domain.is_disjoint(Domains));
+              Domains = Domains.unite(std::move( Domain));
+    }
+
+ 
+
+
+
+    ScheduleTreeCollectDomains(isl::space Space) {
+        Domains = isl::union_set::empty(Space);
+    }
+
+      void visitDomain(const isl::schedule_node &Domain ) {
+    auto Dom = Domain.domain_get_domain();
+      addDomain(Dom);
+  }
+
+
+    void visitExtension(const isl::schedule_node &Extension) {
+       auto X = Extension.extension_get_extension().range(); // FIXME: the range must be useful for something
+     addDomain(X);
+    }
+};
+
+
+struct ScheduleTreeCollectExtensionNodes: public RecursiveScheduleTreeVisitor<ScheduleTreeCollectExtensionNodes,void, SmallVectorImpl<isl::schedule_node>& > {
+      void visitExtension(const isl::schedule_node &Extension, SmallVectorImpl<isl::schedule_node>&List) {
+        List.push_back(Extension);
+    }
+};
+
+
+template <typename Derived, typename... Args>
+struct ExtensionNodeRewriter : public RecursiveScheduleTreeVisitor<Derived, std::pair<isl::schedule,isl::union_map>, const isl::union_set&, Args...> {
+    using BaseTy = RecursiveScheduleTreeVisitor<Derived, std::pair<isl::schedule,isl::union_map>, const isl::union_set&,Args...>;
+BaseTy &getBase() { return *this; }   const BaseTy &getBase()const { return *this; }
+ Derived &getDerived() { return *static_cast<Derived *>(this); } const Derived &getDerived() const { return *static_cast<const Derived *>(this);    }
+
+
+  std::pair<isl::schedule,isl::union_map> visit(const isl::schedule_node &Node, const isl::union_set& Domain,Args... args) {
+      return getBase().visit(Node, Domain,args...);
+  }
+
+     std::pair<isl::schedule,isl::union_map>  visit(const isl::schedule &Schedule,const isl::union_set& Domain,Args... args) {
+    return getBase(). visit( Schedule, Domain,args...);
+  }
+
+  isl::schedule visit(const isl::schedule &Schedule,Args... args)  {
+      auto Ctx = Schedule.get_ctx();
+      auto Domain =  Schedule.get_domain();
+     // auto Extensions  = isl::union_map::empty(isl::space::params_alloc( Ctx, 0) );
+      auto Result = getDerived().visit(Schedule,Domain,args...);
+      assert(Result.second.is_empty());
+      return Result.first;
+  }
+
+  
+  std::pair<isl::schedule,isl::union_map> visitDomain(const isl::schedule_node &DomainNode, const isl::union_set& Domain, Args... args) {
+      // Every isl::schedule implicitly has a domain node in its root, so no need to add a new one
+      // Extension nodes can also be roots; these would be converted to domain nodes then 
+    return getDerived().visit(DomainNode.child(0),Domain, args...);
+  }
+
+
+  std::pair<isl::schedule,isl::union_map> visitSequence(const isl::schedule_node &Sequence,const isl::union_set& Domain,
+                              Args... args) {
+    auto NumChildren = isl_schedule_node_n_children(Sequence.get());
+    assert(NumChildren >= 1);
+   isl::schedule NewNode;
+          isl::union_map NewExtensions;
+          std::tie(NewNode,NewExtensions) = getDerived().visit(Sequence.child(0), Domain, args...);
+    for (int i = 1; i < NumChildren; i += 1) {
+        auto OldChild=  Sequence.child(i);
+           isl::schedule NewChildNode;
+          isl::union_map NewChildExtensions;
+          std::tie(NewChildNode,NewChildExtensions) = getDerived().visit(OldChild, Domain,args...);
+
+      NewNode = isl::manage(isl_schedule_sequence(NewNode.release(), NewChildNode.release()));
+      NewExtensions = NewExtensions.unite(NewChildExtensions);
+    }
+    return {NewNode,NewExtensions};
+  }
+
+  std::pair<isl::schedule,isl::union_map> visitSet(const isl::schedule_node &Set, const isl::union_set& Domain,Args... args) {
+    auto NumChildren = isl_schedule_node_n_children(Set.get());
+    assert(NumChildren >= 1);
+   isl::schedule NewNode;
+          isl::union_map NewExtensions;
+          std::tie(NewNode,NewExtensions) = getDerived().visit(Set.child(0), Domain, args...);
+    for (int i = 1; i < NumChildren; i += 1) {
+        auto OldChild=  Set.child(i);
+           isl::schedule NewChildNode;
+          isl::union_map NewChildExtensions;
+          std::tie(NewChildNode,NewChildExtensions) = getDerived().visit(OldChild, Domain,args...);
+
+      NewNode = isl::manage(isl_schedule_set(NewNode.release(), NewChildNode.release()));
+      NewExtensions = NewExtensions.unite(NewChildExtensions);
+    }
+    return {NewNode,NewExtensions};
+  }
+
+
+   std::pair<isl::schedule,isl::union_map> visitMark(const isl::schedule_node &Mark, const isl::union_set& Domain,Args... args) {
+    auto TheMark = Mark.mark_get_id();
+      isl::schedule NewChildNode;
+          isl::union_map NewChildExtensions;
+          std::tie(NewChildNode,NewChildExtensions) =getDerived().visit(Mark.child(0), Domain, args...);
+          return { NewChildNode.get_root().child(0).insert_mark(TheMark).get_schedule(),NewChildExtensions};
+  }
+
+ 
+
+ 
+
+   std::pair<isl::schedule,isl::union_map> visitLeaf(const isl::schedule_node &Leaf, const isl::union_set& Domain,Args... args) {
+       auto Ctx = Leaf.get_ctx();
+    auto NewChildNode = isl::schedule::from_domain(Domain);
+    auto Extensions = isl::union_map::empty(  isl::space::params_alloc(Ctx, 0) );
+    return {NewChildNode, Extensions};
+  }
+
+       std::pair<isl::schedule,isl::union_map> visitBand(const isl::schedule_node &Band, const isl::union_set& Domain,Args... args) {
+          auto OldChild = Band.child(0);
+          auto OldPartialSched =  isl::manage(isl_schedule_node_band_get_partial_schedule(Band.get()));
+
+          isl::schedule NewChildNode;
+          isl::union_map NewChildExtensions;
+          std::tie(NewChildNode,NewChildExtensions) = getDerived(). visit(OldChild, Domain,args...);
+
+          isl::union_map OuterExtensions = isl::union_map::empty( NewChildExtensions.get_space() );
+          isl::union_map BandExtensions =  isl::union_map::empty( NewChildExtensions.get_space() );
+          auto NewPartialSched = OldPartialSched;
+          isl::union_map NewPartialSchedMap = isl::union_map::from( OldPartialSched);
+
+                 // We have to add the extensions to the schedule
+          auto BandDims = isl_schedule_node_band_n_member(Band.get());
+          for (auto Ext : NewChildExtensions.get_map_list()  ) {
+            auto ExtDims = Ext.dim(isl::dim::in);
+            assert(ExtDims >= BandDims);
+            auto OuterDims = ExtDims - BandDims;
+
+
+            if (OuterDims > 0) {
+            auto OuterSched = Ext.project_out(isl::dim::in, OuterDims,BandDims );
+            OuterExtensions = OuterExtensions.add_map(OuterSched);
+            }
+
+            auto BandSched = Ext.project_out(isl::dim::in, 0, OuterDims  ).reverse();
+            BandExtensions = BandExtensions.unite(BandSched.reverse());
+
+            auto AsPwMultiAff = isl::pw_multi_aff::from_map(BandSched);
+            auto AsMultiUnionPwAff = isl::multi_union_pw_aff::from_union_map(BandSched);
+          NewPartialSched =  NewPartialSched.union_add(AsMultiUnionPwAff);
+
+          NewPartialSchedMap = NewPartialSchedMap.unite(BandSched);
+          }
+
+        
+ auto NewPartialSchedAsAsMultiUnionPwAff=isl::multi_union_pw_aff::from_union_map(NewPartialSchedMap);
+ auto NewNode = NewChildNode.insert_partial_schedule(NewPartialSchedAsAsMultiUnionPwAff);
+ return {NewNode ,OuterExtensions };
+  }
+
+
+       std::pair<isl::schedule,isl::union_map> visitFilter(const isl::schedule_node &Filter, const isl::union_set& Domain,Args... args) {
+             auto FilterDomain = Filter.filter_get_filter();
+             auto NewDomain = Domain.intersect(FilterDomain);
+               auto NewChild =  getDerived().visit(Filter.child(0), NewDomain);
+
+               // A filter is added implicitly if necessary when joining schedule trees
+               return NewChild;
+         }
+
+     std::pair<isl::schedule,isl::union_map> visitExtension(const isl::schedule_node &Extension,const isl::union_set& Domain,Args... args) {
+        auto ExtDomain = Extension.extension_get_extension();
+        auto NewDomain = Domain.unite(ExtDomain.range());
+           auto NewChild =  getDerived(). visit(Extension.child(0), NewDomain );
+           return { NewChild.first, NewChild.second.unite(ExtDomain)};
+     }
+
+
+};
+
+class ExtensionNodeRewriterPlain : public ExtensionNodeRewriter<ExtensionNodeRewriterPlain>{};
+
+
+/// Hoist all domains from extension into the root domain node, such that there are no more extension nodes (which isl does not support for some operations).
+/// This assumes that domains added by to extension nodes do not overlap.
+static isl::schedule hoistExtensionNodes(isl::schedule Sched) {
+    auto Root = Sched.get_root();
+    auto RootDomain = Sched.get_domain();
+    auto ParamSpace = RootDomain.get_space();
+   //ScheduleTreeCollectDomains DomainCollector(RootDomain.get_space());
+  // DomainCollector.visit(Sched);
+  // auto AllDomains = DomainCollector.Domains;
+
+  // auto NewRool = isl::schedule_node::from_domain(AllDomains);
+
+  ScheduleTreeCollectExtensionNodes ExtensionCollector;
+  SmallVector<isl::schedule_node,4> ExtNodes;
+  ExtensionCollector.visit(Sched, ExtNodes);
+  
+  isl::union_set ExtDomains = isl::union_set::empty(ParamSpace);
+  isl::union_map Extensions = isl::union_map::empty(ParamSpace);
+  for (auto ExtNode : ExtNodes) {
+    auto Extension = ExtNode.extension_get_extension();
+    ExtDomains  = ExtDomains.unite(Extension.range());
+    Extensions = Extensions.unite(Extension);
+  }
+  auto AllDomains = ExtDomains.unite(RootDomain);
+    auto NewRoot = isl::schedule_node::from_domain(AllDomains);
+
+  ExtensionNodeRewriterPlain rewriter;
+  auto NewSched = rewriter.visit(Sched );
+
+
+   return NewSched;
+}
+
+
+
+
 static void applyDataPack(Scop &S, isl::schedule &Sched,
                           LoopIdentification TheLoop,
                           const ScopArrayInfo *SAI) {
@@ -2649,8 +3060,8 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
   // TODO: Check legality (all accesses to SAI are affine) before any
   // MemoryAccess is redirected
 
-  isl::union_set Doms = isl::union_set::empty(S.getParamSpace());
-  collectStmtDomains(TheBand, Doms, false);
+  //isl::union_set Doms = isl::union_set::empty(S.getParamSpace());
+  //collectStmtDomains(TheBand, Doms, false);
 
   isl::union_map Accs = isl::union_map::empty(S.getParamSpace());
   collectMemAccsDomains(TheBand, SAI, Accs, false);
@@ -2722,6 +3133,7 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
   PackedSizes.reserve(Dims);
   for (auto i = 0; i < Dims; i += 1) {
     auto Len = DimSizes.get_pw_aff(i);
+    Len = Len.coalesce();
 
     // FIXME: Because of the interfaces of Scop::createScopArrayInfo, array
     // sizes currently need to be constant
@@ -2811,26 +3223,20 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
   auto ExtensionBeforeNode = isl::schedule_node::from_extension(
       CopyInDomain.unwrap().domain_map().reverse().set_tuple_id(isl::dim::out,
                                                                 CopyInId));
-  auto Node = TheBand.graft_before(ExtensionBeforeNode);
+  auto Node = moveToBandMark( TheBand).graft_before(ExtensionBeforeNode);
 
   auto ExtensionBeforeAfter = isl::schedule_node::from_extension(
       CopyOutDomain.unwrap().domain_map().reverse().set_tuple_id(isl::dim::out,
                                                                  CopyOutId));
   Node = Node.graft_after(ExtensionBeforeAfter);
 
-#if 0
-     // TODO: Need extention node/extend domain
-     // TODO: Insert band to schedule array writes
-     auto Filter = isl::union_set_list::alloc(Ctx, 3);
-    Filter = Filter.add(CopyInDomain);
-    Filter = Filter.add(TheBand.get_domain());
-    Filter = Filter.add(CopyOutDomain);
-   auto Node = TheBand.insert_sequence(Filter);
-#endif
+
 
   // TODO: Update dependencies
 
-  Sched = Node.get_schedule();
+  auto NewSched = Node.get_schedule();
+ auto SchedWithoutExtensionNodes = hoistExtensionNodes(NewSched);
+ Sched = SchedWithoutExtensionNodes;
 }
 
 #if 0
@@ -2976,13 +3382,18 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
     if (WhichStr == "llvm.loop.tile") {
       SmallVector<LoopIdentification, 4> TiledLoops;
       auto ApplyOnArg = cast<MDNode>(OpMD->getOperand(1).get());
+
       for (auto &X : ApplyOnArg->operands()) {
         auto TheMetadata = X.get();
         TiledLoops.push_back(identifyLoopBy(TheMetadata));
       }
 
-      SmallVector<int64_t, 4> TileSizes;
       auto TileSizesArg = cast<MDNode>(OpMD->getOperand(2).get());
+      auto PitIdArg = cast<MDNode>(OpMD->getOperand(3).get());
+      auto TileIdArg = cast<MDNode>(OpMD->getOperand(4).get());
+
+
+      SmallVector<int64_t, 4> TileSizes;
       for (auto &X : TileSizesArg->operands()) {
         auto TheMetadata = X.get();
         auto TheTypedMetadata = cast<ConstantAsMetadata>(TheMetadata);
@@ -2991,11 +3402,34 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
                                 .getSExtValue());
       }
 
+     
+      SmallVector<StringRef, 4> PitIds;
+      if (PitIdArg) {
+          for (auto &X : PitIdArg->operands() ) {
+            auto TheMetadata = X.get();
+
+                     // TODO: Ids could be an arbitrary Metadata node, not just a string
+            auto TheTypedMetadata = cast<MDString>(TheMetadata);
+            PitIds.push_back(TheTypedMetadata->getString());
+          }
+      }
+
+      SmallVector<StringRef, 4> TileIds;
+      if (TileIdArg) {
+          for (auto &X : TileIdArg->operands() ) {
+            auto TheMetadata = X.get();
+            auto TheTypedMetadata = cast<MDString>(TheMetadata);
+            TileIds.push_back(TheTypedMetadata->getString());
+          }
+      }
+
+      // Default tile size
       while (TileSizes.size() < TiledLoops.size())
         TileSizes.push_back(32);
 
+
       assert(TiledLoops.size() == TileSizes.size());
-      applyLoopTiling(S, Sched, TiledLoops, TileSizes, D);
+      applyLoopTiling(S, Sched, TiledLoops, TileSizes, D,PitIds,  TileIds);
 
       Changed = true;
       continue;
