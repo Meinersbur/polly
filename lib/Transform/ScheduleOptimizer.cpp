@@ -3358,6 +3358,7 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
     }
 
     if (WhichStr == "llvm.loop.tile") {
+      assert(OpMD->getNumOperands() == 3 || OpMD->getNumOperands() == 5);
       SmallVector<LoopIdentification, 4> TiledLoops;
       auto ApplyOnArg = cast<MDNode>(OpMD->getOperand(1).get());
 
@@ -3367,9 +3368,6 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
       }
 
       auto TileSizesArg = cast<MDNode>(OpMD->getOperand(2).get());
-      auto PitIdArg = cast<MDNode>(OpMD->getOperand(3).get());
-      auto TileIdArg = cast<MDNode>(OpMD->getOperand(4).get());
-
       SmallVector<int64_t, 4> TileSizes;
       for (auto &X : TileSizesArg->operands()) {
         auto TheMetadata = X.get();
@@ -3379,29 +3377,34 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
                                 .getSExtValue());
       }
 
-      SmallVector<StringRef, 4> PitIds;
-      if (PitIdArg) {
-        for (auto &X : PitIdArg->operands()) {
-          auto TheMetadata = X.get();
-
-          // TODO: Ids could be an arbitrary Metadata node, not just a string
-          auto TheTypedMetadata = cast<MDString>(TheMetadata);
-          PitIds.push_back(TheTypedMetadata->getString());
-        }
-      }
-
-      SmallVector<StringRef, 4> TileIds;
-      if (TileIdArg) {
-        for (auto &X : TileIdArg->operands()) {
-          auto TheMetadata = X.get();
-          auto TheTypedMetadata = cast<MDString>(TheMetadata);
-          TileIds.push_back(TheTypedMetadata->getString());
-        }
-      }
-
       // Default tile size
       while (TileSizes.size() < TiledLoops.size())
         TileSizes.push_back(32);
+
+      SmallVector<StringRef, 4> PitIds;
+      SmallVector<StringRef, 4> TileIds;
+      if (OpMD->getNumOperands() == 5) {
+        auto PitIdArg = cast<MDNode>(OpMD->getOperand(3).get());
+        auto TileIdArg = cast<MDNode>(OpMD->getOperand(4).get());
+
+        if (PitIdArg) {
+          for (auto &X : PitIdArg->operands()) {
+            auto TheMetadata = X.get();
+
+            // TODO: Ids could be an arbitrary Metadata node, not just a string
+            auto TheTypedMetadata = cast<MDString>(TheMetadata);
+            PitIds.push_back(TheTypedMetadata->getString());
+          }
+        }
+
+        if (TileIdArg) {
+          for (auto &X : TileIdArg->operands()) {
+            auto TheMetadata = X.get();
+            auto TheTypedMetadata = cast<MDString>(TheMetadata);
+            TileIds.push_back(TheTypedMetadata->getString());
+          }
+        }
+      }
 
       assert(TiledLoops.size() == TileSizes.size());
       applyLoopTiling(S, Sched, TiledLoops, TileSizes, D, PitIds, TileIds);
