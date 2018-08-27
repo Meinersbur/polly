@@ -2777,10 +2777,6 @@ static void redirectAccesses(isl::schedule_node Node,
       auto DomainOrigToPackedUMap =
           isl::union_map(OrigToPackedIndexMap)
               .apply_domain(InnerInstances.intersect_range(Domain));
-      if (DomainOrigToPackedUMap.n_map() != 1) {
-        polly::dumpPw(DomainOrigToPackedUMap);
-        int a = 0;
-      }
       auto DomainOrigToPackedMap =
           singleton(DomainOrigToPackedUMap, PrefixDomainSpace);
 
