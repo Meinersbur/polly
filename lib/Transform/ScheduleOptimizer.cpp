@@ -2420,11 +2420,11 @@ static isl::schedule_node collapseBands(isl::schedule_node FirstBand,
 
 // TODO: Assign names to separated bands
 static isl::schedule_node separateBand(isl::schedule_node Band) {
-     auto NumDims =  isl_schedule_node_band_n_member(Band.get());
-    for (int i = NumDims-1; i>0; i-=1)  {
-       Band = isl::manage( isl_schedule_node_band_split(Band.release(), i));
-    }
-    return Band;
+  auto NumDims = isl_schedule_node_band_n_member(Band.get());
+  for (int i = NumDims - 1; i > 0; i -= 1) {
+    Band = isl::manage(isl_schedule_node_band_split(Band.release(), i));
+  }
+  return Band;
 
 #if 0
   auto PartialSched =  isl::manage(isl_schedule_node_band_get_partial_schedule(Band.get()));
@@ -2480,7 +2480,7 @@ static void applyLoopTiling(Scop &S, isl::schedule &Sched,
     LLVM_DEBUG(dbgs() << "Band to tile not found or not in this scop");
     return;
   }
- 
+
   auto TheBand = collapseBands(Bands[0], Bands.size());
   TheBand = tileBand(TheBand, TileSizes);
 
