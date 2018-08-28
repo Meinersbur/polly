@@ -2473,10 +2473,14 @@ static void applyLoopTiling(Scop &S, isl::schedule &Sched,
   Bands.reserve(TheLoops.size());
   for (auto TheLoop : TheLoops) {
     auto TheBand = findBand(Sched, TheLoop);
-    assert(TheBand);
     Bands.push_back(TheBand);
   }
 
+  if (Bands.empty() || !Bands[0]) {
+    LLVM_DEBUG(dbgs() << "Band to tile not found or not in this scop");
+    return;
+  }
+ 
   auto TheBand = collapseBands(Bands[0], Bands.size());
   TheBand = tileBand(TheBand, TileSizes);
 
