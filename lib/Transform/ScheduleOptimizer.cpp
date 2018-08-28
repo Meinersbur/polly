@@ -2419,13 +2419,17 @@ static isl::schedule_node collapseBands(isl::schedule_node FirstBand,
 }
 
 // TODO: Assign names to separated bands
-// FIXME: use isl_schedule_node_band_split operation
 static isl::schedule_node separateBand(isl::schedule_node Band) {
-  auto PartialSched =
-      isl::manage(isl_schedule_node_band_get_partial_schedule(Band.get()));
-  auto NumDims = PartialSched.dim(isl::dim::out);
-  if (NumDims == 1)
+     auto NumDims =  isl_schedule_node_band_n_member(Band.get());
+    for (int i = NumDims-1; i>0; i-=1)  {
+       Band = isl::manage( isl_schedule_node_band_split(Band.release(), i));
+    }
     return Band;
+
+#if 0
+  auto PartialSched =  isl::manage(isl_schedule_node_band_get_partial_schedule(Band.get()));
+
+
 
   assert(NumDims >= 2);
   Band = isl::manage(isl_schedule_node_delete(Band.release()));
@@ -2435,6 +2439,7 @@ static isl::schedule_node separateBand(isl::schedule_node Band) {
     Band = Band.insert_partial_schedule(LoopSched);
   }
   return Band;
+#endif
 }
 
 // TODO: Use ScheduleTreeOptimizer::tileNode
