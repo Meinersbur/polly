@@ -3117,7 +3117,14 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
   SmallVector<MemoryAccess *, 16> MemAccs;
   collectSubtreeAccesses(TheBand, SAI, MemAccs);
 
+  bool WrittenTo = false;
+  bool ReadFrom = false;
   for (auto *Acc : MemAccs) {
+    if (Acc->isRead())
+      ReadFrom = true;
+    if (Acc->isMayWrite() || Acc->isMustWrite())
+      WrittenTo = true;
+
     if (Acc->isAffine())
       continue;
 
@@ -3269,15 +3276,19 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
   redirectAccesses(TheBand, OrigToPackedIndexMap, InnerInstances);
 
   // Insert Copy-In/Out into schedule tree
+  // TODO: No need for copy-in for elements that are overwritten before read
   auto ExtensionBeforeNode = isl::schedule_node::from_extension(
       CopyInDomain.unwrap().domain_map().reverse().set_tuple_id(isl::dim::out,
                                                                 CopyInId));
   auto Node = moveToBandMark(TheBand).graft_before(ExtensionBeforeNode);
 
-  auto ExtensionBeforeAfter = isl::schedule_node::from_extension(
-      CopyOutDomain.unwrap().domain_map().reverse().set_tuple_id(isl::dim::out,
-                                                                 CopyOutId));
-  Node = Node.graft_after(ExtensionBeforeAfter);
+  if (WrittenTo) {
+    // TODO: Only copy-out elements that are potentially written.
+    auto ExtensionBeforeAfter = isl::schedule_node::from_extension(
+        CopyOutDomain.unwrap().domain_map().reverse().set_tuple_id(
+            isl::dim::out, CopyOutId));
+    Node = Node.graft_after(ExtensionBeforeAfter);
+  }
 
   // TODO: Update dependencies
 
