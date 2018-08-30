@@ -833,8 +833,7 @@ static isl::schedule_node permuteBandNodeDimensions(isl::schedule_node Node,
 
 isl::schedule_node ScheduleTreeOptimizer::createMicroKernel(
     isl::schedule_node Node, MicroKernelParamsTy MicroKernelParams) {
-  Node = applyRegisterTiling(Node, {MicroKernelParams.Mr, MicroKernelParams.Nr},
-                             1);
+  Node = applyRegisterTiling(Node, {MicroKernelParams.Mr, MicroKernelParams.Nr}, 1);
   Node = Node.parent().parent();
   return permuteBandNodeDimensions(Node, 0, 1).child(0).child(0);
 }
@@ -2680,6 +2679,10 @@ static isl::union_map collectParentSchedules(isl::schedule_node Node) {
 
       Result = Result.flat_domain_product(Partial.reverse());
     } break;
+    case isl_schedule_node_sequence:
+         case isl_schedule_node_set:
+             break;
+ case isl_schedule_node_filter:
     case isl_schedule_node_domain: // root node
     case isl_schedule_node_mark:
       break;
@@ -3275,12 +3278,16 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
   // TODO: Use MemAccs instead of traversing the subtree again
   redirectAccesses(TheBand, OrigToPackedIndexMap, InnerInstances);
 
+   auto Node = TheBand;
+
   // Insert Copy-In/Out into schedule tree
   // TODO: No need for copy-in for elements that are overwritten before read
+  if (1) {
   auto ExtensionBeforeNode = isl::schedule_node::from_extension(
       CopyInDomain.unwrap().domain_map().reverse().set_tuple_id(isl::dim::out,
                                                                 CopyInId));
-  auto Node = moveToBandMark(TheBand).graft_before(ExtensionBeforeNode);
+   Node = moveToBandMark(Node).graft_before(ExtensionBeforeNode);
+  }
 
   if (WrittenTo) {
     // TODO: Only copy-out elements that are potentially written.
@@ -3640,16 +3647,6 @@ bool IslScheduleOptimizer::runOnScop(Scop &S) {
 
   ScopsRescheduled++;
 
-  LLVM_DEBUG({
-    auto *P = isl_printer_to_str(Ctx);
-    P = isl_printer_set_yaml_style(P, ISL_YAML_STYLE_BLOCK);
-    P = isl_printer_print_schedule(P, Schedule.get());
-    auto *str = isl_printer_get_str(P);
-    dbgs() << "NewScheduleTree: \n" << str << "\n";
-    free(str);
-    isl_printer_free(P);
-  });
-
   isl::schedule NewSchedule;
 
   if (ManuallyTransformed) {
@@ -3660,6 +3657,16 @@ bool IslScheduleOptimizer::runOnScop(Scop &S) {
     const OptimizerAdditionalInfoTy OAI = {TTI, const_cast<Dependences *>(&D)};
     NewSchedule = ScheduleTreeOptimizer::optimizeSchedule(Schedule, &OAI);
   }
+
+  LLVM_DEBUG({
+    auto *P = isl_printer_to_str(Ctx);
+    P = isl_printer_set_yaml_style(P, ISL_YAML_STYLE_BLOCK);
+    P = isl_printer_print_schedule(P, NewSchedule.get());
+    auto *str = isl_printer_get_str(P);
+    dbgs() << "NewScheduleTree: \n" << str << "\n";
+    free(str);
+    isl_printer_free(P);
+  });
 
   walkScheduleTreeForStatistics(NewSchedule, 2);
 
