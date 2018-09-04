@@ -3230,9 +3230,11 @@ static void negateCoeff(isl::constraint &C, isl::dim Dim) {
 }
 
 /// @param ScheduleToAccess { Schedule[] -> Data[] }
+/// @param PackedSizes      Array to be reordered using the same permutation
 ///        Schedule[] is assumed to be left-aligned
 static isl::basic_map
-findDataLayoutPermutation(isl::union_map ScheduleToAccess) {
+findDataLayoutPermutation(isl::union_map ScheduleToAccess,
+                          std::vector<unsigned int> &PackedSizes) {
   // FIXME: return is not required to be a permutatation, any injective function
   // should work
   // TODO: We could apply this more generally on ever Polly-created array
@@ -3262,6 +3264,8 @@ findDataLayoutPermutation(isl::union_map ScheduleToAccess) {
 
   // { PackedData[] -> [] }
   auto Permutation = isl::basic_map::universe(PackedSpace.from_domain());
+  SmallVector<unsigned int, 8> NewPackedSizes;
+  NewPackedSizes.reserve(PackedDims); // reversed!
 
   // TODO: If schedule has been stripmined/tiled/unroll-and-jammed, also apply
   // on 'permutation'
@@ -3350,6 +3354,7 @@ findDataLayoutPermutation(isl::union_map ScheduleToAccess) {
                      ChosenDim);
 
       Permutation = TheDim.flat_range_product(Permutation);
+      NewPackedSizes.push_back(PackedSizes[ChosenDim]);
     }
   }
 
@@ -3363,11 +3368,17 @@ findDataLayoutPermutation(isl::union_map ScheduleToAccess) {
                        PackedSpace.map_from_domain_and_range(PackedSpace)),
                    i);
     Permutation = TheDim.flat_range_product(Permutation);
+    NewPackedSizes.push_back(PackedSizes[i]);
   }
 
-  assert(Permutation.dim(isl::dim::in) == Permutation.dim(isl::dim::out));
+  assert(Permutation.dim(isl::dim::in) == PackedDims);
+  assert(Permutation.dim(isl::dim::in) == PackedDims);
+  assert(NewPackedSizes.size() == PackedDims);
+
   Permutation = castSpace(Permutation,
                           PackedSpace.map_from_domain_and_range(PackedSpace));
+  for (int i = 0; i < PackedDims; i += 1)
+    PackedSizes[i] = NewPackedSizes[PackedDims - i - 1];
 
   return Permutation;
 }
@@ -3520,18 +3531,13 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
     PackedSizes.push_back(SizeBound.get_num_si()); // TODO: Overflow check
   }
 
-  // Create packed array
-  // FIXME: Unique name necessary?
-  auto PackedSAI = S.createScopArrayInfo(
-      SAI->getElementType(), (llvm::Twine("Packed_") + SAI->getName()).str(),
-      PackedSizes);
-  auto PackedId = PackedSAI->getBasePtrId();
-  PackedSAI->setIsOnHeap(OnHeap);
-  auto PackedSpace = IndexSpace.set_tuple_id(isl::dim::set, PackedId);
+  auto TmpPackedId = isl::id::alloc(
+      Ctx, (llvm::Twine("TmpPacked_") + SAI->getName()).str().c_str(), nullptr);
+  auto TmpPackedSpace = IndexSpace.set_tuple_id(isl::dim::set, TmpPackedId);
 
   // { PrefixSched[] -> [Data[] -> PackedData[]] }
   auto TargetSpace = PrefixSpace.map_from_domain_and_range(
-      IndexSpace.map_from_domain_and_range(PackedSpace).wrap());
+      IndexSpace.map_from_domain_and_range(TmpPackedSpace).wrap());
 
   // { [PrefixSched[] -> Data[]] -> [PrefixSched[] -> [Data[] -> PackedData[]]]
   // }
@@ -3570,109 +3576,19 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
   TupleNest CombinedAccessesRef(
       CombinedAccessesSgl, "{ [PrefixSched[] -> PostfixSched[]] -> Data[] }");
 
-#if 0
-  // { [PrefixSched[], PostfixSched[]] -> PackedData[] }
-  auto Z = rebuildNesting(
-      {{OrigToPackedIndexRef["PrefixSched"], CombinedAccessesRef["PrefixSched"]} ,
-      {OrigToPackedIndexRef["Data"], CombinedAccessesRef["Data"]} }, 
-      {CombinedAccessesRef["PrefixSched"], CombinedAccessesRef["PostfixSched"]}, OrigToPackedIndexRef["PackedData"] );
+  auto Permutation = findDataLayoutPermutation(UAccessedByPostfix, PackedSizes);
 
-  auto SchedDims = Z.dim(isl::dim::in);
-  auto PackedDims = PackedSpace.dim(isl::dim::set);
+  // Create packed array
+  // FIXME: Unique name necessary?
+  auto PackedSAI = S.createScopArrayInfo(
+      SAI->getElementType(), (llvm::Twine("Packed_") + SAI->getName()).str(),
+      PackedSizes);
+  PackedSAI->setIsOnHeap(OnHeap);
+  auto PackedId = PackedSAI->getBasePtrId();
+  auto PackedSpace = TmpPackedSpace.set_tuple_id(isl::dim::set, PackedId);
 
-       SmallVector<bool, 8 >  UsedDims;
-     UsedDims.reserve(PackedDims);
-     for (auto i = 0; i < PackedDims; i+=1) {
-         UsedDims.push_back(false);
-     }
-
-     // { PackedData[] -> [] }
-     //PackedSpace.map_from_set();
-     auto Permutation = isl::basic_map::universe(PackedSpace.from_domain());
-
-  for (int i = SchedDims-1; i>= 0; i-=1) {
-      if (Permutation.dim(isl::dim::in) == Permutation.dim(isl::dim::out))
-          break;
-
-      // { PackedData[] -> [i] }
-      auto ExtractPostfix = isolateDim(Z .reverse(), i);
-      simplify(ExtractPostfix);
-
-
-      SmallVector<isl::constraint, 32> Constraints;
-      for (auto BMap : ExtractPostfix.get_basic_map_list()) {
-          for (auto C: BMap.get_constraint_list()) {
-              if ( !isl_constraint_is_equality(C.get()))
-                  continue;
-
-              auto Coeff = C.get_coefficient_val(isl::dim::out, 0);
-                  if (Coeff.is_zero())
-                      continue;
-
-                  // Normalize coefficients
-                  if (Coeff.is_pos()) {
-                      auto Cons = C.get_constant_val();
-                      Cons = Cons.neg();
-                      C = C.set_constant_val(Cons);
-                      negateCoeff(C, isl::dim::param);
-                      negateCoeff(C, isl::dim::in);
-                      negateCoeff(C, isl::dim::out);
-                      negateCoeff(C, isl::dim::div);
-                  }
-
-            Constraints.push_back(C);
-          }
-      }
-
-     SmallVector<int, 8 >  Depends;
-     Depends.reserve(PackedDims);
-     for (auto i = 0; i < PackedDims; i+=1) {
-         Depends.push_back(0);
-     }
-
-        for (auto C : Constraints){
-            for (auto i = 0; i < PackedDims; i+=1) {
-                auto Coeff = C.get_coefficient_val (isl::dim::in, i);
-                if (Coeff.is_zero())
-                    continue;
-
-                auto &Dep = Depends[i];
-                if (Dep > 0)
-                    continue;
-
-                Dep   =  Coeff.cmp_si(0);
-            }
-         }
-
-        auto FindFirstDep = [&Depends,PackedDims,&UsedDims]() -> int {
-        for (int i =PackedDims-1; i >= 0; i-=1) {
-            if (UsedDims[i])
-                continue;
-        if (Depends[i])
-            return i; 
-        }
-        return -1;
-        };
-
-            auto ChosenDim = FindFirstDep();
-            if (ChosenDim < 0)
-                continue;
-            UsedDims[ChosenDim ]=true;
-
-            // { PackedSpace[] -> [ChosenDim] }
-            auto TheDim = isolateDim( isl::basic_map::identity( PackedSpace.map_from_domain_and_range(PackedSpace) ), ChosenDim );
-
-            Permutation = TheDim.flat_range_product(Permutation);
-  }
-
-  assert(Permutation.dim(isl::dim::in) == Permutation.dim(isl::dim::out));
-  Permutation = Permutation.set_tuple_id(isl::dim::out, PackedId);
-
-#endif
-
-  auto Permutation =
-      castSpace(findDataLayoutPermutation(UAccessedByPostfix),
-                PackedSpace.map_from_domain_and_range(PackedSpace));
+  Permutation = castSpace(
+      Permutation, TmpPackedSpace.map_from_domain_and_range(PackedSpace));
 
   OrigToPackedIndexMap = OrigToPackedIndexMap.uncurry()
                              .intersect_domain(WorkingSet.wrap())
