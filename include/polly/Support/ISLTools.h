@@ -475,6 +475,57 @@ isl::map intersectRange(isl::map Map, isl::union_set Range);
 /// value. Otherwise, return NaN.
 isl::val getConstant(isl::pw_aff PwAff, bool Max, bool Min);
 
+
+struct TupleNest;
+
+struct TupleInfo {
+       TupleNest*Parent=nullptr;
+        isl::space Space;
+        int Offset=-1;
+
+        TupleInfo() {};
+        TupleInfo( TupleNest*Parent,  isl::space Space, int Offset) : Parent(Parent), Space(Space), Offset(Offset) {}
+
+       // ~TupleInfo() {
+       //     int a = 0;
+       // }
+};
+
+
+
+struct SpaceRef {
+    isl::space Space;
+    const SpaceRef *Domain=nullptr, *Range=nullptr;
+ const  TupleInfo *Tuple=nullptr;
+
+ //SpaceRef(){}
+    SpaceRef(isl::space Space) :Space(Space) { assert(Space.is_set()); }
+    SpaceRef(const SpaceRef &Domain, const SpaceRef &Range) : Domain(&Domain), Range(&Range) {}
+    SpaceRef(const TupleInfo &Tuple) : Tuple(&Tuple) {}
+};
+
+struct TupleNest {
+    isl::set Ref;
+llvm::    StringMap<TupleInfo > Tuples;
+
+const TupleInfo &operator[](llvm::StringRef Name) {return Tuples[Name]; }
+
+    TupleNest(isl::set Ref, llvm::StringRef ModelStr );
+    TupleNest(isl::map Ref, llvm::StringRef ModelStr );
+};
+
+
+
+isl::set rebuildNesting(llvm::ArrayRef<std::pair< const TupleInfo &, const TupleInfo&>> Intersections, const SpaceRef &NewNesting) ;
+
+isl::map rebuildNesting(llvm::ArrayRef<std::pair< const TupleInfo &, const TupleInfo&>> Intersections, const SpaceRef &Domain, const SpaceRef &Range) ;
+
+
+/// @param { Domain[] -> Range[...,Pos,...] }
+/// @param { Domain[] -> [Pos] }
+isl::basic_map isolateDim(isl::basic_map BMap, int Pos);
+isl::map isolateDim(isl::map Map, int Pos);
+
 /// Dump a description of the argument to llvm::errs().
 ///
 /// In contrast to isl's dump function, there are a few differences:
