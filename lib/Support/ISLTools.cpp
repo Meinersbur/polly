@@ -186,10 +186,50 @@ isl::union_map polly::makeIdentityMap(const isl::union_set &USet,
   return Result;
 }
 
+isl::basic_map polly::castSpace(isl::basic_map Orig, isl::space NewSpace) {
+    assert(Orig.dim(isl::dim::in) == NewSpace.dim(isl::dim::in));
+  assert( Orig.dim(isl::dim::out) ==  NewSpace.dim(isl::dim::out));
+
+  // Save some computation if the target space is not nested.
+    if (!NewSpace.domain_is_wrapping() && !NewSpace.range_is_wrapping()) {
+        // Reset Orig tuples to ensure they are not nested anymore.
+      auto Result =  std::move( Orig).project_out(isl::dim::in, 0,0).project_out(isl::dim::out,0,0);
+
+      if (NewSpace.has_tuple_id(isl::dim::in))
+      Result = std::move( Result).set_tuple_id(isl::dim::in, NewSpace.get_tuple_id(isl::dim::in));
+      if (NewSpace.has_tuple_id(isl::dim::out))
+      Result = std::move( Result).set_tuple_id(isl::dim::out, NewSpace.get_tuple_id(isl::dim::out));
+
+      return std::move( Result).align_params(std::move(NewSpace));
+    }
+
+
+
+        auto WrappedOrig = std::move(Orig).wrap();
+  auto Identitiy = isl::basic_map::identity(WrappedOrig.get_space().map_from_domain_and_range(std::move( NewSpace).wrap()));
+  return  std::move(WrappedOrig).apply(std::move(Identitiy)).unwrap();
+}
+
 isl::map polly::castSpace(isl::map Orig, isl::space NewSpace) {
-  auto Identitiy = isl::map::identity(
-      Orig.get_space().wrap().map_from_domain_and_range(NewSpace.wrap()));
-  return Orig.wrap().apply(Identitiy).unwrap();
+    assert(Orig.dim(isl::dim::in) == NewSpace.dim(isl::dim::in));
+  assert( Orig.dim(isl::dim::out) ==  NewSpace.dim(isl::dim::out));
+
+    // Save some computation if the target space is not nested.
+        if (!NewSpace.domain_is_wrapping() && !NewSpace.range_is_wrapping()) {
+        // Reset Orig tuples to ensure they are not nested anymore.
+      auto Result =  std::move( Orig).project_out(isl::dim::in, 0,0).project_out(isl::dim::out,0,0);
+
+      if (NewSpace.has_tuple_id(isl::dim::in))
+      Result = std::move( Result).set_tuple_id(isl::dim::in, NewSpace.get_tuple_id(isl::dim::in));
+      if (NewSpace.has_tuple_id(isl::dim::out))
+      Result = std::move( Result).set_tuple_id(isl::dim::out, NewSpace.get_tuple_id(isl::dim::out));
+
+      return std::move( Result).align_params(std::move(NewSpace));
+    }
+
+        auto WrappedOrig = std::move(Orig).wrap();
+  auto Identitiy = isl::map::identity(WrappedOrig.get_space().map_from_domain_and_range(std::move( NewSpace).wrap()));
+  return  std::move(WrappedOrig).apply(std::move(Identitiy)).unwrap();
 }
 
 isl::map polly::reverseDomain(isl::map Map) {

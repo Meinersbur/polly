@@ -3157,7 +3157,6 @@ struct FindDataLayout
           }
 
         //  X = X.remove_divs();
-          polly::dumpPw(X);
         }
 
     }
@@ -3205,6 +3204,7 @@ static void getContraintsFor(ArrayRef<isl::constraint>  Constraints, isl::dim Tu
    }
 }
 
+
 static void negateCoeff(isl::constraint &C, isl::dim Dim) {
 auto N = C.get_local_space().dim(Dim);
 for (auto i=0; i < N;i+=1) {
@@ -3213,6 +3213,142 @@ for (auto i=0; i < N;i+=1) {
     C = C.set_coefficient_val(Dim, i, V);
 }
 }
+
+
+/// @param ScheduleToAccess { Schedule[] -> Data[] }
+///        Schedule[] is assumed to be left-aligned
+static isl::basic_map findDataLayoutPermutation(isl::union_map ScheduleToAccess) {
+  // FIXME: return is not required to be a permutatation, any injective function should work
+    // TODO: We could apply this more generally on ever Polly-created array (except pattern-based optmization which define their custom data layout)
+
+    unsigned MaxSchedDims = 0;
+   //   unsigned PackedDims = 0;
+     for (auto Map : ScheduleToAccess.get_map_list())  {
+         MaxSchedDims = std::max(MaxSchedDims, Map.dim(isl::dim::in));
+   //     PackedDims = std::max(PackedDims, Map.dim(isl::dim::out));  
+     }
+     
+        auto PackedSpace = [&ScheduleToAccess]() -> isl::space {
+       for (auto Map : ScheduleToAccess.get_map_list()) {
+           return Map.get_space().range();
+       }
+       return {};
+    }();
+    assert(!PackedSpace.is_null());
+        auto PackedDims = PackedSpace.dim(isl::dim::set);
+
+
+       SmallVector<bool, 8 >  UsedDims;
+     UsedDims.reserve(PackedDims);
+     for (auto i = 0; i < PackedDims; i+=1) {
+         UsedDims.push_back(false);
+     }
+
+     // { PackedData[] -> [] }
+     auto Permutation = isl::basic_map::universe(PackedSpace.from_domain());
+
+     // TODO: If schedule has been stripmined/tiled/unroll-and-jammed, also apply on 'permutation'
+  for (int i = MaxSchedDims-1; i>= 0; i-=1) {
+      if (Permutation.dim(isl::dim::in) <=  1+ Permutation.dim(isl::dim::out))
+          break;
+
+      for (auto Map : ScheduleToAccess.get_map_list()) {
+          assert(PackedDims ==  Map.dim(isl::dim::out));
+
+             auto SchedDims = Map.dim(isl::dim::in);
+             if (SchedDims <= i)
+                 continue;
+
+      // { PackedData[] -> [i] }
+      auto ExtractPostfix = isolateDim(Map .reverse(), i);
+      simplify(ExtractPostfix);
+
+      SmallVector<isl::constraint, 32> Constraints;
+      for (auto BMap : ExtractPostfix.get_basic_map_list()) {
+          for (auto C: BMap.get_constraint_list()) {
+              if ( !isl_constraint_is_equality(C.get()))
+                  continue;
+
+              auto Coeff = C.get_coefficient_val(isl::dim::out, 0);
+                  if (Coeff.is_zero())
+                      continue;
+
+                  // Normalize coefficients
+                  if (Coeff.is_pos()) {
+                      auto Cons = C.get_constant_val();
+                      Cons = Cons.neg();
+                      C = C.set_constant_val(Cons);
+                      negateCoeff(C, isl::dim::param);
+                      negateCoeff(C, isl::dim::in);
+                      negateCoeff(C, isl::dim::out);
+                      negateCoeff(C, isl::dim::div);
+                  }
+
+            Constraints.push_back(C);
+          }
+      }
+      
+
+     SmallVector<int, 8 >  Depends;
+     Depends.reserve(PackedDims);
+     for (auto i = 0; i < PackedDims; i+=1) {
+         Depends.push_back(0);
+     }
+
+        for (auto C : Constraints){
+            for (auto i = 0; i < PackedDims; i+=1) {
+                auto Coeff = C.get_coefficient_val (isl::dim::in, i);
+                if (Coeff.is_zero())
+                    continue;
+
+                auto &Dep = Depends[i];
+                if (Dep > 0)
+                    continue;
+
+                Dep   =  Coeff.cmp_si(0);
+            }
+         }
+
+        auto FindFirstDep = [&Depends,PackedDims,&UsedDims]() -> int {
+        for (int i =PackedDims-1; i >= 0; i-=1) {
+            if (UsedDims[i])
+                continue;
+
+            // TODO: If Depends[i] is negative, also reverse order in this dimension
+        if (Depends[i])
+            return i; 
+        }
+        return -1;
+        };
+
+            auto ChosenDim = FindFirstDep();
+            if (ChosenDim < 0)
+                continue;
+            UsedDims[ChosenDim ]=true;
+
+            // { PackedSpace[] -> [ChosenDim] }
+            auto TheDim = isolateDim( isl::basic_map::identity( PackedSpace.map_from_domain_and_range(PackedSpace) ), ChosenDim );
+
+            Permutation = TheDim.flat_range_product(Permutation);
+  }
+  }
+
+  // Add all remaining dimensions in original order
+  for (int i = PackedDims-1; i>=0;i-=1) {
+      if (UsedDims[i])
+          continue;
+
+        auto TheDim = isolateDim( isl::basic_map::identity( PackedSpace.map_from_domain_and_range(PackedSpace) ), i );
+         Permutation = TheDim.flat_range_product(Permutation);
+  }
+
+  assert(Permutation.dim(isl::dim::in) == Permutation.dim(isl::dim::out));
+  Permutation = castSpace(Permutation,  PackedSpace.map_from_domain_and_range(PackedSpace));
+
+  return Permutation;
+
+}
+
 
 static void applyDataPack(Scop &S, isl::schedule &Sched,
                           LoopIdentification TheLoop, const ScopArrayInfo *SAI,
@@ -3255,11 +3391,11 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
       AllSchedRel = AllSchedRel.unite(SingleSchedRel);
   }
 
-
+#if 0
   FindDataLayout LayoutFinder;
   LayoutFinder.SAI = SAI;
   LayoutFinder.visit(TheBand);
-
+#endif
 
   bool WrittenTo = false;
   bool ReadFrom = false;
@@ -3291,6 +3427,11 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
 
     // { [PrefixSched[] -> PostfixSched[]] -> Data[] }
   auto CombinedAccesses = CombinedInstances.apply_range(Accs);
+
+  // { PostfixSched[] -> Data[] }
+  auto UAccessedByPostfix = CombinedAccesses.domain_factor_range();
+
+ // auto AccessedByPostfix = singleton(UAccessedByPostfix, );
 
   auto CombinedAccessesSgl = isl::map::from_union_map( CombinedAccesses);
 
@@ -3409,6 +3550,7 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
   TupleNest OrigToPackedIndexRef(OrigToPackedIndexMap, "{ PrefixSched[] -> [Data[] -> PackedData[]] }");
   TupleNest CombinedAccessesRef(CombinedAccessesSgl, "{ [PrefixSched[] -> PostfixSched[]] -> Data[] }");
 
+#if 0
   // { [PrefixSched[], PostfixSched[]] -> PackedData[] }
   auto Z = rebuildNesting(
       {{OrigToPackedIndexRef["PrefixSched"], CombinedAccessesRef["PrefixSched"]} ,
@@ -3435,7 +3577,7 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
       // { PackedData[] -> [i] }
       auto ExtractPostfix = isolateDim(Z .reverse(), i);
       simplify(ExtractPostfix);
-      dumpPw(ExtractPostfix);
+
 
       SmallVector<isl::constraint, 32> Constraints;
       for (auto BMap : ExtractPostfix.get_basic_map_list()) {
@@ -3506,23 +3648,9 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
   assert(Permutation.dim(isl::dim::in) == Permutation.dim(isl::dim::out));
   Permutation = Permutation.set_tuple_id(isl::dim::out, PackedId);
 
-
-#if 0
-  for (auto BMap : Z.get_basi)
-
-  if (Z.n_basic_map() == 1) {
-      auto BMap = Z.get_basic_map_list().get_at(0);
-
-     SmallVector<isl::constraint, 32> EqConstraints;
-    for ( auto C :  BMap.get_constraint_list()) {
-        if (!isl_constraint_is_equality(C.get()) )
-            continue;
-
-        EqConstraints.push_back(C);
-    }
-  }
 #endif
-  
+
+  auto Permutation = castSpace( findDataLayoutPermutation(UAccessedByPostfix), PackedSpace.map_from_domain_and_range(PackedSpace));
 
 
   OrigToPackedIndexMap = OrigToPackedIndexMap.uncurry().intersect_domain(WorkingSet.wrap()).apply_range(Permutation).curry();
