@@ -25,6 +25,7 @@
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include "llvm/Transforms/Utils/LoopUtils.h"
 
 using namespace llvm;
 using namespace polly;
@@ -680,4 +681,25 @@ bool polly::hasDebugCall(ScopStmt *Stmt) {
   }
 
   return false;
+}
+
+isl::id polly::getIslLoopId(isl::ctx Ctx, Loop *L) {
+  // Root of loop tree
+  if (!L)
+    return {};
+
+  auto LoopID = L->getLoopID();
+  if (!LoopID)
+    return {};
+
+  IslLoopIdUserTy User{L};
+
+  auto LoopName = findStringMetadataForLoop(L, "llvm.loop.id");
+  if (!LoopName)
+    return isl::id::alloc(Ctx, "", User.getOpaqueValue());
+
+  auto ValOp = LoopName.getValue();
+  auto ValStr = cast<MDString>(ValOp->get());
+  return isl::id::alloc(Ctx, (Twine("Loop_") + ValStr->getString()).str(),
+                        User.getOpaqueValue());
 }
