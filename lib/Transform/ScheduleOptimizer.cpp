@@ -2484,6 +2484,21 @@ static isl::schedule_node findBand(ArrayRef<isl::schedule_node> Bands,
 }
 
 static isl::schedule_node
+distributeBand(Scop &S, isl::schedule_node Band, const Dependences &D) {
+  auto Partial = isl::manage(isl_schedule_node_band_get_partial_schedule(Band.get()));
+  auto Seq = isl::manage(isl_schedule_node_delete(Band.release()));
+
+  auto n = Seq.n_children();
+  for (int i = 0; i < n; i+=1)
+      Seq = Seq.get_child(i).insert_partial_schedule(Partial).parent();
+  
+  if (!D.isValidSchedule(S, Seq.get_schedule()))
+    return {};
+  
+  return Seq;
+}
+
+static isl::schedule_node
 interchangeBands(isl::schedule_node Band,
                  ArrayRef<LoopIdentification> NewOrder) {
   auto NumBands = NewOrder.size();
@@ -2547,7 +2562,7 @@ static void applyLoopInterchange(Scop &S, isl::schedule &Sched,
   auto Transformed = Result.get_schedule();
 
   if (!D.isValidSchedule(S, Transformed)) {
-    LLVM_DEBUG(dbgs() << "LoopReversal not semantically legal\n");
+    LLVM_DEBUG(dbgs() << "LoopInterchange not semantically legal\n");
     return;
   }
 
