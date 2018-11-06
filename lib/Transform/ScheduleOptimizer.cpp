@@ -3987,6 +3987,8 @@ bool IslScheduleOptimizer::runOnScop(Scop &S) {
     isl_options_set_on_error(Ctx, OnErrorStatus);
   }
 
+  walkScheduleTreeForStatistics(Schedule, 1);
+
   // In cases the scheduler is not able to optimize the code, we just do not
   // touch the schedule.
   if (!Schedule)
