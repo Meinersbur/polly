@@ -3271,7 +3271,7 @@ bool Scop::buildAliasGroup(Scop::AliasGroupTy &AliasGroup,
 }
 
 /// Get the smallest loop that contains @p S but is not in @p S.
-static Loop *getLoopSurroundingScop(Scop &S, LoopInfo &LI) {
+Loop *polly::getLoopSurroundingScop(Scop &S, LoopInfo &LI) {
   // Start with the smallest loop containing the entry and expand that
   // loop until it contains all blocks in the region. If there is a loop
   // containing all blocks in the region check if it is itself contained
@@ -3975,6 +3975,7 @@ ScopArrayInfo *Scop::createScopArrayInfo(Type *ElementType,
     else
       SCEVSizes.push_back(nullptr);
 
+  // FIXME: This could potentially just lookup a matching array
   auto *SAI = getOrCreateScopArrayInfo(nullptr, ElementType, SCEVSizes,
                                        MemoryKind::Array, BaseName.c_str());
   return SAI;
@@ -4719,6 +4720,7 @@ void Scop::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack, LoopInfo &LI) {
     auto NumBlocksProcessed = LoopData->NumBlocksProcessed;
 
     assert(std::next(LoopData) != LoopStack.rend());
+    auto L = LoopData->L;
     ++LoopData;
     --Dimension;
 
@@ -4726,6 +4728,15 @@ void Scop::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack, LoopInfo &LI) {
       isl::union_set Domain = Schedule.get_domain();
       isl::multi_union_pw_aff MUPA = mapToDimension(Domain, Dimension);
       Schedule = Schedule.insert_partial_schedule(MUPA);
+
+      // auto LoopId  = LoopData->L->getLoopID();
+      auto IslLoopId = getIslLoopId(getIslCtx(), L);
+      if (IslLoopId)
+        Schedule = Schedule.get_root()
+                       .get_child(0)
+                       .insert_mark(IslLoopId)
+                       .get_schedule();
+
       LoopData->Schedule = combineInSequence(LoopData->Schedule, Schedule);
     }
 

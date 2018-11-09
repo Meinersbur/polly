@@ -277,5 +277,6 @@ void neverCalled() {
   isl::union_set_list().dump();
   isl::val().dump();
   isl::val_list().dump();
+  isl::mat().dump();
 }
 #endif

@@ -13,9 +13,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "polly/Support/ISLTools.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/StringRef.h"
 
 using namespace polly;
+using namespace llvm;
 
 namespace {
 /// Create a map that shifts one dimension by an offset.
@@ -183,6 +186,62 @@ isl::union_map polly::makeIdentityMap(const isl::union_set &USet,
   return Result;
 }
 
+isl::basic_map polly::castSpace(isl::basic_map Orig, isl::space NewSpace) {
+  assert(Orig.dim(isl::dim::in) == NewSpace.dim(isl::dim::in));
+  assert(Orig.dim(isl::dim::out) == NewSpace.dim(isl::dim::out));
+
+  // Save some computation if the target space is not nested.
+  if (!NewSpace.domain_is_wrapping() && !NewSpace.range_is_wrapping()) {
+    // Reset Orig tuples to ensure they are not nested anymore.
+    auto Result = std::move(Orig)
+                      .project_out(isl::dim::in, 0, 0)
+                      .project_out(isl::dim::out, 0, 0);
+
+    if (NewSpace.has_tuple_id(isl::dim::in))
+      Result = std::move(Result).set_tuple_id(
+          isl::dim::in, NewSpace.get_tuple_id(isl::dim::in));
+    if (NewSpace.has_tuple_id(isl::dim::out))
+      Result = std::move(Result).set_tuple_id(
+          isl::dim::out, NewSpace.get_tuple_id(isl::dim::out));
+
+    return std::move(Result).align_params(std::move(NewSpace));
+  }
+
+  auto WrappedOrig = std::move(Orig).wrap();
+  auto Identitiy = isl::basic_map::identity(
+      WrappedOrig.get_space().map_from_domain_and_range(
+          std::move(NewSpace).wrap()));
+  return std::move(WrappedOrig).apply(std::move(Identitiy)).unwrap();
+}
+
+isl::map polly::castSpace(isl::map Orig, isl::space NewSpace) {
+  assert(Orig.dim(isl::dim::in) == NewSpace.dim(isl::dim::in));
+  assert(Orig.dim(isl::dim::out) == NewSpace.dim(isl::dim::out));
+
+  // Save some computation if the target space is not nested.
+  if (!NewSpace.domain_is_wrapping() && !NewSpace.range_is_wrapping()) {
+    // Reset Orig tuples to ensure they are not nested anymore.
+    auto Result = std::move(Orig)
+                      .project_out(isl::dim::in, 0, 0)
+                      .project_out(isl::dim::out, 0, 0);
+
+    if (NewSpace.has_tuple_id(isl::dim::in))
+      Result = std::move(Result).set_tuple_id(
+          isl::dim::in, NewSpace.get_tuple_id(isl::dim::in));
+    if (NewSpace.has_tuple_id(isl::dim::out))
+      Result = std::move(Result).set_tuple_id(
+          isl::dim::out, NewSpace.get_tuple_id(isl::dim::out));
+
+    return std::move(Result).align_params(std::move(NewSpace));
+  }
+
+  auto WrappedOrig = std::move(Orig).wrap();
+  auto Identitiy =
+      isl::map::identity(WrappedOrig.get_space().map_from_domain_and_range(
+          std::move(NewSpace).wrap()));
+  return std::move(WrappedOrig).apply(std::move(Identitiy)).unwrap();
+}
+
 isl::map polly::reverseDomain(isl::map Map) {
   isl::space DomSpace = Map.get_space().domain().unwrap();
   isl::space Space1 = DomSpace.domain();
@@ -195,6 +254,23 @@ isl::union_map polly::reverseDomain(const isl::union_map &UMap) {
   isl::union_map Result = isl::union_map::empty(UMap.get_space());
   for (isl::map Map : UMap.get_map_list()) {
     auto Reversed = reverseDomain(std::move(Map));
+    Result = Result.add_map(Reversed);
+  }
+  return Result;
+}
+
+isl::map polly::reverseRange(isl::map Map) {
+  isl::space RangeSpace = Map.get_space().range().unwrap();
+  isl::space Space1 = RangeSpace.domain();
+  isl::space Space2 = RangeSpace.range();
+  isl::map Swap = makeTupleSwapMap(Space1, Space2);
+  return Map.apply_range(Swap);
+}
+
+isl::union_map polly::reverseRange(const isl::union_map &UMap) {
+  isl::union_map Result = isl::union_map::empty(UMap.get_space());
+  for (isl::map Map : UMap.get_map_list()) {
+    auto Reversed = reverseRange(std::move(Map));
     Result = Result.add_map(Reversed);
   }
   return Result;
@@ -501,25 +577,327 @@ isl::union_map polly::applyDomainRange(isl::union_map UMap,
   return UMap.apply_domain(LifetedFunc);
 }
 
+static void collectTupleInfos(isl::space Space, isl::space Model,
+                              StringMap<TupleInfo> &Tuples, TupleNest *Parent,
+                              int DimOffset) {
+  if (Model.is_map()) {
+    collectTupleInfos(Space.domain(), Model.domain(), Tuples, Parent,
+                      DimOffset);
+    collectTupleInfos(Space.range(), Model.range(), Tuples, Parent,
+                      DimOffset + Space.dim(isl::dim::in));
+    return;
+  }
+
+  if (Model.has_tuple_name(isl::dim::set)) {
+    auto Name = Model.get_tuple_name(isl::dim::set);
+    Tuples.insert({Name, TupleInfo(Parent, Space, DimOffset)});
+  }
+
+  if (Model.is_wrapping()) {
+    collectTupleInfos(Space.unwrap(), Model.unwrap(), Tuples, Parent,
+                      DimOffset);
+  }
+}
+
+TupleNest::TupleNest(isl::set Ref, StringRef ModelStr) : Ref(Ref) {
+  auto Ctx = Ref.get_ctx();
+
+  auto Model = isl::set(Ctx, ModelStr).get_space();
+  assert(!Model.is_null());
+  collectTupleInfos(Ref.get_space(), Model, Tuples, this, 0);
+}
+
+TupleNest::TupleNest(isl::map RefMap, StringRef ModelStr) : Ref(RefMap.wrap()) {
+  auto Ctx = Ref.get_ctx();
+
+  auto Model = isl::map(Ctx, ModelStr).get_space();
+  assert(!Model.is_null());
+  collectTupleInfos(RefMap.get_space(), Model, Tuples, this, 0);
+}
+
+static void findSetRefs(const SpaceRef *Ref,
+                        SetVector<const TupleNest *> &Refs) {
+  if (Ref->Domain)
+    findSetRefs(Ref->Domain, Refs);
+  if (Ref->Range)
+    findSetRefs(Ref->Range, Refs);
+  if (Ref->Tuple)
+    Refs.insert(Ref->Tuple->Parent);
+}
+
+#if 0
+static std::vector<std::pair< isl::space, int >> flattenSpace(isl::space Space, std::vector<std::pair< isl::space, int >> &List ) {
+    if (Space.is_map()) {
+        flattenSpace(Space.domain(), List);
+        flattenSpace(Space.range(), List);
+    } else if (Space.is_set() && Space.is_wrapping()) {
+        flattenSpace(Space.unwrap(), List);
+    } else if (Space.is_set() && !Space.is_wrapping()) {
+        int TuplePos = 0;
+        if (!List.empty()) {
+            auto &Back = List.back();
+            TuplePos = Back.second + Back .first.dim(isl::dim::set );
+        }
+        List.emplace_back(Space, TuplePos);
+    }
+    llvm_unreachable("no match");
+}
+#endif
+
+#if 0
+static std::vector<std::pair< isl::space, int >> flattenSpace(isl::space Space) {
+    std::vector<std::pair< isl::space, int >> Result;
+    flattenSpace(Space , Result);
+    return Result;
+}
+#endif
+
+static isl::space rebuildSpaceNest(const SpaceRef *NewNesting) {
+  if (NewNesting->Space)
+    return NewNesting->Space;
+  if (NewNesting->Domain && NewNesting->Range)
+    return rebuildSpaceNest(NewNesting->Domain)
+        .map_from_domain_and_range(rebuildSpaceNest(NewNesting->Range))
+        .wrap();
+  if (NewNesting->Tuple)
+    return NewNesting->Tuple->Space;
+  llvm_unreachable("No match");
+}
+
+static isl::ctx getFirstCtx(const SpaceRef *NewNesting) {
+  if (NewNesting->Space)
+    return NewNesting->Space.get_ctx();
+  if (NewNesting->Tuple)
+    return NewNesting->Tuple->Space.get_ctx();
+
+  isl::ctx Result = nullptr;
+  if (NewNesting->Domain)
+    Result = getFirstCtx(NewNesting->Domain);
+  if (!Result.get() && NewNesting->Range)
+    Result = getFirstCtx(NewNesting->Range);
+  return Result;
+}
+
+static int
+recursiveAddConstaints(const SpaceRef *NewNesting, isl::basic_map &Translator,
+                       const DenseMap<const TupleNest *, int> &NestOffsets,
+                       int PrevDims) {
+  auto NumDims = 0;
+  if (NewNesting->Space) {
+    // Universe of space => no constraints, no children
+    NumDims += NewNesting->Space.dim(isl::dim::set);
+  }
+  if (NewNesting->Domain) {
+    NumDims += recursiveAddConstaints(NewNesting->Domain, Translator,
+                                      NestOffsets, PrevDims + NumDims);
+  }
+  if (NewNesting->Range) {
+    NumDims += recursiveAddConstaints(NewNesting->Range, Translator,
+                                      NestOffsets, PrevDims + NumDims);
+  }
+
+  if (NewNesting->Tuple) {
+    auto Tuple = NewNesting->Tuple;
+    auto Parent = Tuple->Parent;
+    auto SetRef = Parent->Ref;
+    auto TuplePos = Tuple->Offset;
+    auto NestPos = NestOffsets.lookup(Parent);
+    auto Space = Tuple->Space;
+    auto N = Space.dim(isl::dim::set);
+    NumDims += N;
+    auto LS = Translator.get_local_space();
+
+    //    auto SourceFlat = flattenSpace(SetRef->get_space());
+    //  auto SetId =  std::distance(Refs.begin(),  std::find(Refs.begin(),
+    //  Refs.end(),SetRef ));
+    //      auto SourceSetOffset = SourceOffsets[SetId];
+    //      auto SourceTupleOffset = SourceFlat.at(TuplePos).second;
+    //   auto N = SourceFlat.at(TuplePos).first.dim(isl::dim::set);
+
+    for (int i = 0; i < N; i += 1) {
+      auto SourcePos = NestPos + TuplePos + i;
+      auto TargetPos = PrevDims + i;
+
+      auto C = isl::constraint::alloc_equality(LS);
+      C = C.set_coefficient_si(isl::dim::in, SourcePos, 1);
+      C = C.set_coefficient_si(isl::dim::out, TargetPos, -1);
+      Translator = Translator.add_constraint(C);
+    }
+  }
+
+  return NumDims;
+}
+
+isl::set polly::rebuildNesting(
+    llvm::ArrayRef<std::pair<const TupleInfo &, const TupleInfo &>>
+        Intersections,
+    const SpaceRef &NewNesting) {
+  auto Ctx = getFirstCtx(&NewNesting);
+
+  SetVector<const TupleNest *> Refs;
+  findSetRefs(&NewNesting, Refs);
+  for (auto &Intersection : Intersections) {
+    Refs.insert(Intersection.first.Parent);
+    Refs.insert(Intersection.second.Parent);
+  }
+
+  auto TargetSpace = rebuildSpaceNest(&NewNesting);
+  //  auto TargetFlat = flattenSpace(TargetSpace);
+
+  SmallVector<int, 4> SourceOffsets;
+  DenseMap<const TupleNest *, int> NestOffsets;
+  auto SourceSet = isl::set::universe(isl::space(Ctx, 0, 0));
+  for (int i = 0; i < Refs.size(); i += 1) {
+    SourceOffsets.push_back(SourceSet.dim(isl::dim::set));
+    NestOffsets.insert({Refs[i], SourceSet.dim(isl::dim::set)});
+    SourceSet = SourceSet.flat_product(Refs[i]->Ref);
+  }
+  auto SourceSpace = SourceSet.get_space();
+
+  auto TranslatorSpace = SourceSpace.map_from_domain_and_range(TargetSpace);
+  auto Translator = isl::basic_map::universe(TranslatorSpace);
+
+  auto TotalDims =
+      recursiveAddConstaints(&NewNesting, Translator, NestOffsets, 0);
+  assert(TotalDims == TargetSpace.dim(isl::dim::set));
+  auto LS = Translator.get_local_space();
+
+  for (auto &Intersection : Intersections) {
+    auto &First = Intersection.first;
+    auto &Second = Intersection.second;
+
+    assert(First.Space.dim(isl::dim::set) == Second.Space.dim(isl::dim::set));
+    assert(First.Space.has_equal_tuples(Second.Space));
+    auto N = First.Space.dim(isl::dim::set);
+    auto FirstNestPos = NestOffsets.lookup(First.Parent);
+    auto FirstTuplePos = First.Offset;
+    auto SecondNestPos = NestOffsets.lookup(Second.Parent);
+    auto SecondTuplePos = Second.Offset;
+
+    for (auto i = 0; i < N; i += 1) {
+      auto SourcePos = FirstNestPos + FirstTuplePos + i;
+      auto TargetPos = SecondNestPos + SecondTuplePos + i;
+
+      auto C = isl::constraint::alloc_equality(LS);
+      C = C.set_coefficient_si(isl::dim::in, SourcePos, 1);
+      C = C.set_coefficient_si(isl::dim::in, TargetPos, -1);
+      Translator = Translator.add_constraint(C);
+    }
+  }
+
+  auto Result = SourceSet.apply(Translator);
+  return Result;
+}
+
+isl::map polly::rebuildNesting(
+    llvm::ArrayRef<std::pair<const TupleInfo &, const TupleInfo &>>
+        Intersections,
+    const SpaceRef &Domain, const SpaceRef &Range) {
+  SpaceRef SetRef(Domain, Range);
+  auto Result = rebuildNesting(Intersections, SetRef);
+  return Result.unwrap();
+}
+
+isl::basic_map polly::isolateDim(isl::basic_map BMap, int Pos) {
+  auto OutDims = BMap.dim(isl::dim::out);
+  return BMap.project_out(isl::dim::out, Pos + 1, OutDims - Pos - 1)
+      .project_out(isl::dim::out, 0, Pos);
+}
+
+isl::map polly::isolateDim(isl::map Map, int Pos) {
+  auto OutDims = Map.dim(isl::dim::out);
+  return Map.project_out(isl::dim::out, Pos + 1, OutDims - Pos - 1)
+      .project_out(isl::dim::out, 0, Pos);
+}
+
+/// { A[] }, -1 = { _[] -> A[] }
+/// { A[] }, +1 = { A[] -> _[] }
+/// { A[] -> B[] }, -1, -1 = { _[] -> [A[] -> B[]] }
+/// { A[] -> B[] }, -1, +1 = { [A[] -> _[]] -> B[] }
+/// { [A[] -> B[]] }
+/// { [A[] -> B[]] -> C[]  }
+/// { A[] -> [B[] -> C[]]  }
+/// { [[A[] -> B[]] -> C[]]  }
+/// { [A[] -> [B[] -> C[]]]  }
+/// ...
+static isl::space insertNestedSpace(isl::space OuterSpace, isl::space Insertee,
+                                    llvm::ArrayRef<int> Position) {
+  // assert(OuterSpace.is_set());
+  assert(Insertee.is_set());
+  auto S = Position.size();
+  bool Wrapping = OuterSpace.is_set() && OuterSpace.is_wrapping();
+
+  isl::space Result;
+  assert(S >= 1);
+  if (S == 1) {
+    if (!Wrapping)
+      OuterSpace = OuterSpace.wrap();
+    switch (Position[0]) {
+    case -1:
+      Result = Insertee.map_from_domain_and_range(OuterSpace);
+    case 1:
+      Result = OuterSpace.map_from_domain_and_range(Insertee);
+    default:
+      llvm_unreachable("where to insert???");
+    }
+  } else {
+    if (Wrapping)
+      OuterSpace = OuterSpace.unwrap();
+    auto Domain = OuterSpace.domain();
+    auto Range = OuterSpace.range();
+    auto Remaining = Position.drop_front();
+    switch (Position[0]) {
+    case -1: {
+      auto NewDomain = insertNestedSpace(Domain, Insertee, Remaining);
+      Result = NewDomain.map_from_domain_and_range(Range);
+    }
+    case 1: {
+      auto NewRange = insertNestedSpace(Range, Insertee, Remaining);
+      Result = Domain.map_from_domain_and_range(NewRange);
+    }
+    default:
+      llvm_unreachable("where to insert???");
+    }
+  }
+
+  if (Wrapping)
+    Result = Result.wrap();
+  return Result;
+}
+
 isl::map polly::intersectRange(isl::map Map, isl::union_set Range) {
   isl::set RangeSet = Range.extract_set(Map.get_space().range());
   return Map.intersect_range(RangeSet);
 }
 
 isl::val polly::getConstant(isl::pw_aff PwAff, bool Max, bool Min) {
+  if (!PwAff)
+    return {};
   assert(!Max || !Min); // Cannot return min and max at the same time.
+
+  if (Max || Min) {
+    auto Space = PwAff.get_space();
+    auto Map = Space.is_set()
+                   ? isl::map::from_range(isl::set::from_pw_aff(PwAff))
+                   : isl::map::from_pw_aff(PwAff);
+    Map = Map.project_out(isl::dim::param, 0, Map.dim(isl::dim::param));
+    Map = Map.project_out(isl::dim::in, 0, Map.dim(isl::dim::in));
+
+    // TODO: These call may fail if unbounded; should temporarily disable isl
+    // error handler. We might be in a quota-region as well.
+    //  if ( Map.range().is_bounded())
+    if (Min) {
+      PwAff = Map.lexmin_pw_multi_aff().get_pw_aff(0);
+    } else if (Max) {
+      PwAff = Map.lexmax_pw_multi_aff().get_pw_aff(0);
+    }
+  }
+
   isl::val Result;
   isl::stat Stat = PwAff.foreach_piece(
       [=, &Result](isl::set Set, isl::aff Aff) -> isl::stat {
-        if (Result && Result.is_nan())
-          return isl::stat::ok();
-
-        // TODO: If Min/Max, we can also determine a minimum/maximum value if
-        // Set is constant-bounded.
-        if (!Aff.is_cst()) {
-          Result = isl::val::nan(Aff.get_ctx());
+        if (!Aff.is_cst())
           return isl::stat::error();
-        }
 
         isl::val ThisVal = Aff.get_constant_val();
         if (!Result) {
@@ -527,26 +905,25 @@ isl::val polly::getConstant(isl::pw_aff PwAff, bool Max, bool Min) {
           return isl::stat::ok();
         }
 
-        if (Result.eq(ThisVal))
-          return isl::stat::ok();
-
-        if (Max && ThisVal.gt(Result)) {
+        if (Max && ThisVal.ge(Result)) {
           Result = ThisVal;
           return isl::stat::ok();
         }
 
-        if (Min && ThisVal.lt(Result)) {
+        if (Min && ThisVal.le(Result)) {
           Result = ThisVal;
           return isl::stat::ok();
         }
+
+        if (!Min && !Max && Result.eq(ThisVal))
+          return isl::stat::ok();
 
         // Not compatible
-        Result = isl::val::nan(Aff.get_ctx());
         return isl::stat::error();
       });
 
   if (Stat.is_error())
-    return {};
+    return isl::val::nan(PwAff.get_ctx());
 
   return Result;
 }
