@@ -3651,6 +3651,92 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
   Sched = SchedWithoutExtensionNodes;
 }
 
+// Scop &S, isl::schedule &Sched, LoopIdentification TheLoop,
+static isl::schedule applyLoopUnroll(isl::schedule_node BandToUnroll, isl::id NewBandId, int64_t Factor) {
+  assert(BandToUnroll);
+  auto Ctx = BandToUnroll.get_ctx();
+
+  BandToUnroll = moveToBandMark(BandToUnroll);
+  BandToUnroll = removeMark(BandToUnroll);
+
+  if (Factor == 0) {
+    // Meaning full unroll
+     llvm_unreachable("full unroll to implement");
+  } else if (Factor > 0) {
+      auto PartialSched = isl::manage(isl_schedule_node_band_get_partial_schedule(BandToUnroll.get()));
+      assert(PartialSched.dim(isl::dim::out) == 1);
+      auto PartialSchedUAff = PartialSched.get_union_pw_aff(0);
+
+      // Here we assume the schedule stride is one and starts with 0, which is not necessarily the case.
+      auto StridedPartialSchedUAff = isl::union_pw_aff::empty(PartialSchedUAff.get_space());
+      
+      PartialSchedUAff.foreach_pw_aff([Factor,&StridedPartialSchedUAff,Ctx](isl::pw_aff PwAff) -> isl::stat {
+          auto Space = PwAff.get_space();
+          auto Universe = isl::set::universe(Space);
+          auto ValFactor = isl::val(Ctx, Factor);
+          auto AffFactor =isl::manage( isl_pw_aff_val_on_domain(Universe.copy(), ValFactor.copy()));
+          auto DivSchedAff = PwAff.div(  AffFactor);
+          StridedPartialSchedUAff = StridedPartialSchedUAff.union_add(DivSchedAff);
+            return isl::stat::ok();
+      });
+
+        auto Body = BandToUnroll.get_child(0);
+        auto List = isl::manage( isl_union_pw_aff_list_alloc(Ctx.get(), Factor));
+        for (int i = 0; i<Factor; i+=1) {
+             // { Stmt[] -> [x] }
+           auto UMap = isl::union_map(PartialSchedUAff);
+
+           
+
+
+           // { [x] }
+           auto Uverse = isl::set::universe( isl::space(Ctx, 0, 1) );
+
+
+           UMap.intersect_range(); 
+
+               
+             PartialSchedUAff.foreach_pw_aff([Factor,Ctx](isl::pw_aff PwAff) -> isl::stat {
+                
+                 
+             }
+
+            auto El = 
+            List.set_union_pw_aff(i, El);
+        }
+
+  Body = Body.insert_sequence(PartialSchedUAff. domain());
+
+
+
+  auto MPA = PartialSched.get_union_pw_aff(0);
+  auto Neg = MPA.neg();
+
+  auto Node = isl::manage(isl_schedule_node_delete(BandToReverse.copy()));
+  Node = Node.insert_partial_schedule(Neg);
+
+  if (NewBandId)
+    Node = insertMark(Node, NewBandId);
+
+  return Node.get_schedule();
+  }
+
+  llvm_unreachable("Negative unroll factor");
+}
+
+static void applyLoopUnroll(Scop &S, isl::schedule &Sched, LoopIdentification ApplyOn, isl::id NewBandId, const Dependences &D) {
+  auto Band = findBand(Sched, ApplyOn);
+
+  auto Transformed = applyLoopUnroll(Band, NewBandId);
+
+  if (!D.isValidSchedule(S, Transformed)) {
+    LLVM_DEBUG(dbgs() << "LoopReversal not semantically legal\n");
+    return;
+  }
+
+  Sched = Transformed;
+}
+
 LoopIdentification identifyLoopBy(Metadata *TheMetadata) {
   if (auto MDApplyOn = dyn_cast<MDString>(TheMetadata)) {
     return LoopIdentification::createFromName(MDApplyOn->getString());
@@ -3834,6 +3920,17 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
 
       for (auto *SAI : SAIs)
         applyDataPack(S, Sched, LoopToPack, SAI, OnHeap);
+      continue;
+    }
+
+    if (WhichStr == "llvm.loop.unroll") {
+      auto ApplyOnArg = OpMD->getOperand(1).get();
+      auto LoopToUnroll = identifyLoopBy(ApplyOnArg);
+
+      auto NewBandId = makeTransformLoopId(S.getIslCtx(), OpMD, "unrolled");
+      applyLoopReversal(S, Sched, LoopToReverse, NewBandId, D);
+
+      Changed = true;
       continue;
     }
 
