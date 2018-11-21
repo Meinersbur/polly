@@ -3650,126 +3650,134 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
   Sched = SchedWithoutExtensionNodes;
 }
 
-
-static isl::basic_set isDivisibleBySet(isl::ctx &Ctx, int64_t Factor, int64_t Offset) {
-    auto ValFactor = isl::val(Ctx, Factor);
-    auto Unispace = isl::space(Ctx, 0, 1);
-    auto LUnispace = isl::local_space(Unispace);
-    auto Id = isl::aff::var_on_domain(LUnispace, isl::dim::out, 0);
-    auto AffFactor = isl::aff(LUnispace, ValFactor);
-    auto ValOffset = isl::val(Ctx, Offset);
-    auto AffOffset = isl::aff(LUnispace, ValOffset);
-    auto DivMul = Id.mod(ValFactor);
-    auto Divisible = isl::basic_map::from_aff(DivMul);//.equate(isl::dim::in, 0, isl::dim::out, 0);
-    auto Modulo = Divisible.fix_val(isl::dim::out, 0, ValOffset);
-    return Modulo.domain();
+static isl::basic_set isDivisibleBySet(isl::ctx &Ctx, int64_t Factor,
+                                       int64_t Offset) {
+  auto ValFactor = isl::val(Ctx, Factor);
+  auto Unispace = isl::space(Ctx, 0, 1);
+  auto LUnispace = isl::local_space(Unispace);
+  auto Id = isl::aff::var_on_domain(LUnispace, isl::dim::out, 0);
+  auto AffFactor = isl::aff(LUnispace, ValFactor);
+  auto ValOffset = isl::val(Ctx, Offset);
+  auto AffOffset = isl::aff(LUnispace, ValOffset);
+  auto DivMul = Id.mod(ValFactor);
+  auto Divisible = isl::basic_map::from_aff(
+      DivMul); //.equate(isl::dim::in, 0, isl::dim::out, 0);
+  auto Modulo = Divisible.fix_val(isl::dim::out, 0, ValOffset);
+  return Modulo.domain();
 }
 
-
 // Scop &S, isl::schedule &Sched, LoopIdentification TheLoop,
-static isl::schedule applyLoopUnroll(isl::schedule_node BandToUnroll, isl::id NewBandId, int64_t Factor) {
+static isl::schedule applyLoopUnroll(isl::schedule_node BandToUnroll,
+                                     isl::id NewBandId, int64_t Factor) {
   assert(BandToUnroll);
   auto Ctx = BandToUnroll.get_ctx();
 
   BandToUnroll = moveToBandMark(BandToUnroll);
   BandToUnroll = removeMark(BandToUnroll);
 
-  auto PartialSched = isl::manage(isl_schedule_node_band_get_partial_schedule(BandToUnroll.get()));
+  auto PartialSched = isl::manage(
+      isl_schedule_node_band_get_partial_schedule(BandToUnroll.get()));
   assert(PartialSched.dim(isl::dim::out) == 1);
 
   if (Factor == 0) { // Meaning full unroll
     auto Domain = BandToUnroll.get_domain();
     auto PartialSchedUAff = PartialSched.get_union_pw_aff(0);
-     PartialSchedUAff = PartialSchedUAff.intersect_domain(Domain);
-     auto PartialSchedUMap = isl::union_map(PartialSchedUAff);
+    PartialSchedUAff = PartialSchedUAff.intersect_domain(Domain);
+    auto PartialSchedUMap = isl::union_map(PartialSchedUAff);
 
-     // Make consumable for the following code.
-     // Schedule at the beginning so it is at coordinate 0.
-          auto PartialSchedUSet = PartialSchedUMap.reverse().wrap();
+    // Make consumable for the following code.
+    // Schedule at the beginning so it is at coordinate 0.
+    auto PartialSchedUSet = PartialSchedUMap.reverse().wrap();
 
-          SmallVector<isl::point, 16> Elts;
-          // FIXME: Will error if not enumerable
-          PartialSchedUSet.foreach_point([&Elts](isl::point P) ->isl::stat {
-            Elts.push_back(P);
-              return isl::stat::ok();
-          });
+    SmallVector<isl::point, 16> Elts;
+    // FIXME: Will error if not enumerable
+    PartialSchedUSet.foreach_point([&Elts](isl::point P) -> isl::stat {
+      Elts.push_back(P);
+      return isl::stat::ok();
+    });
 
-          llvm::sort(Elts, [](isl::point P1, isl::point P2) -> bool {
-            auto C1 = P1.get_coordinate_val(isl::dim::set, 0);
-            auto C2 = P2.get_coordinate_val(isl::dim::set, 0);
-            return C1.lt(C2);
-          });
+    llvm::sort(Elts, [](isl::point P1, isl::point P2) -> bool {
+      auto C1 = P1.get_coordinate_val(isl::dim::set, 0);
+      auto C2 = P2.get_coordinate_val(isl::dim::set, 0);
+      return C1.lt(C2);
+    });
 
-          auto NumIts = Elts.size();
-            auto List = isl::manage(isl_union_set_list_alloc(Ctx.get(), NumIts));
+    auto NumIts = Elts.size();
+    auto List = isl::manage(isl_union_set_list_alloc(Ctx.get(), NumIts));
 
-          for (auto P : Elts) {
-              // { Stmt[] }
-              auto Space  = P.get_space().unwrap().range();
-              auto D = Space.dim(isl::dim::set);
-              auto Univ = isl::basic_set::universe(Space);
-              for (auto i = 0; i < D; i+=1) {
-                  auto Val = P.get_coordinate_val(isl::dim::set, i+1);
-                    Univ = Univ.fix_val(isl::dim::set, i, Val);
-              }
-              List = List.add(Univ);
-          }
+    for (auto P : Elts) {
+      // { Stmt[] }
+      auto Space = P.get_space().unwrap().range();
+      auto D = Space.dim(isl::dim::set);
+      auto Univ = isl::basic_set::universe(Space);
+      for (auto i = 0; i < D; i += 1) {
+        auto Val = P.get_coordinate_val(isl::dim::set, i + 1);
+        Univ = Univ.fix_val(isl::dim::set, i, Val);
+      }
+      List = List.add(Univ);
+    }
 
-          auto Body = isl::manage(isl_schedule_node_delete(BandToUnroll.copy()));
-          Body = Body.insert_sequence(List);
+    auto Body = isl::manage(isl_schedule_node_delete(BandToUnroll.copy()));
+    Body = Body.insert_sequence(List);
 
-           return Body.get_schedule();
+    return Body.get_schedule();
   } else if (Factor > 0) {
-      // TODO: Could also do a strip-mining, then full unroll
+    // TODO: Could also do a strip-mining, then full unroll
 
+    // { Stmt[] -> [x] }
+    auto PartialSchedUAff = PartialSched.get_union_pw_aff(0);
+
+    // Here we assume the schedule stride is one and starts with 0, which is not
+    // necessarily the case.
+    auto StridedPartialSchedUAff =
+        isl::union_pw_aff::empty(PartialSchedUAff.get_space());
+    auto ValFactor = isl::val(Ctx, Factor);
+    PartialSchedUAff.foreach_pw_aff([Factor, &StridedPartialSchedUAff, Ctx,
+                                     &ValFactor](
+                                        isl::pw_aff PwAff) -> isl::stat {
+      auto Space = PwAff.get_space();
+      auto Universe = isl::set::universe(Space.domain());
+      auto AffFactor = isl::manage(
+          isl_pw_aff_val_on_domain(Universe.copy(), ValFactor.copy()));
+      auto DivSchedAff = PwAff.div(AffFactor).floor().mul(AffFactor);
+      StridedPartialSchedUAff = StridedPartialSchedUAff.union_add(DivSchedAff);
+      return isl::stat::ok();
+    });
+
+    auto List = isl::manage(isl_union_set_list_alloc(Ctx.get(), Factor));
+    for (int i = 0; i < Factor; i += 1) {
       // { Stmt[] -> [x] }
-      auto PartialSchedUAff = PartialSched.get_union_pw_aff(0);
+      auto UMap = isl::union_map(PartialSchedUAff);
 
-      // Here we assume the schedule stride is one and starts with 0, which is not necessarily the case.
-      auto StridedPartialSchedUAff = isl::union_pw_aff::empty(PartialSchedUAff.get_space());
-      auto ValFactor = isl::val(Ctx, Factor);
-      PartialSchedUAff.foreach_pw_aff([Factor,&StridedPartialSchedUAff,Ctx,&ValFactor](isl::pw_aff PwAff) -> isl::stat {
-          auto Space = PwAff.get_space();
-          auto Universe = isl::set::universe(Space.domain());
-          auto AffFactor =isl::manage( isl_pw_aff_val_on_domain(Universe.copy(), ValFactor.copy()));
-          auto DivSchedAff = PwAff.div(AffFactor).floor().mul(AffFactor);
-          StridedPartialSchedUAff = StridedPartialSchedUAff.union_add(DivSchedAff);
-          return isl::stat::ok();
-      });
+      // { [x] }
+      auto Divisible = isDivisibleBySet(Ctx, Factor, i);
 
-        auto List = isl::manage(isl_union_set_list_alloc(Ctx.get(), Factor));
-        for (int i = 0; i<Factor; i+=1) {
-             // { Stmt[] -> [x] }
-           auto UMap = isl::union_map(PartialSchedUAff);
+      // { Stmt[] }
+      auto UnrolledDomain = UMap.intersect_range(Divisible).domain();
 
-           // { [x] }
-           auto Divisible = isDivisibleBySet(Ctx, Factor, i);
+      List = List.add(UnrolledDomain);
+    }
 
-           // { Stmt[] }
-           auto UnrolledDomain = UMap.intersect_range(Divisible).domain();
+    auto Body = isl::manage(isl_schedule_node_delete(BandToUnroll.copy()));
+    Body = Body.insert_sequence(List);
+    auto NewLoop = Body.insert_partial_schedule(StridedPartialSchedUAff);
 
-           List=List.add(UnrolledDomain);
-        }
+    if (NewBandId)
+      NewLoop = insertMark(NewLoop, NewBandId);
 
-        auto Body = isl::manage(isl_schedule_node_delete(BandToUnroll.copy()));
-        Body = Body.insert_sequence(List);
-        auto NewLoop = Body.insert_partial_schedule (StridedPartialSchedUAff);
-
-          if (NewBandId)
-            NewLoop = insertMark(NewLoop, NewBandId);
-
-          return NewLoop.get_schedule();
+    return NewLoop.get_schedule();
   }
 
   llvm_unreachable("Negative unroll factor");
 }
 
-
-static void applyLoopUnroll(Scop &S, isl::schedule &Sched, LoopIdentification ApplyOn, isl::id NewBandId, const Dependences &D, int64_t Factor) {
+static void applyLoopUnroll(Scop &S, isl::schedule &Sched,
+                            LoopIdentification ApplyOn, isl::id NewBandId,
+                            const Dependences &D, int64_t Factor) {
   auto Band = findBand(Sched, ApplyOn);
 
-  auto Transformed = applyLoopUnroll(Band, NewBandId, Factor );
-  assert (D.isValidSchedule(S, Transformed)) ;
+  auto Transformed = applyLoopUnroll(Band, NewBandId, Factor);
+  assert(D.isValidSchedule(S, Transformed));
   Sched = Transformed;
 }
 
@@ -3966,14 +3974,15 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
       auto UnrollOption = OpMD->getOperand(2).get();
       int64_t Factor = -1;
       if (auto FullUnrollMD = dyn_cast<MDString>(UnrollOption)) {
-        assert( FullUnrollMD->getString()=="full");
+        assert(FullUnrollMD->getString() == "full");
         Factor = 0;
-      } else if (auto UnrollFactorMD= dyn_cast<ValueAsMetadata >( UnrollOption )) {
-        auto FactorVal = cast<ConstantInt>( UnrollFactorMD->getValue());
-       Factor = FactorVal->getValue().getSExtValue();
-       assert(Factor > 0);
-      } else 
-          llvm_unreachable("Illegal unroll option");
+      } else if (auto UnrollFactorMD =
+                     dyn_cast<ValueAsMetadata>(UnrollOption)) {
+        auto FactorVal = cast<ConstantInt>(UnrollFactorMD->getValue());
+        Factor = FactorVal->getValue().getSExtValue();
+        assert(Factor > 0);
+      } else
+        llvm_unreachable("Illegal unroll option");
 
       auto NewBandId = makeTransformLoopId(S.getIslCtx(), OpMD, "unrolled");
       applyLoopUnroll(S, Sched, LoopToUnroll, NewBandId, D, Factor);
