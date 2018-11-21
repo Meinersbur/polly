@@ -3674,16 +3674,56 @@ static isl::schedule applyLoopUnroll(isl::schedule_node BandToUnroll, isl::id Ne
   BandToUnroll = moveToBandMark(BandToUnroll);
   BandToUnroll = removeMark(BandToUnroll);
 
-  if (Factor == 0) {
-    // Meaning full unroll
-     llvm_unreachable("full unroll to implement");
+  auto PartialSched = isl::manage(isl_schedule_node_band_get_partial_schedule(BandToUnroll.get()));
+  assert(PartialSched.dim(isl::dim::out) == 1);
+
+  if (Factor == 0) { // Meaning full unroll
+    auto Domain = BandToUnroll.get_domain();
+    auto PartialSchedUAff = PartialSched.get_union_pw_aff(0);
+     PartialSchedUAff = PartialSchedUAff.intersect_domain(Domain);
+     auto PartialSchedUMap = isl::union_map(PartialSchedUAff);
+
+     // Make consumable for the following code.
+     // Schedule at the beginning so it is at coordinate 0.
+          auto PartialSchedUSet = PartialSchedUMap.reverse().wrap();
+
+          SmallVector<isl::point, 16> Elts;
+          // FIXME: Will error if not enumerable
+          PartialSchedUSet.foreach_point([&Elts](isl::point P) ->isl::stat {
+            Elts.push_back(P);
+              return isl::stat::ok();
+          });
+
+          llvm::sort(Elts, [](isl::point P1, isl::point P2) -> bool {
+            auto C1 = P1.get_coordinate_val(isl::dim::set, 0);
+            auto C2 = P2.get_coordinate_val(isl::dim::set, 0);
+            return C1.lt(C2);
+          });
+
+          auto NumIts = Elts.size();
+            auto List = isl::manage(isl_union_set_list_alloc(Ctx.get(), NumIts));
+
+          for (auto P : Elts) {
+              // { Stmt[] }
+              auto Space  = P.get_space().unwrap().range();
+              auto D = Space.dim(isl::dim::set);
+              auto Univ = isl::basic_set::universe(Space);
+              for (auto i = 0; i < D; i+=1) {
+                  auto Val = P.get_coordinate_val(isl::dim::set, i+1);
+                    Univ = Univ.fix_val(isl::dim::set, i, Val);
+              }
+              List = List.add(Univ);
+          }
+
+          auto Body = isl::manage(isl_schedule_node_delete(BandToUnroll.copy()));
+          Body = Body.insert_sequence(List);
+
+           return Body.get_schedule();
   } else if (Factor > 0) {
-      auto PartialSched = isl::manage(isl_schedule_node_band_get_partial_schedule(BandToUnroll.get()));
-      assert(PartialSched.dim(isl::dim::out) == 1);
+      // TODO: Could also do a strip-mining, then full unroll
 
       // { Stmt[] -> [x] }
       auto PartialSchedUAff = PartialSched.get_union_pw_aff(0);
-
 
       // Here we assume the schedule stride is one and starts with 0, which is not necessarily the case.
       auto StridedPartialSchedUAff = isl::union_pw_aff::empty(PartialSchedUAff.get_space());
