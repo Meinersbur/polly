@@ -186,6 +186,9 @@ isl::space getScatterSpace(const isl::union_map &Schedule);
 ///         A map that maps each value of @p USet to itself.
 isl::union_map makeIdentityMap(const isl::union_set &USet, bool RestrictDomain);
 
+isl::basic_map castSpace(isl::basic_map Orig, isl::space NewSpace);
+isl::map castSpace(isl::map Orig, isl::space NewSpace);
+
 /// Reverse the nested map tuple in @p Map's domain.
 ///
 /// @param Map { [Space1[] -> Space2[]] -> Space3[] }
@@ -195,6 +198,10 @@ isl::map reverseDomain(isl::map Map);
 
 /// Piecewise reverseDomain(isl::map).
 isl::union_map reverseDomain(const isl::union_map &UMap);
+
+isl::map reverseRange(isl::map Map);
+
+isl::union_map reverseRange(const isl::union_map &UMap);
 
 /// Add a constant to one dimension of a set.
 ///
@@ -468,6 +475,59 @@ isl::map intersectRange(isl::map Map, isl::union_set Range);
 /// can also be a piecewise constant and it would return the minimum/maximum
 /// value. Otherwise, return NaN.
 isl::val getConstant(isl::pw_aff PwAff, bool Max, bool Min);
+
+struct TupleNest;
+
+struct TupleInfo {
+  TupleNest *Parent = nullptr;
+  isl::space Space;
+  int Offset = -1;
+
+  TupleInfo(){};
+  TupleInfo(TupleNest *Parent, isl::space Space, int Offset)
+      : Parent(Parent), Space(Space), Offset(Offset) {}
+
+  // ~TupleInfo() {
+  //     int a = 0;
+  // }
+};
+
+struct SpaceRef {
+  isl::space Space;
+  const SpaceRef *Domain = nullptr, *Range = nullptr;
+  const TupleInfo *Tuple = nullptr;
+
+  // SpaceRef(){}
+  SpaceRef(isl::space Space) : Space(Space) { assert(Space.is_set()); }
+  SpaceRef(const SpaceRef &Domain, const SpaceRef &Range)
+      : Domain(&Domain), Range(&Range) {}
+  SpaceRef(const TupleInfo &Tuple) : Tuple(&Tuple) {}
+};
+
+struct TupleNest {
+  isl::set Ref;
+  llvm::StringMap<TupleInfo> Tuples;
+
+  const TupleInfo &operator[](llvm::StringRef Name) { return Tuples[Name]; }
+
+  TupleNest(isl::set Ref, llvm::StringRef ModelStr);
+  TupleNest(isl::map Ref, llvm::StringRef ModelStr);
+};
+
+isl::set
+rebuildNesting(llvm::ArrayRef<std::pair<const TupleInfo &, const TupleInfo &>>
+                   Intersections,
+               const SpaceRef &NewNesting);
+
+isl::map
+rebuildNesting(llvm::ArrayRef<std::pair<const TupleInfo &, const TupleInfo &>>
+                   Intersections,
+               const SpaceRef &Domain, const SpaceRef &Range);
+
+/// @param { Domain[] -> Range[...,Pos,...] }
+/// @param { Domain[] -> [Pos] }
+isl::basic_map isolateDim(isl::basic_map BMap, int Pos);
+isl::map isolateDim(isl::map Map, int Pos);
 
 /// Dump a description of the argument to llvm::errs().
 ///
