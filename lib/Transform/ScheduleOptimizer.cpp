@@ -654,7 +654,7 @@ static bool isMatMulOperandAcc(isl::set Domain, isl::map AccMap, int &FirstPos,
 /// @return          True in case the memory access represents the read access
 ///                  to a non-scalar operand of the matrix multiplication and
 ///                  false, otherwise.
-static bool isMatMulNonScalarReadAccess(MemoryAccess *MemAccess,
+static bool isMatMulNonScalarReadAccess(polly::MemoryAccess *MemAccess,
                                         MatMulInfoTy &MMI) {
   if (!MemAccess->isLatestArrayKind() || !MemAccess->isRead())
     return false;
@@ -1081,7 +1081,7 @@ isl::schedule_node createExtensionNode(isl::schedule_node Node,
 /// Scop::createScopArrayInfo, change the access relation
 /// S[i, j, k] -> A[i, k] to
 /// S[i, j, k] -> Packed_A[floor((i mod Mc) / Mr), k mod Kc, i mod Mr], using
-/// MemoryAccess::setNewAccessRelation, and copy the data to the array, using
+/// polly::MemoryAccess::setNewAccessRelation, and copy the data to the array, using
 /// the copy statement created by Scop::addScopStmt.
 ///
 /// @param Node The schedule node to be optimized.
@@ -2783,7 +2783,7 @@ static void redirectAccesses(isl::schedule_node Node,
 
 static void collectSubtreeAccesses(isl::schedule_node Node,
                                    const ScopArrayInfo *SAI,
-                                   SmallVectorImpl<MemoryAccess *> &Accs) {
+                                   SmallVectorImpl<polly::MemoryAccess *> &Accs) {
   if (isl_schedule_node_get_type(Node.get()) == isl_schedule_node_leaf) {
     auto UDomain = Node.get_domain();
     for (auto Domain : UDomain.get_set_list()) {
@@ -3409,7 +3409,7 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
   isl::union_map Accs = isl::union_map::empty(S.getParamSpace());
   collectMemAccsDomains(TheBand, SAI, Accs, false);
 
-  SmallVector<MemoryAccess *, 16> MemAccs;
+  SmallVector<polly::MemoryAccess *, 16> MemAccs;
   collectSubtreeAccesses(TheBand, SAI, MemAccs);
 
   auto SchedMap = Sched.get_map();
@@ -3828,7 +3828,7 @@ static void collectAccessInstList(SmallVectorImpl<Instruction *> &Insts,
   }
 }
 
-static void collectMemoryAccessList(SmallVectorImpl<MemoryAccess *> &MemAccs,
+static void collectMemoryAccessList(SmallVectorImpl<polly::MemoryAccess *> &MemAccs,
                                     ArrayRef<Instruction *> Insts, Scop &S) {
   auto &R = S.getRegion();
 
@@ -3839,7 +3839,7 @@ static void collectMemoryAccessList(SmallVectorImpl<MemoryAccess *> &MemAccs,
     auto Stmt = S.getStmtFor(Inst);
     assert(Stmt && "All memory accesses should be modeled");
     auto MemAcc = Stmt->getArrayAccessOrNULLFor(Inst);
-    assert(MemAcc && "All memory accesses should be modeled by a MemoryAccess");
+    assert(MemAcc && "All memory accesses should be modeled by a polly::MemoryAccess");
     if (MemAcc)
       MemAccs.push_back(MemAcc);
   }
@@ -3962,7 +3962,7 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
 
       SmallVector<Instruction *, 32> AccInsts;
       collectAccessInstList(AccInsts, AccMDs, F);
-      SmallVector<MemoryAccess *, 32> MemAccs;
+      SmallVector<polly::MemoryAccess *, 32> MemAccs;
       collectMemoryAccessList(MemAccs, AccInsts, S);
 
       SmallPtrSet<const ScopArrayInfo *, 2> SAIs;
@@ -3971,7 +3971,7 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
       }
       // TODO: Check consistency: Are all MemoryAccesses for all selected SAIs
       // in MemAccs?
-      // TODO: What should happen for MemoryAccess that got their SAI changed?
+      // TODO: What should happen for polly::MemoryAccess that got their SAI changed?
 
       auto OnHeap =
           cast<MDString>(OpMD->getOperand(3).get())->getString() == "malloc";
