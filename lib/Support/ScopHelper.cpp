@@ -682,49 +682,41 @@ bool polly::hasDebugCall(ScopStmt *Stmt) {
   return false;
 }
 
-
 bool polly::isBandMark(const isl::id &Id) {
-	if (Id.is_null())
-		return false;
+  if (Id.is_null())
+    return false;
 
-	// Alias-free marker does not have BandAttr* in its user ptr. 
-if (strcmp(isl_id_get_name(Id.get()), "Inter iteration alias-free") == 0)
-return false;
+  // Alias-free marker does not have BandAttr* in its user ptr.
+  if (strcmp(isl_id_get_name(Id.get()), "Inter iteration alias-free") == 0)
+    return false;
 
-
-return true;
+  return true;
 }
 
 bool polly::isBandMark(const isl::schedule_node &Node) {
-	return isMark(Node)&& isBandMark(Node.mark_get_id());
+  return isMark(Node) && isBandMark(Node.mark_get_id());
 }
-
 
 bool polly::isMark(const isl::schedule_node &Node) {
-	return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_mark;
+  return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_mark;
 }
 
+isl::id polly::getIslLoopAttr(isl::ctx Ctx, BandAttr *Attr) {
+  assert(Attr);
 
-isl::id polly:: getIslLoopAttr(isl::ctx Ctx, BandAttr *Attr){
-	assert(Attr);
+  std::string IdLabel;
+  if (Attr->LoopName.empty())
+    IdLabel = "anon loop";
+  else
+    IdLabel = (Twine("Loop: ") + Attr->LoopName).str();
 
-	std::string IdLabel;
-	if (Attr->LoopName.empty())
-		IdLabel = "anon loop";
-	else
-		IdLabel =(Twine("Loop: ") + Attr->LoopName).str();
-
-
-
-
-auto	Result = isl::id::alloc(Ctx, IdLabel.c_str(), Attr);
-Result = isl::manage( isl_id_set_free_user(Result.release(), [](void *Ptr){
-	BandAttr *Attr = (BandAttr*)(Ptr);
-	delete Attr;
-	} ));
-return Result;
+  auto Result = isl::id::alloc(Ctx, IdLabel.c_str(), Attr);
+  Result = isl::manage(isl_id_set_free_user(Result.release(), [](void *Ptr) {
+    BandAttr *Attr = (BandAttr *)(Ptr);
+    delete Attr;
+  }));
+  return Result;
 }
-
 
 isl::id polly::getIslLoopAttr(isl::ctx Ctx, Loop *L) {
   // Root of loop tree
@@ -732,27 +724,27 @@ isl::id polly::getIslLoopAttr(isl::ctx Ctx, Loop *L) {
     return {};
 
   auto LoopID = L->getLoopID();
-  bool Needed = LoopID; // FIXME: Currently, transformations reference LoopIDs, which are not IDs.
-  StringRef LoopName ;
+  bool Needed = LoopID; // FIXME: Currently, transformations reference LoopIDs,
+                        // which are not IDs.
+  StringRef LoopName;
 
-	  auto LoopNameMD = findStringMetadataForLoop(L, "llvm.loop.id");
-	  if (LoopNameMD) {
-		  auto ValOp = LoopNameMD.getValue();
-		  auto ValStr = cast<MDString>(ValOp->get());
-		  LoopName  =  ValStr->getString();
-		  Needed = true;
-	  }
+  auto LoopNameMD = findStringMetadataForLoop(L, "llvm.loop.id");
+  if (LoopNameMD) {
+    auto ValOp = LoopNameMD.getValue();
+    auto ValStr = cast<MDString>(ValOp->get());
+    LoopName = ValStr->getString();
+    Needed = true;
+  }
 
-
-	  if (!Needed )
-		  return {};
+  if (!Needed)
+    return {};
 
   BandAttr *Attr = new BandAttr();
   Attr->OriginalLoop = L;
   Attr->LoopName = LoopName;
   Attr->Metadata = LoopID; // FIXME: Set this? LoopID is not unique
 
-  //Attr->OriginalLoopID = L->getLoopID();
+  // Attr->OriginalLoopID = L->getLoopID();
   return getIslLoopAttr(Ctx, Attr);
 #if 0
   auto LoopID = L->getLoopID();
@@ -770,4 +762,3 @@ isl::id polly::getIslLoopAttr(isl::ctx Ctx, Loop *L) {
   return isl::id::alloc(Ctx, (Twine("Loop_") + ValStr->getString()).str(), User.getOpaqueValue());
 #endif
 }
-

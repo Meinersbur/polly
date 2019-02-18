@@ -1081,8 +1081,8 @@ isl::schedule_node createExtensionNode(isl::schedule_node Node,
 /// Scop::createScopArrayInfo, change the access relation
 /// S[i, j, k] -> A[i, k] to
 /// S[i, j, k] -> Packed_A[floor((i mod Mc) / Mr), k mod Kc, i mod Mr], using
-/// polly::MemoryAccess::setNewAccessRelation, and copy the data to the array, using
-/// the copy statement created by Scop::addScopStmt.
+/// polly::MemoryAccess::setNewAccessRelation, and copy the data to the array,
+/// using the copy statement created by Scop::addScopStmt.
 ///
 /// @param Node The schedule node to be optimized.
 /// @param MapOldIndVar The relation, which maps original induction variables
@@ -1730,40 +1730,34 @@ public:
 };
 
 static bool isBand(const isl::schedule_node &Node) {
-return	isl_schedule_node_get_type(Node.get()) == isl_schedule_node_band;
+  return isl_schedule_node_get_type(Node.get()) == isl_schedule_node_band;
 }
-
 
 static bool isBandOrMark(const isl::schedule_node &Node) {
-	auto Kind =	isl_schedule_node_get_type(Node.get()) ;
-	return Kind == isl_schedule_node_band || Kind==isl_schedule_node_mark;
+  auto Kind = isl_schedule_node_get_type(Node.get());
+  return Kind == isl_schedule_node_band || Kind == isl_schedule_node_mark;
 }
 
-
-
-
 static isl::schedule_node moveToBandMark(isl::schedule_node Band) {
-	auto Cur = Band;
-	if (isBand(Band))
-		Cur = Band.parent();
+  auto Cur = Band;
+  if (isBand(Band))
+    Cur = Band.parent();
 
-	// Go up until we find a band mark.
+  // Go up until we find a band mark.
   while (true) {
-	if (isl_schedule_node_get_type(Cur.get()) != isl_schedule_node_mark)
-		break;
-	  if (isBandMark(Cur))
-		  return Cur;
+    if (isl_schedule_node_get_type(Cur.get()) != isl_schedule_node_mark)
+      break;
+    if (isBandMark(Cur))
+      return Cur;
 
     auto Parent = Cur.parent();
     assert(Parent);
-	Cur = Parent;
+    Cur = Parent;
   }
   if (isBand(Band))
-	  return Band; // Has no mark.
+    return Band; // Has no mark.
   return nullptr;
 }
-
-
 
 class LoopIdentification {
   Loop *ByLoop = nullptr;
@@ -1776,8 +1770,8 @@ public:
     if (ByLoop)
       return ByLoop;
     if (ByIslId) {
-		BandAttr *Attr = static_cast<BandAttr *>(ByIslId.get_user());
-		return Attr->OriginalLoop;
+      BandAttr *Attr = static_cast<BandAttr *>(ByIslId.get_user());
+      return Attr->OriginalLoop;
     }
     if (ByMetadata) {
       // llvm_unreachable("TODO: Implement lookup metadata-to-loop");
@@ -1800,9 +1794,9 @@ public:
     if (!ByName.empty())
       return ByName;
     if (ByIslId) {
-		BandAttr *Attr = static_cast<BandAttr *>(ByIslId.get_user());
-		return Attr->LoopName;
-	}
+      BandAttr *Attr = static_cast<BandAttr *>(ByIslId.get_user());
+      return Attr->LoopName;
+    }
     StringRef Result;
     if (auto L = getLoop()) {
       auto IdVal = findStringMetadataForLoop(L, "llvm.loop.id");
@@ -1819,10 +1813,10 @@ public:
     if (auto L = getLoop())
       return L->getLoopID();
 
-	if (ByIslId) {
-		BandAttr *Attr = static_cast<BandAttr *>(ByIslId.get_user());
-		return Attr->Metadata;
-	}
+    if (ByIslId) {
+      BandAttr *Attr = static_cast<BandAttr *>(ByIslId.get_user());
+      return Attr->Metadata;
+    }
 
     return nullptr;
   }
@@ -1846,12 +1840,12 @@ public:
     assert(!Id.is_null());
     LoopIdentification Result;
     Result.ByIslId = Id;
-	if (Id) {
+    if (Id) {
       Result.ByLoop = static_cast<BandAttr *>(Id.get_user())->OriginalLoop;
-	  Result.ByName = static_cast<BandAttr *>(Id.get_user())->LoopName;
-	  Result.ByMetadata =static_cast<BandAttr *>(Id.get_user())->Metadata;
-	}
-   // Result.ByName = Id.get_name();
+      Result.ByName = static_cast<BandAttr *>(Id.get_user())->LoopName;
+      Result.ByMetadata = static_cast<BandAttr *>(Id.get_user())->Metadata;
+    }
+    // Result.ByName = Id.get_name();
     // Result.ByMetadata = Result.ByLoop->getLoopID();
 #if 0
         if (Result.ByMetadata) {
@@ -1938,25 +1932,24 @@ public:
 
 static isl::schedule_node removeMark(isl::schedule_node MarkOrBand) {
   MarkOrBand = moveToBandMark(MarkOrBand);
-  while (isl_schedule_node_get_type(MarkOrBand.get()) == isl_schedule_node_mark) {
-	  if (isBandMark(MarkOrBand))
-		 MarkOrBand = isl::manage(isl_schedule_node_delete(MarkOrBand.release()));
-	  else
-		  MarkOrBand= MarkOrBand.parent();
+  while (isl_schedule_node_get_type(MarkOrBand.get()) ==
+         isl_schedule_node_mark) {
+    if (isBandMark(MarkOrBand))
+      MarkOrBand = isl::manage(isl_schedule_node_delete(MarkOrBand.release()));
+    else
+      MarkOrBand = MarkOrBand.parent();
   }
   return MarkOrBand;
 }
 
-
-
 static isl::schedule_node insertMark(isl::schedule_node Band, isl::id Mark) {
   assert(isl_schedule_node_get_type(Band.get()) == isl_schedule_node_band);
-  assert(moveToBandMark(Band).is_equal(Band) && "Don't add a two marks for a band");
-  Band = isl::manage(isl_schedule_node_insert_mark(Band.release(), Mark.release()));
+  assert(moveToBandMark(Band).is_equal(Band) &&
+         "Don't add a two marks for a band");
+  Band = isl::manage(
+      isl_schedule_node_insert_mark(Band.release(), Mark.release()));
   return Band.get_child(0);
 }
-
-
 
 static isl::schedule applyLoopReversal(isl::schedule_node BandToReverse,
                                        isl::id NewBandId) {
@@ -1965,7 +1958,8 @@ static isl::schedule applyLoopReversal(isl::schedule_node BandToReverse,
   BandToReverse = moveToBandMark(BandToReverse);
   BandToReverse = removeMark(BandToReverse);
 
-  auto PartialSched = isl::manage(isl_schedule_node_band_get_partial_schedule(BandToReverse.get()));
+  auto PartialSched = isl::manage(
+      isl_schedule_node_band_get_partial_schedule(BandToReverse.get()));
   assert(PartialSched.dim(isl::dim::out) == 1);
 
   auto MPA = PartialSched.get_union_pw_aff(0);
@@ -2440,14 +2434,19 @@ static isl::schedule_node tileBand(isl::schedule_node BandToTile,
   return Result;
 }
 
-static isl::id makeTransformLoopId(isl::ctx Ctx, MDNode *TheTransformation, StringRef TransName, StringRef Name = StringRef()) {
-	// TODO: Only return one when needed.
+static isl::id makeTransformLoopId(isl::ctx Ctx, MDNode *TheTransformation,
+                                   StringRef TransName,
+                                   StringRef Name = StringRef()) {
+  // TODO: Only return one when needed.
 
-	BandAttr *Attr = new BandAttr();
-	Attr->LoopName = Name.empty() ? TransName :Name; //TODO: Don't use trans name as LoopName, but as label
-	Attr->Metadata=TheTransformation;
-	// TODO: Set followup MDNode
-	return getIslLoopAttr(Ctx, Attr);
+  BandAttr *Attr = new BandAttr();
+  Attr->LoopName =
+      Name.empty()
+          ? TransName
+          : Name; // TODO: Don't use trans name as LoopName, but as label
+  Attr->Metadata = TheTransformation;
+  // TODO: Set followup MDNode
+  return getIslLoopAttr(Ctx, Attr);
 #if 0
 	IslLoopIdUserTy User{TheTransformation};
 	std::string TheName;
@@ -2487,7 +2486,7 @@ static void applyLoopTiling(Scop &S, isl::schedule &Sched,
   InnerBand = separateBand(InnerBand);
   for (auto TileId : TileIds) {
     auto Mark = makeTransformLoopId(IslCtx, nullptr, "inner tile", TileId);
-       // isl::id::alloc(IslCtx, (Twine("Loop_") + TileId).str(), nullptr);
+    // isl::id::alloc(IslCtx, (Twine("Loop_") + TileId).str(), nullptr);
     InnerBand = insertMark(InnerBand, Mark);
 
     InnerBand = InnerBand.get_child(0);
@@ -2503,8 +2502,8 @@ static void applyLoopTiling(Scop &S, isl::schedule &Sched,
 
   OuterBand = separateBand(OuterBand);
   for (auto PitId : PitIds) {
-    auto Mark =  makeTransformLoopId(IslCtx, nullptr, "outer floor", PitId);
-		// isl::id::alloc(IslCtx, (Twine("Loop_") + PitId).str(), nullptr);
+    auto Mark = makeTransformLoopId(IslCtx, nullptr, "outer floor", PitId);
+    // isl::id::alloc(IslCtx, (Twine("Loop_") + PitId).str(), nullptr);
     OuterBand = insertMark(OuterBand, Mark);
 
     OuterBand = OuterBand.get_child(0);
@@ -2535,18 +2534,19 @@ static isl::schedule_node findBand(ArrayRef<isl::schedule_node> Bands,
   return {};
 }
 
-static isl::schedule_node
-distributeBand(Scop &S, isl::schedule_node Band, const Dependences &D) {
-  auto Partial = isl::manage(isl_schedule_node_band_get_partial_schedule(Band.get()));
+static isl::schedule_node distributeBand(Scop &S, isl::schedule_node Band,
+                                         const Dependences &D) {
+  auto Partial =
+      isl::manage(isl_schedule_node_band_get_partial_schedule(Band.get()));
   auto Seq = isl::manage(isl_schedule_node_delete(Band.release()));
 
   auto n = Seq.n_children();
-  for (int i = 0; i < n; i+=1)
-      Seq = Seq.get_child(i).insert_partial_schedule(Partial).parent();
-  
+  for (int i = 0; i < n; i += 1)
+    Seq = Seq.get_child(i).insert_partial_schedule(Partial).parent();
+
   if (!D.isValidSchedule(S, Seq.get_schedule()))
     return {};
-  
+
   return Seq;
 }
 
@@ -2834,9 +2834,9 @@ static void redirectAccesses(isl::schedule_node Node,
   }
 }
 
-static void collectSubtreeAccesses(isl::schedule_node Node,
-                                   const ScopArrayInfo *SAI,
-                                   SmallVectorImpl<polly::MemoryAccess *> &Accs) {
+static void
+collectSubtreeAccesses(isl::schedule_node Node, const ScopArrayInfo *SAI,
+                       SmallVectorImpl<polly::MemoryAccess *> &Accs) {
   if (isl_schedule_node_get_type(Node.get()) == isl_schedule_node_leaf) {
     auto UDomain = Node.get_domain();
     for (auto Domain : UDomain.get_set_list()) {
@@ -3848,13 +3848,10 @@ static void applyLoopUnroll(Scop &S, isl::schedule &Sched,
   Sched = Transformed;
 }
 
-
-
-
-static BandAttr* getBandAttr( isl::schedule_node Node) {
-	Node = moveToBandMark(Node);
-	assert(isBandMark(Node));
-	return static_cast<BandAttr*>(Node.mark_get_id().get_user());
+static BandAttr *getBandAttr(isl::schedule_node Node) {
+  Node = moveToBandMark(Node);
+  assert(isBandMark(Node));
+  return static_cast<BandAttr *>(Node.mark_get_id().get_user());
 }
 
 #if 0
@@ -3866,35 +3863,33 @@ static BandAttr*getOrInsertBandAttr(isl::schedule_node &Band) {
 }
 #endif
 
+static isl::schedule applyThreadParallism(isl::schedule_node BandToParallelize,
+                                          isl::id NewBandId) {
+  assert(BandToParallelize);
+  auto Ctx = BandToParallelize.get_ctx();
 
-static isl::schedule applyThreadParallism(isl::schedule_node BandToParallelize,	isl::id NewBandId) {
-	assert(BandToParallelize);
-	auto Ctx = BandToParallelize.get_ctx();
-	 
-	BandToParallelize = moveToBandMark(BandToParallelize);
-	BandToParallelize = removeMark(BandToParallelize);
+  BandToParallelize = moveToBandMark(BandToParallelize);
+  BandToParallelize = removeMark(BandToParallelize);
 
-	assert(isl_schedule_node_band_n_member(BandToParallelize.get()) == 1);
-	auto ParallelizedBand = BandToParallelize.band_member_set_coincident(0, true);
-	assert(NewBandId);
-	auto Attr = static_cast<BandAttr*>(NewBandId.get_user());
-	Attr->ForceThreadParallel = true;
-	ParallelizedBand = insertMark(ParallelizedBand, NewBandId);
+  assert(isl_schedule_node_band_n_member(BandToParallelize.get()) == 1);
+  auto ParallelizedBand = BandToParallelize.band_member_set_coincident(0, true);
+  assert(NewBandId);
+  auto Attr = static_cast<BandAttr *>(NewBandId.get_user());
+  Attr->ForceThreadParallel = true;
+  ParallelizedBand = insertMark(ParallelizedBand, NewBandId);
 
-
-	return ParallelizedBand.get_schedule();
+  return ParallelizedBand.get_schedule();
 }
 
+static void applyParallelizeThread(Scop &S, isl::schedule &Sched,
+                                   LoopIdentification ApplyOn,
+                                   isl::id NewBandId, const Dependences &D) {
+  auto Band = findBand(Sched, ApplyOn);
 
-
-static void applyParallelizeThread(Scop &S, isl::schedule &Sched, LoopIdentification ApplyOn, isl::id NewBandId,const Dependences &D) {
-	auto Band = findBand(Sched, ApplyOn);
-
-	auto Transformed = applyThreadParallism(Band, NewBandId);
-	assert(D.isValidSchedule(S, Transformed));
-	Sched = Transformed;
+  auto Transformed = applyThreadParallism(Band, NewBandId);
+  assert(D.isValidSchedule(S, Transformed));
+  Sched = Transformed;
 }
-
 
 static LoopIdentification identifyLoopBy(Metadata *TheMetadata) {
   if (auto MDApplyOn = dyn_cast<MDString>(TheMetadata)) {
@@ -3904,8 +3899,6 @@ static LoopIdentification identifyLoopBy(Metadata *TheMetadata) {
   auto MDNodeApplyOn = cast<MDNode>(TheMetadata);
   return LoopIdentification::createFromMetadata(MDNodeApplyOn);
 }
-
-
 
 static void collectAccessInstList(SmallVectorImpl<Instruction *> &Insts,
                                   DenseSet<MDNode *> InstMDs, Function &F,
@@ -3920,8 +3913,9 @@ static void collectAccessInstList(SmallVectorImpl<Instruction *> &Insts,
   }
 }
 
-static void collectMemoryAccessList(SmallVectorImpl<polly::MemoryAccess *> &MemAccs,
-                                    ArrayRef<Instruction *> Insts, Scop &S) {
+static void
+collectMemoryAccessList(SmallVectorImpl<polly::MemoryAccess *> &MemAccs,
+                        ArrayRef<Instruction *> Insts, Scop &S) {
   auto &R = S.getRegion();
 
   for (auto Inst : Insts) {
@@ -3931,7 +3925,8 @@ static void collectMemoryAccessList(SmallVectorImpl<polly::MemoryAccess *> &MemA
     auto Stmt = S.getStmtFor(Inst);
     assert(Stmt && "All memory accesses should be modeled");
     auto MemAcc = Stmt->getArrayAccessOrNULLFor(Inst);
-    assert(MemAcc && "All memory accesses should be modeled by a polly::MemoryAccess");
+    assert(MemAcc &&
+           "All memory accesses should be modeled by a polly::MemoryAccess");
     if (MemAcc)
       MemAccs.push_back(MemAcc);
   }
@@ -4063,7 +4058,8 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
       }
       // TODO: Check consistency: Are all MemoryAccesses for all selected SAIs
       // in MemAccs?
-      // TODO: What should happen for polly::MemoryAccess that got their SAI changed?
+      // TODO: What should happen for polly::MemoryAccess that got their SAI
+      // changed?
 
       auto OnHeap =
           cast<MDString>(OpMD->getOperand(3).get())->getString() == "malloc";
@@ -4097,18 +4093,16 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
       continue;
     }
 
-	if (WhichStr == "llvm.loop.parallelize_thread") {
-		auto ApplyOnArg = OpMD->getOperand(1).get();
-		auto LoopToParallelize = identifyLoopBy(ApplyOnArg);
+    if (WhichStr == "llvm.loop.parallelize_thread") {
+      auto ApplyOnArg = OpMD->getOperand(1).get();
+      auto LoopToParallelize = identifyLoopBy(ApplyOnArg);
 
-		auto NewBandId = makeTransformLoopId(S.getIslCtx(), OpMD, "threaded");
-		applyParallelizeThread(S, Sched, LoopToParallelize,NewBandId,  D);
+      auto NewBandId = makeTransformLoopId(S.getIslCtx(), OpMD, "threaded");
+      applyParallelizeThread(S, Sched, LoopToParallelize, NewBandId, D);
 
-
-		Changed = true;
-		continue;
-	}
-
+      Changed = true;
+      continue;
+    }
 
     llvm_unreachable("unknown loop transformation");
   }
@@ -4292,7 +4286,8 @@ bool IslScheduleOptimizer::runOnScop(Scop &S) {
 
   walkScheduleTreeForStatistics(NewSchedule, 2);
 
-  if (!ManuallyTransformed && !ScheduleTreeOptimizer::isProfitableSchedule(S, NewSchedule))
+  if (!ManuallyTransformed &&
+      !ScheduleTreeOptimizer::isProfitableSchedule(S, NewSchedule))
     return false;
 
   auto ScopStats = S.getStatistics();

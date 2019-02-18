@@ -271,22 +271,27 @@ static bool astScheduleDimIsParallel(__isl_keep isl_ast_build *Build,
 static __isl_give isl_id *astBuildBeforeFor(__isl_keep isl_ast_build *Build,
                                             void *User) {
   AstBuildUserInfo *BuildInfo = (AstBuildUserInfo *)User;
-  BuildInfo->CurLoopDepth+=1;
+  BuildInfo->CurLoopDepth += 1;
 
   IslAstUserPayload *Payload = new IslAstUserPayload();
   isl_id *Id = isl_id_alloc(isl_ast_build_get_ctx(Build), "", Payload);
   Id = isl_id_set_free_user(Id, freeIslAstUserPayload);
   BuildInfo->LastForNodeId = Id;
 
-  bool PerformParallelTest = PollyParallel || DetectParallel || PollyVectorizerChoice != VECTORIZER_NONE;
-  Payload->IsForcedThreadParallel = BuildInfo->ForceParallelizeDepth>0 && (BuildInfo->CurLoopDepth==BuildInfo->ForceParallelizeDepth);
-  Payload->IsParallel = Payload->IsForcedThreadParallel  ||
-	  (PerformParallelTest  && astScheduleDimIsParallel(Build, BuildInfo->Deps, Payload));
-
+  bool PerformParallelTest = PollyParallel || DetectParallel ||
+                             PollyVectorizerChoice != VECTORIZER_NONE;
+  Payload->IsForcedThreadParallel =
+      BuildInfo->ForceParallelizeDepth > 0 &&
+      (BuildInfo->CurLoopDepth == BuildInfo->ForceParallelizeDepth);
+  Payload->IsParallel =
+      Payload->IsForcedThreadParallel ||
+      (PerformParallelTest &&
+       astScheduleDimIsParallel(Build, BuildInfo->Deps, Payload));
 
   // Test for parallelism only if we are not already inside a parallel loop
   if (!BuildInfo->InParallelFor && !BuildInfo->InSIMD)
-    BuildInfo->InParallelFor = Payload->IsOutermostParallel = Payload->IsParallel;
+    BuildInfo->InParallelFor = Payload->IsOutermostParallel =
+        Payload->IsParallel;
 
   return Id;
 }
@@ -301,7 +306,7 @@ static __isl_give isl_id *astBuildBeforeFor(__isl_keep isl_ast_build *Build,
 static __isl_give isl_ast_node *
 astBuildAfterFor(__isl_take isl_ast_node *Node, __isl_keep isl_ast_build *Build,
                  void *User) {
-	AstBuildUserInfo *BuildInfo = (AstBuildUserInfo *)User;
+  AstBuildUserInfo *BuildInfo = (AstBuildUserInfo *)User;
 
   isl_id *Id = isl_ast_node_get_annotation(Node);
   assert(Id && "Post order visit assumes annotated for nodes");
@@ -311,18 +316,18 @@ astBuildAfterFor(__isl_take isl_ast_node *Node, __isl_keep isl_ast_build *Build,
   Payload->Build = isl_ast_build_copy(Build);
   Payload->IsInnermost = (Id == BuildInfo->LastForNodeId);
 
-  Payload->IsInnermostParallel = Payload->IsInnermost && (BuildInfo->InSIMD || Payload->IsParallel);
+  Payload->IsInnermostParallel =
+      Payload->IsInnermost && (BuildInfo->InSIMD || Payload->IsParallel);
   if (Payload->IsOutermostParallel)
     BuildInfo->InParallelFor = false;
 
   isl_id_free(Id);
 
-  BuildInfo->CurLoopDepth-=1;
-  assert(BuildInfo->CurLoopDepth>=0);
+  BuildInfo->CurLoopDepth -= 1;
+  assert(BuildInfo->CurLoopDepth >= 0);
 
   return Node;
 }
-
 
 static isl_stat astBuildBeforeMark(__isl_keep isl_id *MarkId,
                                    __isl_keep isl_ast_build *Build,
@@ -335,14 +340,13 @@ static isl_stat astBuildBeforeMark(__isl_keep isl_id *MarkId,
     BuildInfo->InSIMD = true;
 
   if (isBandMark(isl::manage_copy(MarkId))) {
-  auto Attr = static_cast<BandAttr*>(isl_id_get_user(MarkId));
-  if (Attr && Attr->ForceThreadParallel)
-		BuildInfo->ForceParallelizeDepth = BuildInfo->CurLoopDepth+1;
+    auto Attr = static_cast<BandAttr *>(isl_id_get_user(MarkId));
+    if (Attr && Attr->ForceThreadParallel)
+      BuildInfo->ForceParallelizeDepth = BuildInfo->CurLoopDepth + 1;
   }
 
   return isl_stat_ok;
 }
-
 
 static __isl_give isl_ast_node *
 astBuildAfterMark(__isl_take isl_ast_node *Node,
@@ -354,11 +358,12 @@ astBuildAfterMark(__isl_take isl_ast_node *Node,
     BuildInfo->InSIMD = false;
 
   if (isBandMark(isl::manage_copy(Id))) {
-  auto Attr = static_cast<BandAttr*>(isl_id_get_user(Id));
-  if (Attr && Attr->ForceThreadParallel) {
-	assert(BuildInfo->ForceParallelizeDepth==BuildInfo->CurLoopDepth+1 && "Irregular nesting of forced parallelism");
-	  BuildInfo->ForceParallelizeDepth = -1;
-  }
+    auto Attr = static_cast<BandAttr *>(isl_id_get_user(Id));
+    if (Attr && Attr->ForceThreadParallel) {
+      assert(BuildInfo->ForceParallelizeDepth == BuildInfo->CurLoopDepth + 1 &&
+             "Irregular nesting of forced parallelism");
+      BuildInfo->ForceParallelizeDepth = -1;
+    }
   }
 
   isl_id_free(Id);
@@ -592,11 +597,15 @@ void IslAst::init(const Dependences &D) {
     BuildInfo.InParallelFor = false;
     BuildInfo.InSIMD = false;
 
-    Build = isl_ast_build_set_before_each_for(Build, &astBuildBeforeFor, &BuildInfo);
-    Build = isl_ast_build_set_after_each_for(Build, &astBuildAfterFor, &BuildInfo);
+    Build = isl_ast_build_set_before_each_for(Build, &astBuildBeforeFor,
+                                              &BuildInfo);
+    Build =
+        isl_ast_build_set_after_each_for(Build, &astBuildAfterFor, &BuildInfo);
 
-    Build = isl_ast_build_set_before_each_mark(Build, &astBuildBeforeMark, &BuildInfo);
-    Build = isl_ast_build_set_after_each_mark(Build, &astBuildAfterMark, &BuildInfo);
+    Build = isl_ast_build_set_before_each_mark(Build, &astBuildBeforeMark,
+                                               &BuildInfo);
+    Build = isl_ast_build_set_after_each_mark(Build, &astBuildAfterMark,
+                                              &BuildInfo);
   }
 
   RunCondition = buildRunCondition(S, Build);
@@ -604,7 +613,7 @@ void IslAst::init(const Dependences &D) {
   Root = isl_ast_build_node_from_schedule(Build, S.getScheduleTree().release());
   assert(!BuildInfo.InParallelFor);
   assert(!BuildInfo.InSIMD);
-  assert(BuildInfo.CurLoopDepth==0);
+  assert(BuildInfo.CurLoopDepth == 0);
   walkAstForStatistics(Root);
 
   isl_ast_build_free(Build);
@@ -661,9 +670,9 @@ bool IslAstInfo::isReductionParallel(__isl_keep isl_ast_node *Node) {
 }
 
 bool IslAstInfo::isExecutedInParallel(__isl_keep isl_ast_node *Node) {
-	IslAstUserPayload *Payload = getNodePayload(Node);
-	if( Payload && Payload->IsForcedThreadParallel)
-		return true;
+  IslAstUserPayload *Payload = getNodePayload(Node);
+  if (Payload && Payload->IsForcedThreadParallel)
+    return true;
 
   if (!PollyParallel)
     return false;
