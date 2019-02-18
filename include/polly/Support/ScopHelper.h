@@ -37,6 +37,7 @@ class GetElementPtrInst;
 namespace polly {
 class Scop;
 class ScopStmt;
+class MemoryAccess;
 
 /// Type to remap values.
 using ValueMapT = llvm::DenseMap<llvm::AssertingVH<llvm::Value>,
@@ -481,7 +482,26 @@ bool isDebugCall(llvm::Instruction *Inst);
 /// Such a statement must not be removed, even if has no side-effects.
 bool hasDebugCall(ScopStmt *Stmt);
 
-using IslLoopIdUserTy = llvm::PointerUnion<llvm::Loop *, llvm::MDNode *>;
-isl::id getIslLoopId(isl::ctx Ctx, llvm::Loop *L);
+
+bool isBandMark(const isl::id &Id) ;
+ bool isBandMark(const isl::schedule_node &Node) ;
+ bool isMark(const isl::schedule_node &Node) ;
+
+class BandAttr {
+public:
+llvm::Loop* OriginalLoop=nullptr;
+std::string LoopName;
+
+// FIXME: should not be needed; is not unique
+llvm::MDNode *Metadata=nullptr;
+
+	bool ForceThreadParallel = false;
+};
+
+
+
+//using IslLoopIdUserTy = llvm::PointerUnion<llvm::Loop *, llvm::MDNode *>;
+isl::id getIslLoopAttr(isl::ctx Ctx, BandAttr *Attr);
+isl::id getIslLoopAttr(isl::ctx Ctx, llvm::Loop *L);
 } // namespace polly
 #endif

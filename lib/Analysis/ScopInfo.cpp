@@ -4728,8 +4728,8 @@ void Scop::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack, LoopInfo &LI) {
       isl::multi_union_pw_aff MUPA = mapToDimension(Domain, Dimension);
       Schedule = Schedule.insert_partial_schedule(MUPA);
 
-      // auto LoopId  = LoopData->L->getLoopID();
-      auto IslLoopId = getIslLoopId(getIslCtx(), L);
+      // It is easier to insert the marks here that do it retroactively.
+      auto IslLoopId = getIslLoopAttr(getIslCtx(), L);
       if (IslLoopId)
         Schedule = Schedule.get_root()
                        .get_child(0)
