@@ -3932,12 +3932,76 @@ collectMemoryAccessList(SmallVectorImpl<polly::MemoryAccess *> &MemAccs,
   }
 }
 
+
+
+
+class SearchTransformVisitor : public RecursiveScheduleTreeVisitor<SearchTransformVisitor> {
+private:
+	using BaseTy = RecursiveScheduleTreeVisitor<SearchTransformVisitor>;
+	BaseTy &getBase() { return *this; }
+	const BaseTy &getBase() const { return *this; }
+
+public:
+	isl::schedule Result;
+
+	void visitBand(const isl::schedule_node &Band) {
+		auto IslCtx = Band.get_ctx();
+
+		// Transform inn loops first.
+		getBase().visitBand(Band); 
+		if (Result)
+			return;
+
+		auto Mark = moveToBandMark(Band);
+		if (!Mark || Mark.get()==Band.get())
+			return;
+
+	    auto Attr = static_cast<BandAttr*>( 	Mark.mark_get_id().get_user());
+		auto LoopMD = Attr->Metadata;
+		if (!LoopMD)
+			return;
+
+		for (auto& MDOp : drop_begin(LoopMD->operands(),1)) {
+			auto MD = cast<MDNode>( MDOp.get());
+			auto NameMD = cast<MDString>(MD->getOperand(0).get());
+			auto AttrName = NameMD->getString();
+			
+			if (AttrName == "llvm.loop.reverse.enable") {
+				auto NewBandId = makeTransformLoopId(IslCtx, nullptr, "reversed");
+				Result = applyLoopReversal(Band,NewBandId );
+				return ;
+			}
+		}
+
+	}
+
+	void visitOther(const isl::schedule_node &Other) {
+		if (Result)
+			return;
+	return	getBase().visitOther(Other);
+	}
+
+};
+
+
+
 static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
                                                 isl::schedule_constraints &SC,
                                                 const Dependences &D) {
   auto &F = S.getFunction();
   bool Changed = false;
 
+  // Search the loop nest for transformations; apply until no more are found.
+  while (true) {
+	  SearchTransformVisitor Transformer;
+	  Transformer.visit(Sched);
+	  if (!Transformer.Result)
+		  return Sched;
+	  Changed=true;
+	  Sched = Transformer.Result;
+  }
+
+#if 0
   auto MD = F.getMetadata("looptransform");
   if (!MD)
     return Sched; // No loop transformations specified
@@ -4106,6 +4170,8 @@ static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
 
     llvm_unreachable("unknown loop transformation");
   }
+#endif
+
   return Sched;
 }
 
