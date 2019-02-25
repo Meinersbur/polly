@@ -1951,15 +1951,104 @@ static isl::schedule_node insertMark(isl::schedule_node Band, isl::id Mark) {
   return Band.get_child(0);
 }
 
-static isl::schedule applyLoopReversal(isl::schedule_node BandToReverse,
-                                       isl::id NewBandId) {
+static  MDNode * findNamedMetadataNode( MDNode *LoopMD,	StringRef Name) {
+	if (!LoopMD)
+		return nullptr;
+	for (auto &X : drop_begin( LoopMD->operands(),1)) {
+		auto OpNode = cast<MDNode>(X.get());
+		auto OpName = cast<MDString>(OpNode ->getOperand(0));
+		if (OpName->getString()==Name)
+			return OpNode;
+	}
+	return nullptr;
+}
+
+
+static Optional< Metadata *> findMetadataOperand( MDNode *LoopMD,	StringRef Name) {
+	auto MD = findNamedMetadataNode(LoopMD, Name);
+	if (!MD)
+		return None;
+	switch (MD->getNumOperands()) {
+	case 1:
+		return nullptr;
+	case 2:
+		return MD->getOperand(1).get();
+	default:
+		llvm_unreachable("loop metadata must have 0 or 1 operands");
+	}
+}
+
+
+static llvm::Optional<int> findOptionalIntOperand(MDNode *LoopMD, StringRef Name) {
+	Metadata *AttrMD = findMetadataOperand(LoopMD,Name).getValueOr(nullptr);
+	if (!AttrMD)
+		return None;
+
+	ConstantInt *IntMD = mdconst::extract_or_null<ConstantInt>(AttrMD);
+	if (!IntMD)
+		return None;
+
+	return IntMD->getSExtValue();
+}
+
+static llvm::Optional<StringRef> findOptionalStringOperand(MDNode *LoopMD, StringRef Name) {
+	Metadata *AttrMD = findMetadataOperand(LoopMD,Name).getValueOr(nullptr);
+	if (!AttrMD)
+		return None;
+
+	auto StrMD = dyn_cast< MDString>  (AttrMD);
+	if (!StrMD)
+		return None;
+
+	return StrMD->getString();
+}
+
+
+static llvm::Optional<MDNode*> findOptionalMDOperand(MDNode *LoopMD, StringRef Name) {
+	Metadata *AttrMD = findMetadataOperand(LoopMD,Name).getValueOr(nullptr);
+	if (!AttrMD)
+		return None;
+
+	auto MD = dyn_cast< MDNode>  (AttrMD);
+	if (!MD)
+		return None;
+	return MD;
+}
+
+static isl::id makeTransformLoopId(isl::ctx Ctx, MDNode *FollowupLoopMD,
+	StringRef TransName,
+	StringRef Name = StringRef()) {
+	// TODO: Depricate Name
+	// TODO: Only return one when needed.
+
+	BandAttr *Attr = new BandAttr();
+
+	auto GivenName = findOptionalStringOperand(FollowupLoopMD, "llvm.loop.id").getValueOr(StringRef());
+	if (GivenName.empty())
+		GivenName = Name;
+	if (GivenName.empty())
+		GivenName = TransName; // TODO: Don't use trans name as LoopName, but as label
+	Attr->LoopName = GivenName;
+	Attr->Metadata = FollowupLoopMD;
+	// TODO: Inherit properties if 'FollowupLoopMD' (followup) is not used
+	// TODO: Set followup MDNode
+	return getIslLoopAttr(Ctx, Attr);
+}
+
+
+
+static isl::schedule applyLoopReversal(MDNode *LoopMD, isl::schedule_node BandToReverse) {
   assert(BandToReverse);
+  auto IslCtx = BandToReverse.get_ctx();
+
+  auto Followup = findOptionalMDOperand(LoopMD, "llvm.loop.reverse.followup_reversed").getValueOr(nullptr);
 
   BandToReverse = moveToBandMark(BandToReverse);
   BandToReverse = removeMark(BandToReverse);
 
-  auto PartialSched = isl::manage(
-      isl_schedule_node_band_get_partial_schedule(BandToReverse.get()));
+
+
+  auto PartialSched = isl::manage(isl_schedule_node_band_get_partial_schedule(BandToReverse.get()));
   assert(PartialSched.dim(isl::dim::out) == 1);
 
   auto MPA = PartialSched.get_union_pw_aff(0);
@@ -1968,75 +2057,14 @@ static isl::schedule applyLoopReversal(isl::schedule_node BandToReverse,
   auto Node = isl::manage(isl_schedule_node_delete(BandToReverse.copy()));
   Node = Node.insert_partial_schedule(Neg);
 
-  if (NewBandId)
+  if (Followup) {
+	  auto NewBandId = makeTransformLoopId( IslCtx, Followup, "reversed" );
     Node = insertMark(Node, NewBandId);
+  }
 
   return Node.get_schedule();
-
-  struct LoopReversalVisitor
-      : public ScheduleTreeRewriteVisitor<LoopReversalVisitor> {
-    typedef ScheduleTreeRewriteVisitor<LoopReversalVisitor> Super;
-    isl::schedule_node ReverseBand;
-    isl::id NewBandId;
-    bool Applied = false;
-    LoopReversalVisitor(isl::schedule_node ReverseBand, isl::id NewBandId)
-        : ReverseBand(ReverseBand), NewBandId(NewBandId) {}
-
-    isl::schedule visitBand(const isl::schedule_node &OrigBand) {
-      if (!OrigBand.is_equal(ReverseBand))
-        return Super::visitBand(OrigBand);
-
-      assert(!Applied && "Should apply at most once");
-      Applied = true;
-
-      auto PartialSched = isl::manage(
-          isl_schedule_node_band_get_partial_schedule(OrigBand.get()));
-      assert(PartialSched.dim(isl::dim::out) == 1);
-      auto ParentParentBand = OrigBand.parent();
-
-      auto OrigChild = OrigBand.get_child(0);
-      assert(OrigChild);
-
-      auto NewChild = visit(OrigChild);
-      assert(NewChild);
-
-      auto MPA = PartialSched.get_union_pw_aff(0);
-      auto Neg = MPA.neg();
-
-      auto ReversedBand = NewChild.insert_partial_schedule(Neg);
-      if (NewBandId.is_null())
-        return ReversedBand;
-
-      return ReverseBand.insert_mark(NewBandId).get_schedule();
-    }
-  } Visitor(BandToReverse, NewBandId);
-  auto Result = Visitor.visit(BandToReverse.get_schedule().get_root());
-  assert(Visitor.Applied && "Band must be in schedule tree");
-  return Result;
 }
 
-static LoopNestTransformation
-applyLoopReversal(const LoopNestTransformation &Trans,
-                  isl::schedule_node BandToReverse, bool CheckValidity,
-                  bool ApplyOnSchedule, bool AddTransformativeConstraints,
-                  bool RemoveContradictingConstraints) {
-  if (CheckValidity) {
-  }
-
-  LoopNestTransformation Result = Trans;
-
-  if (ApplyOnSchedule) {
-    Result.Sched = applyLoopReversal(BandToReverse, {});
-  }
-
-  if (RemoveContradictingConstraints) {
-  }
-
-  if (AddTransformativeConstraints) {
-  }
-
-  return Result;
-}
 
 static Loop *getBandLoop(isl::schedule_node Band) {
   assert(isl_schedule_node_get_type(Band.get()) == isl_schedule_node_band);
@@ -2060,58 +2088,8 @@ static Loop *getBandLoop(isl::schedule_node Band) {
   return Result;
 }
 
-static isl::schedule applyReverseLoopHint(isl::schedule OrigBand, Loop *Loop,
-                                          bool &Changed) {
-  auto ReverseMD = findStringMetadataForLoop(Loop, "llvm.loop.reverse.enable");
-  if (!ReverseMD)
-    return OrigBand;
 
-  auto *Op = *ReverseMD;
-  assert(Op && mdconst::hasa<ConstantInt>(*Op) && "invalid metadata");
-  bool EnableReverse = !mdconst::extract<ConstantInt>(*Op)->isZero();
-  if (!EnableReverse)
-    return OrigBand;
 
-  LLVM_DEBUG(dbgs() << "Applying manual loop reversal\n");
-  Changed = true;
-  return applyLoopReversal(OrigBand.get_root(), nullptr);
-}
-
-static isl::schedule applyTransformationHints(isl::schedule Band, Loop *Loop,
-                                              bool &Changed) {
-  return applyReverseLoopHint(Band, Loop, Changed);
-}
-
-static isl::schedule
-walkScheduleTreeForTransformationHints(isl::schedule_node Parent,
-                                       Loop *ParentLoop, bool &Changed) {
-  struct HintTransformator
-      : public ScheduleTreeRewriteVisitor<HintTransformator> {
-    typedef ScheduleTreeRewriteVisitor<HintTransformator> Super;
-    Loop *ParentLoop;
-    bool &Changed;
-    HintTransformator(Loop *ParentLoop, bool &Changed)
-        : ParentLoop(ParentLoop), Changed(Changed) {}
-
-    isl::schedule visitBand(const isl::schedule_node &OrigBand) {
-      auto L = getBandLoop(OrigBand);
-      assert(ParentLoop == L->getParentLoop());
-
-      // I would prefer to pass ParentLoop as a parameter, but the visitor
-      // pattern does not allow this.
-      std::swap(ParentLoop, L);
-      // FIXME: This makes a copy of the subtree that we might not need if no
-      // transformation is applied
-      auto BandSchedule = Super::visitBand(OrigBand);
-      std::swap(ParentLoop, L);
-
-      return applyTransformationHints(BandSchedule, L, Changed);
-    }
-  } Transformator(ParentLoop, Changed);
-
-  auto Result = Transformator.visit(Parent);
-  return Result;
-}
 
 static Loop *getSurroundingLoop(Scop &S) {
   auto EntryBB = S.getEntry();
@@ -2166,24 +2144,6 @@ static isl::schedule annotateBands(Scop &S, isl::schedule Sched) {
   // return Root.get_schedule();
 }
 
-static bool applyTransformationHints(Scop &S, isl::schedule &Sched,
-                                     isl::schedule_constraints &SC) {
-  bool Changed = false;
-
-  LLVM_DEBUG(dbgs() << "Looking for loop transformation metadata...\n");
-
-  auto OuterL = getSurroundingLoop(S);
-  auto Result =
-      walkScheduleTreeForTransformationHints(Sched.get_root(), OuterL, Changed);
-  if (Changed) {
-    LLVM_DEBUG(dbgs() << "At least one manual loop transformation applied\n");
-    Sched = Result;
-  } else {
-    LLVM_DEBUG(dbgs() << "No loop transformation applied\n");
-  }
-
-  return Changed;
-}
 
 static isl::stat
 foreachTopdown(const isl::schedule Sched,
@@ -2301,22 +2261,6 @@ static isl::schedule_node findBand(const isl::schedule Sched,
   return Result;
 }
 
-static void applyLoopReversal(Scop &S, isl::schedule &Sched,
-                              LoopIdentification ApplyOn, isl::id NewBandId,
-                              const Dependences &D) {
-  // TODO: Can do in a single traversal
-  // TODO: Remove mark?
-  auto Band = findBand(Sched, ApplyOn);
-
-  auto Transformed = applyLoopReversal(Band, NewBandId);
-
-  if (!D.isValidSchedule(S, Transformed)) {
-    LLVM_DEBUG(dbgs() << "LoopReversal not semantically legal\n");
-    return;
-  }
-
-  Sched = Transformed;
-}
 
 static isl::schedule_node ignoreMarkChild(isl::schedule_node Node) {
   assert(Node);
@@ -2434,29 +2378,6 @@ static isl::schedule_node tileBand(isl::schedule_node BandToTile,
   return Result;
 }
 
-static isl::id makeTransformLoopId(isl::ctx Ctx, MDNode *TheTransformation,
-                                   StringRef TransName,
-                                   StringRef Name = StringRef()) {
-  // TODO: Only return one when needed.
-
-  BandAttr *Attr = new BandAttr();
-  Attr->LoopName =
-      Name.empty()
-          ? TransName
-          : Name; // TODO: Don't use trans name as LoopName, but as label
-  Attr->Metadata = TheTransformation;
-  // TODO: Set followup MDNode
-  return getIslLoopAttr(Ctx, Attr);
-#if 0
-	IslLoopIdUserTy User{TheTransformation};
-	std::string TheName;
-	if (!Name.empty())
-		TheName = (Twine("Loop_") + Name).str();
-	else if (!TransName.empty())
-		TheName = TransName;
-	return isl::id::alloc(Ctx, TheName, User.getOpaqueValue());
-#endif
-}
 
 
 
@@ -2534,68 +2455,6 @@ static BandAttr *getBandAttr(isl::schedule_node Node) {
 }
 
 
-static  MDNode * findNamedMetadataNode( MDNode *LoopMD,	StringRef Name) {
-	for (auto &X : drop_begin( LoopMD->operands(),1)) {
-		auto OpNode = cast<MDNode>(X.get());
-		auto OpName = cast<MDString>(OpNode ->getOperand(0));
-		if (OpName->getString()==Name)
-			return OpNode;
-	}
-	return nullptr;
-}
-
-
-static Optional< Metadata *> findMetadataOperand( MDNode *LoopMD,	StringRef Name) {
-	auto MD = findNamedMetadataNode(LoopMD, Name);
-	if (!MD)
-		return None;
-	switch (MD->getNumOperands()) {
-	case 1:
-		return nullptr;
-	case 2:
-		return MD->getOperand(1).get();
-	default:
-		llvm_unreachable("loop metadata must have 0 or 1 operands");
-	}
-}
-
-
-static llvm::Optional<int> findOptionalIntOperand(MDNode *LoopMD, StringRef Name) {
-	 Metadata *AttrMD = findMetadataOperand(LoopMD,Name).getValueOr(nullptr);
-	if (!AttrMD)
-		return None;
-
-	ConstantInt *IntMD = mdconst::extract_or_null<ConstantInt>(AttrMD);
-	if (!IntMD)
-		return None;
-
-	return IntMD->getSExtValue();
-}
-
-static llvm::Optional<StringRef> findOptionalStringOperand(MDNode *LoopMD, StringRef Name) {
-	 Metadata *AttrMD = findMetadataOperand(LoopMD,Name).getValueOr(nullptr);
-	if (!AttrMD)
-		return None;
-
-	auto StrMD = dyn_cast< MDString>  (AttrMD);
-	if (!StrMD)
-		return None;
-
-	return StrMD->getString();
-}
-
-
-static llvm::Optional<MDNode*> findOptionalMDOperand(MDNode *LoopMD, StringRef Name) {
-	 Metadata *AttrMD = findMetadataOperand(LoopMD,Name).getValueOr(nullptr);
-	if (!AttrMD)
-		return None;
-
-	auto MD = dyn_cast< MDNode>  (AttrMD);
-	if (!MD)
-		return None;
-	return MD;
-}
-
 
 static isl::schedule applyLoopTiling( MDNode *LoopMD,const isl:: schedule_node &TopBand) {
 	auto IslCtx = TopBand.get_ctx();
@@ -2633,9 +2492,9 @@ static isl::schedule applyLoopTiling( MDNode *LoopMD,const isl:: schedule_node &
 		if (Attr) {
 			Size = findOptionalIntOperand(Attr->Metadata, "llvm.loop.tile.size").getValueOr(0);
 			// FloorId = findOptionalStringOperand(Attr->Metadata, "llvm.")
-			auto FloorId= findOptionalMDOperand(Attr->Metadata, "llvm.loop.followup_floor").getValueOr(nullptr);
+			auto FloorId= findOptionalMDOperand(Attr->Metadata, "llvm.loop.tile.followup_floor").getValueOr(nullptr);
 			FloorIds.push_back(FloorId);
-			auto TileId= findOptionalMDOperand(Attr->Metadata, "llvm.loop.followup_tile").getValueOr(nullptr);
+			auto TileId= findOptionalMDOperand(Attr->Metadata, "llvm.loop.tile.followup_tile").getValueOr(nullptr);
 			TileIds.push_back(TileId);
 		}
 		TileSizes.push_back(Size);
@@ -4133,9 +3992,9 @@ public:
 			
 			if (AttrName == "llvm.loop.reverse.enable") {
 				// TODO: Read argument (0 to disable)
-				auto NewBandId = makeTransformLoopId(IslCtx, nullptr, "reversed");
+				//auto NewBandId = makeTransformLoopId(IslCtx, nullptr, "reversed");
 				// TODO: Check correctness.
-				Result = applyLoopReversal(Band,NewBandId );
+				Result = applyLoopReversal(LoopMD, Band );
 				assert(Result);
 				return ;
 			} else if (AttrName == "llvm.loop.tile.enable") {
@@ -4478,7 +4337,7 @@ bool IslScheduleOptimizer::runOnScop(Scop &S) {
   SC = SC.set_coincidence(Validity);
 
   auto ManualSchedule = S.getScheduleTree();
-  auto AnnotatedSchedule = ManualSchedule; // annotateBands(S, ManualSchedule);
+  auto AnnotatedSchedule = ManualSchedule; 
 
 
   auto ManuallyTransformed =
