@@ -2458,6 +2458,9 @@ static isl::id makeTransformLoopId(isl::ctx Ctx, MDNode *TheTransformation,
 #endif
 }
 
+
+
+
 static void applyLoopTiling(Scop &S, isl::schedule &Sched,
                             ArrayRef<LoopIdentification> TheLoops,
                             ArrayRef<int64_t> TileSizes, const Dependences &D,
@@ -2523,6 +2526,172 @@ static void applyLoopTiling(Scop &S, isl::schedule &Sched,
 
   Sched = Transformed;
 }
+
+static BandAttr *getBandAttr(isl::schedule_node Node) {
+	Node = moveToBandMark(Node);
+	assert(isBandMark(Node));
+	return static_cast<BandAttr *>(Node.mark_get_id().get_user());
+}
+
+
+static  MDNode * findNamedMetadataNode( MDNode *LoopMD,	StringRef Name) {
+	for (auto &X : drop_begin( LoopMD->operands(),1)) {
+		auto OpNode = cast<MDNode>(X.get());
+		auto OpName = cast<MDString>(OpNode ->getOperand(0));
+		if (OpName->getString()==Name)
+			return OpNode;
+	}
+	return nullptr;
+}
+
+
+static Optional< Metadata *> findMetadataOperand( MDNode *LoopMD,	StringRef Name) {
+	auto MD = findNamedMetadataNode(LoopMD, Name);
+	if (!MD)
+		return None;
+	switch (MD->getNumOperands()) {
+	case 1:
+		return nullptr;
+	case 2:
+		return MD->getOperand(1).get();
+	default:
+		llvm_unreachable("loop metadata must have 0 or 1 operands");
+	}
+}
+
+
+static llvm::Optional<int> findOptionalIntOperand(MDNode *LoopMD, StringRef Name) {
+	 Metadata *AttrMD = findMetadataOperand(LoopMD,Name).getValueOr(nullptr);
+	if (!AttrMD)
+		return None;
+
+	ConstantInt *IntMD = mdconst::extract_or_null<ConstantInt>(AttrMD);
+	if (!IntMD)
+		return None;
+
+	return IntMD->getSExtValue();
+}
+
+static llvm::Optional<StringRef> findOptionalStringOperand(MDNode *LoopMD, StringRef Name) {
+	 Metadata *AttrMD = findMetadataOperand(LoopMD,Name).getValueOr(nullptr);
+	if (!AttrMD)
+		return None;
+
+	auto StrMD = dyn_cast< MDString>  (AttrMD);
+	if (!StrMD)
+		return None;
+
+	return StrMD->getString();
+}
+
+
+static llvm::Optional<MDNode*> findOptionalMDOperand(MDNode *LoopMD, StringRef Name) {
+	 Metadata *AttrMD = findMetadataOperand(LoopMD,Name).getValueOr(nullptr);
+	if (!AttrMD)
+		return None;
+
+	auto MD = dyn_cast< MDNode>  (AttrMD);
+	if (!MD)
+		return None;
+	return MD;
+}
+
+
+static isl::schedule applyLoopTiling( MDNode *LoopMD,const isl:: schedule_node &TopBand) {
+	auto IslCtx = TopBand.get_ctx();
+
+	auto Depth = findOptionalIntOperand(LoopMD, "llvm.loop.tile.depth").getValueOr(0);
+	assert(Depth >= 1);
+
+	SmallVector<isl::schedule_node, 4> Bands; 
+	isl::schedule_node Cur = TopBand;
+	for (int i = 0 ; i < Depth; i+=1) {
+		while (true) {
+			if (isBand(Cur))
+				break;
+			assert(Cur.n_children()==1);
+			Cur = Cur.first_child();
+		}
+
+		Bands.push_back(Cur);
+
+		Cur = Cur.first_child();
+	}
+	assert(Depth == Bands.size());
+
+	SmallVector<BandAttr*, 4> Attrs;
+	SmallVector<int64_t, 4> TileSizes;
+	SmallVector<MDNode*, 4> FloorIds;
+	SmallVector<MDNode*, 4> TileIds;
+	for (const auto &Band : Bands) {
+		//auto Mark = moveToBandMark(Band);
+		auto Attr = getBandAttr(Band);
+		Attrs.push_back(Attr);
+
+		auto Size = 0;
+		StringRef FloorId, TileId;
+		if (Attr) {
+			Size = findOptionalIntOperand(Attr->Metadata, "llvm.loop.tile.size").getValueOr(0);
+			// FloorId = findOptionalStringOperand(Attr->Metadata, "llvm.")
+			auto FloorId= findOptionalMDOperand(Attr->Metadata, "llvm.loop.followup_floor").getValueOr(nullptr);
+			FloorIds.push_back(FloorId);
+			auto TileId= findOptionalMDOperand(Attr->Metadata, "llvm.loop.followup_tile").getValueOr(nullptr);
+			TileIds.push_back(TileId);
+		}
+		TileSizes.push_back(Size);
+	}
+ 
+
+	auto TheBand = collapseBands(TopBand, Depth);
+	TheBand = tileBand(TheBand, TileSizes);
+
+	auto OuterBand = TheBand;
+	auto InnerBand = TheBand.get_child(0);
+
+	InnerBand = separateBand(InnerBand);
+	for (auto TileId : TileIds) {
+		//TODO: Merge TileId
+		auto Mark = makeTransformLoopId(IslCtx, nullptr, "inner tile");
+		InnerBand = insertMark(InnerBand, Mark);
+
+		InnerBand = InnerBand.get_child(0);
+	}
+
+	// Jump back to first of the tile loops
+	for (int i = TileIds.size(); i >= 1; i -= 1) {
+		InnerBand = InnerBand.parent();
+		InnerBand = moveToBandMark(InnerBand);
+	}
+
+	OuterBand = InnerBand.parent();
+
+	OuterBand = separateBand(OuterBand);
+	for (auto PitId : FloorIds) {
+		//TODO: Merge PitId
+		auto Mark = makeTransformLoopId(IslCtx, nullptr, "outer floor");
+		OuterBand = insertMark(OuterBand, Mark);
+
+		OuterBand = OuterBand.get_child(0);
+	}
+
+	// Jump back to first of the pit loops
+	for (int i = FloorIds.size(); i >= 1; i -= 1) {
+		OuterBand = OuterBand.parent();
+		OuterBand = moveToBandMark(OuterBand);
+	}
+
+	auto Transformed = OuterBand.get_schedule();
+
+#if 0
+	if (!D.isValidSchedule(S, Transformed)) {
+		LLVM_DEBUG(dbgs() << "LoopReversal not semantically legal\n");
+		return;
+	}
+#endif
+
+	return Transformed;
+}
+
 
 static isl::schedule_node findBand(ArrayRef<isl::schedule_node> Bands,
                                    LoopIdentification Identifier) {
@@ -3848,11 +4017,7 @@ static void applyLoopUnroll(Scop &S, isl::schedule &Sched,
   Sched = Transformed;
 }
 
-static BandAttr *getBandAttr(isl::schedule_node Node) {
-  Node = moveToBandMark(Node);
-  assert(isBandMark(Node));
-  return static_cast<BandAttr *>(Node.mark_get_id().get_user());
-}
+
 
 #if 0
 static BandAttr*getOrInsertBandAttr(isl::schedule_node &Band) {
@@ -3967,9 +4132,18 @@ public:
 			auto AttrName = NameMD->getString();
 			
 			if (AttrName == "llvm.loop.reverse.enable") {
+				// TODO: Read argument (0 to disable)
 				auto NewBandId = makeTransformLoopId(IslCtx, nullptr, "reversed");
+				// TODO: Check correctness.
 				Result = applyLoopReversal(Band,NewBandId );
+				assert(Result);
 				return ;
+			} else if (AttrName == "llvm.loop.tile.enable") {
+				// TODO: Read argument (0 to disable)
+				//auto NewBandId = makeTransformLoopId(IslCtx, nullptr, "tiled");
+				Result = applyLoopTiling(LoopMD, Band);
+				assert(Result);
+				return;
 			}
 		}
 
@@ -4305,6 +4479,7 @@ bool IslScheduleOptimizer::runOnScop(Scop &S) {
 
   auto ManualSchedule = S.getScheduleTree();
   auto AnnotatedSchedule = ManualSchedule; // annotateBands(S, ManualSchedule);
+
 
   auto ManuallyTransformed =
       applyManualTransformations(S, AnnotatedSchedule, SC, D);
