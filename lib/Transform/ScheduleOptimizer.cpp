@@ -2456,15 +2456,9 @@ static BandAttr *getBandAttr(isl::schedule_node Node) {
 
 
 
-static isl::schedule applyLoopTiling( MDNode *LoopMD,const isl:: schedule_node &TopBand) {
-	auto IslCtx = TopBand.get_ctx();
-
-	auto Depth = findOptionalIntOperand(LoopMD, "llvm.loop.tile.depth").getValueOr(0);
-	assert(Depth >= 1);
-
-	SmallVector<isl::schedule_node, 4> Bands; 
+static void collectVerticalLoops(const isl:: schedule_node &TopBand, int MaxDepth, SmallVectorImpl<isl::schedule_node> &Bands) {
 	isl::schedule_node Cur = TopBand;
-	for (int i = 0 ; i < Depth; i+=1) {
+	for (int i = 0 ; i < MaxDepth; i+=1) {
 		while (true) {
 			if (isBand(Cur))
 				break;
@@ -2476,6 +2470,16 @@ static isl::schedule applyLoopTiling( MDNode *LoopMD,const isl:: schedule_node &
 
 		Cur = Cur.first_child();
 	}
+}
+
+static isl::schedule applyLoopTiling( MDNode *LoopMD,const isl:: schedule_node &TopBand) {
+	auto IslCtx = TopBand.get_ctx();
+
+	auto Depth = findOptionalIntOperand(LoopMD, "llvm.loop.tile.depth").getValueOr(0);
+	assert(Depth >= 1);
+
+	SmallVector<isl::schedule_node, 4> Bands; 
+	collectVerticalLoops(TopBand, Depth, Bands);
 	assert(Depth == Bands.size());
 
 	SmallVector<BandAttr*, 4> Attrs;
@@ -2552,6 +2556,8 @@ static isl::schedule applyLoopTiling( MDNode *LoopMD,const isl:: schedule_node &
 }
 
 
+
+
 static isl::schedule_node findBand(ArrayRef<isl::schedule_node> Bands,
                                    LoopIdentification Identifier) {
   for (auto OldBand : Bands) {
@@ -2578,9 +2584,7 @@ static isl::schedule_node distributeBand(Scop &S, isl::schedule_node Band,
   return Seq;
 }
 
-static isl::schedule_node
-interchangeBands(isl::schedule_node Band,
-                 ArrayRef<LoopIdentification> NewOrder) {
+static isl::schedule_node interchangeBands(isl::schedule_node Band, ArrayRef<LoopIdentification> NewOrder) {
   auto NumBands = NewOrder.size();
   Band = moveToBandMark(Band);
 
@@ -2615,8 +2619,7 @@ interchangeBands(isl::schedule_node Band,
     // TODO: Check that no band is used twice
     auto OldMarker = LoopIdentification::createFromBand(OldBand);
     auto TheOldBand = ignoreMarkChild(OldBand);
-    auto TheOldSchedule = isl::manage(
-        isl_schedule_node_band_get_partial_schedule(TheOldBand.get()));
+    auto TheOldSchedule = isl::manage(isl_schedule_node_band_get_partial_schedule(TheOldBand.get()));
 
     Band = Band.insert_partial_schedule(TheOldSchedule);
     Band = Band.insert_mark(OldMarker.getIslId());
@@ -2648,6 +2651,102 @@ static void applyLoopInterchange(Scop &S, isl::schedule &Sched,
 
   Sched = Transformed;
 }
+
+
+
+
+static isl::schedule applyLoopInterchange(MDNode *LoopMD, const isl:: schedule_node &TopBand) {
+	auto IslCtx = TopBand.get_ctx();
+
+	auto Depth = findOptionalIntOperand(LoopMD, "llvm.loop.interchange.depth").getValueOr(0);
+	assert(Depth >= 2);
+
+
+	SmallVector<isl::schedule_node, 4> Bands; 
+	collectVerticalLoops(TopBand, Depth, Bands);
+	assert(Depth == Bands.size());
+
+
+	SmallVector<isl::schedule_node, 4> NewOrder; 
+	NewOrder.resize(Depth);
+	auto PermMD = findNamedMetadataNode(LoopMD, "llvm.loop.interchange.permutation");
+	int i = 0;
+	for (auto &X :  drop_begin(PermMD->operands(),1)) {
+		ConstantInt *IntMD = mdconst::extract_or_null<ConstantInt>(X.get());
+		auto Pos  =  IntMD->getSExtValue();
+		NewOrder[Pos] = Bands[i];
+		i+=1;
+	}
+	assert(NewOrder.size() == Bands.size());
+
+	// Remove old order
+	auto Band = TopBand;
+	for (int i = 0; i < Depth; i += 1) {
+		Band = isl::manage(isl_schedule_node_delete(Band.release()));
+	}
+
+	// Rebuild loop nest bottom-up according to new order.
+	for (auto & OldBand : reverse(NewOrder)) {
+		//auto OldBand =   findBand(OldBands, NewBandId);
+		//assert(OldBand);
+		// TODO: Check that no band is used twice
+		//auto OldMarker = LoopIdentification::createFromBand(OldBand);
+		auto TheOldBand = ignoreMarkChild(OldBand);
+		auto TheOldSchedule = isl::manage(isl_schedule_node_band_get_partial_schedule(TheOldBand.get()));
+
+		auto Marker = makeTransformLoopId(IslCtx, nullptr, "interchange");
+
+		Band = Band.insert_partial_schedule(TheOldSchedule);
+		Band = Band.insert_mark(Marker);
+	}
+
+	return Band.get_schedule();
+
+#if 0
+	auto NumBands = Depth;
+	auto Band = moveToBandMark(TopBand);
+
+	SmallVector<isl::schedule_node, 4> OldBands;
+
+	int NumRemoved = 0;
+	int NodesToRemove = 0;
+	auto BandIt = Band;
+	while (true) {
+		if (NumRemoved >= NumBands)
+			break;
+
+		if (isl_schedule_node_get_type(BandIt.get()) == isl_schedule_node_band) {
+			OldBands.push_back(BandIt);
+			NumRemoved += 1;
+		}
+		assert(BandIt.n_children() == 1);
+		BandIt = BandIt.get_child(0);
+		// Band = isl::manage(isl_schedule_node_delete(Band.release()));
+		NodesToRemove += 1;
+	}
+
+	// Remove old order
+	for (int i = 0; i < NodesToRemove; i += 1) {
+		Band = isl::manage(isl_schedule_node_delete(Band.release()));
+	}
+
+	// Rebuild loop nest bottom-up according to new order.
+	for (auto &NewBandId : reverse(NewOrder)) {
+		auto OldBand = findBand(OldBands, NewBandId);
+		assert(OldBand);
+		// TODO: Check that no band is used twice
+		auto OldMarker = LoopIdentification::createFromBand(OldBand);
+		auto TheOldBand = ignoreMarkChild(OldBand);
+		auto TheOldSchedule = isl::manage(
+			isl_schedule_node_band_get_partial_schedule(TheOldBand.get()));
+
+		Band = Band.insert_partial_schedule(TheOldSchedule);
+		Band = Band.insert_mark(OldMarker.getIslId());
+	}
+#endif
+}
+
+
 
 static void collectStmtDomains(isl::schedule_node Node, isl::union_set &Result,
                                bool Inclusive) {
@@ -3980,7 +4079,7 @@ public:
 		if (!Mark || Mark.get()==Band.get())
 			return;
 
-	    auto Attr = static_cast<BandAttr*>( 	Mark.mark_get_id().get_user());
+	    auto Attr = static_cast<BandAttr*>(Mark.mark_get_id().get_user());
 		auto LoopMD = Attr->Metadata;
 		if (!LoopMD)
 			return;
@@ -4003,8 +4102,12 @@ public:
 				Result = applyLoopTiling(LoopMD, Band);
 				assert(Result);
 				return;
+			} else if (AttrName == "llvm.loop.interchange.enable"){
+				Result = applyLoopInterchange(LoopMD, Band);
+				assert(Result);
+				return;
 			}
-		}
+ 		}
 
 	}
 
