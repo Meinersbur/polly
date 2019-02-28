@@ -3836,7 +3836,7 @@ static isl::schedule applyArrayPacking(MDNode *LoopMD, isl:: schedule_node LoopT
 
 	}
 
-return Sched;
+	return Sched;
 }
 
 
@@ -4218,6 +4218,26 @@ static LoopIdentification identifyLoopBy(Metadata *TheMetadata) {
 
 
 
+static isl::schedule applyParallelizeThread(MDNode *LoopMD, isl:: schedule_node BandToParallelize) {
+	assert(BandToParallelize);
+	auto Ctx = BandToParallelize.get_ctx();
+
+	BandToParallelize = moveToBandMark(BandToParallelize);
+	auto OldAttr = getBandAttr(BandToParallelize);
+	BandToParallelize = removeMark(BandToParallelize);
+
+
+	assert(isl_schedule_node_band_n_member(BandToParallelize.get()) == 1);
+	auto ParallelizedBand = BandToParallelize.band_member_set_coincident(0, true);
+
+	auto NewBandId = makeTransformLoopId(Ctx, nullptr, "threaded");
+	auto NewAttr = static_cast<BandAttr*>( NewBandId.get_user());
+	NewAttr->ForceThreadParallel = true;
+	ParallelizedBand = insertMark(ParallelizedBand, NewBandId);
+
+	return ParallelizedBand.get_schedule();
+}
+
 
 class SearchTransformVisitor : public RecursiveScheduleTreeVisitor<SearchTransformVisitor> {
 private:
@@ -4283,6 +4303,10 @@ public:
 				Result = applyArrayPacking (LoopMD, Band, F, S);
 				assert(Result);
 				return;
+			} else if (AttrName == "llvm.loop.llvm.loop.parallelize_thread.enable") {
+				Result = applyParallelizeThread(LoopMD, Band);
+				assert(Result);
+				return ;
 			}
  		}
 
