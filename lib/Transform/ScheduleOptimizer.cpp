@@ -1957,7 +1957,9 @@ static  MDNode * findNamedMetadataNode( MDNode *LoopMD,	StringRef Name) {
 		return nullptr;
 	for (auto &X : drop_begin( LoopMD->operands(),1)) {
 		auto OpNode = cast<MDNode>(X.get());
-		auto OpName = cast<MDString>(OpNode ->getOperand(0));
+		auto OpName = dyn_cast<MDString>(OpNode ->getOperand(0));
+		if (!OpName)
+			continue;
 		if (OpName->getString()==Name)
 			return OpNode;
 	}
@@ -2036,14 +2038,16 @@ static llvm::Optional<MDNode*> findOptionalMDOperand(MDNode *LoopMD, StringRef N
 }
 
 static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
-	Metadata *AttrMD = findMetadataOperand(LoopMD,Name).getValueOr(nullptr);
-	if (!AttrMD)
+	auto MD = findNamedMetadataNode(LoopMD, Name);
+	if (!MD)
+		return  DebugLoc();
+
+	// NOTE: .loc attributes can also have a second DebugLoc, in which case it is the end of the SourceRange
+	if (MD->getNumOperands() < 2)
 		return DebugLoc();
+	Metadata *AttrMD = MD->getOperand(1).get();
 
-	auto StrMD = dyn_cast< DILocation>  (AttrMD);
-	//if (!StrMD)
-	//	return DebugLoc();
-
+	auto StrMD = cast< DILocation>  (AttrMD);
 	return StrMD;
 }
 
@@ -4292,7 +4296,9 @@ public:
 
 		for (auto& MDOp : drop_begin(LoopMD->operands(),1)) {
 			auto MD = cast<MDNode>( MDOp.get());
-			auto NameMD = cast<MDString>(MD->getOperand(0).get());
+			auto NameMD = dyn_cast<MDString>(MD->getOperand(0).get());
+			if (!NameMD)
+				continue;
 			auto AttrName = NameMD->getString();
 			
 			if (AttrName == "llvm.loop.reverse.enable") {
@@ -4304,7 +4310,7 @@ public:
 					LLVM_DEBUG(dbgs() << "Illegal loop reversal\n");
 
 					if (ORE ){
-					auto Loc = findOptionalDebugLoc(LoopMD,  "llvm.loop.reverse.startloc");
+					auto Loc = findOptionalDebugLoc(LoopMD,  "llvm.loop.reverse.loc");
 					ORE->emit(DiagnosticInfoOptimizationFailure(DEBUG_TYPE, "FailedRequestedReversal", Loc, CodeRegion)
 						<< "loop not reversed: reversing the loop would violate dependencies");
 					}
