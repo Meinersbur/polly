@@ -46,6 +46,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "polly/ScheduleOptimizer.h"
+#include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "polly/CodeGen/CodeGeneration.h"
 #include "polly/DependenceInfo.h"
 #include "polly/LinkAllPasses.h"
@@ -2032,6 +2033,18 @@ static llvm::Optional<MDNode*> findOptionalMDOperand(MDNode *LoopMD, StringRef N
 	if (!MD)
 		return None;
 	return MD;
+}
+
+static DebugLoc findOptionalDebugLoc(MDNode *LoopMD, StringRef Name) {
+	Metadata *AttrMD = findMetadataOperand(LoopMD,Name).getValueOr(nullptr);
+	if (!AttrMD)
+		return DebugLoc();
+
+	auto StrMD = dyn_cast< DILocation>  (AttrMD);
+	//if (!StrMD)
+	//	return DebugLoc();
+
+	return StrMD;
 }
 
 static isl::id makeTransformLoopId(isl::ctx Ctx, MDNode *FollowupLoopMD,
@@ -4247,9 +4260,11 @@ private:
 
 	llvm::Function *F;
 	polly::Scop *S;
+const	 Dependences *D;
+	 OptimizationRemarkEmitter *ORE;
 
 public:
-	SearchTransformVisitor(llvm::Function *F, polly::Scop *S ) : F(F),S(S) {}
+	SearchTransformVisitor(llvm::Function *F, polly::Scop *S,const Dependences *D , OptimizationRemarkEmitter *ORE) : F(F),S(S),D(D),ORE(ORE) {}
 
 	isl::schedule Result;
 
@@ -4266,9 +4281,14 @@ public:
 			return;
 
 	    auto Attr = static_cast<BandAttr*>(Mark.mark_get_id().get_user());
+		auto Loop = Attr->OriginalLoop;
+		Value *CodeRegion=nullptr;
+		if (Loop)
+			CodeRegion = Loop->getHeader();
 		auto LoopMD = Attr->Metadata;
 		if (!LoopMD)
 			return;
+		auto &Ctx = LoopMD->getContext();
 
 		for (auto& MDOp : drop_begin(LoopMD->operands(),1)) {
 			auto MD = cast<MDNode>( MDOp.get());
@@ -4277,37 +4297,44 @@ public:
 			
 			if (AttrName == "llvm.loop.reverse.enable") {
 				// TODO: Read argument (0 to disable)
-				//auto NewBandId = makeTransformLoopId(IslCtx, nullptr, "reversed");
-				// TODO: Check correctness.
-				Result = applyLoopReversal(LoopMD, Band );
-				assert(Result);
-				return ;
+				Result = applyLoopReversal(LoopMD, Band);
+
+				// Check legality 
+				if (!D->isValidSchedule(*S, Result)) {
+					LLVM_DEBUG(dbgs() << "Illegal loop reversal\n");
+
+					if (ORE ){
+					auto Loc = findOptionalDebugLoc(LoopMD,  "llvm.loop.reverse.startloc");
+					ORE->emit(DiagnosticInfoOptimizationFailure(DEBUG_TYPE, "FailedRequestedReversal", Loc, CodeRegion)
+						<< "loop not reversed: reversing the loop would violate dependencies");
+					}
+
+					// If illegal, revert and remove the transformation.
+					auto NewLoopMD = makePostTransformationMetadata(Ctx, LoopMD,{ "llvm.loop.reverse."}, {} );
+					auto Attr = getBandAttr(Band);
+					Attr->Metadata = NewLoopMD;
+					Result = Band.get_schedule();
+				}
+
 			} else if (AttrName == "llvm.loop.tile.enable") {
 				// TODO: Read argument (0 to disable)
-				//auto NewBandId = makeTransformLoopId(IslCtx, nullptr, "tiled");
 				Result = applyLoopTiling(LoopMD, Band);
-				assert(Result);
-				return;
 			} else if (AttrName == "llvm.loop.interchange.enable"){
 				// TODO: Read argument (0 to disable)
 				Result = applyLoopInterchange(LoopMD, Band);
-				assert(Result);
-				return;
 			} else if (AttrName == "llvm.loop.unroll.enable") {
 				// TODO: Read argument (0 to disable)
 				// Also: llvm.loop.unroll.disable is a thing
 				Result = applyLoopUnroll(LoopMD, Band);
-				assert(Result);
-				return ;
 			} else if (AttrName == "llvm.data.pack.enable") {
 				Result = applyArrayPacking (LoopMD, Band, F, S);
-				assert(Result);
-				return;
 			} else if (AttrName == "llvm.loop.llvm.loop.parallelize_thread.enable") {
 				Result = applyParallelizeThread(LoopMD, Band);
-				assert(Result);
-				return ;
+			} else {
+				continue;
 			}
+
+			assert(Result);
  		}
 
 	}
@@ -4315,7 +4342,7 @@ public:
 	void visitOther(const isl::schedule_node &Other) {
 		if (Result)
 			return;
-	return	getBase().visitOther(Other);
+	return getBase().visitOther(Other);
 	}
 
 };
@@ -4324,94 +4351,19 @@ public:
 
 static isl::schedule applyManualTransformations(Scop &S, isl::schedule Sched,
                                                 isl::schedule_constraints &SC,
-                                                const Dependences &D) {
+                                                const Dependences &D,   OptimizationRemarkEmitter *ORE) {
   auto &F = S.getFunction();
   bool Changed = false;
 
   // Search the loop nest for transformations; apply until no more are found.
   while (true) {
-	  SearchTransformVisitor Transformer(&F, &S);
+	  SearchTransformVisitor Transformer(&F, &S, &D,ORE );
 	  Transformer.visit(Sched);
 	  if (!Transformer.Result)
 		  return Sched;
 	  Changed=true;
 	  Sched = Transformer.Result;
   }
-
-#if 0
-  auto MD = F.getMetadata("looptransform");
-  if (!MD)
-    return Sched; // No loop transformations specified
-
-  for (auto &Op : MD->operands()) {
-    auto Opdata = Op.get();
-    auto OpMD = cast<MDNode>(Opdata);
-    auto Which = OpMD->getOperand(0).get();
-    auto WhichStr = cast<MDString>(Which)->getString();
-    if (WhichStr == "llvm.loop.reverse") {
-      auto ApplyOnArg = OpMD->getOperand(1).get();
-
-      auto LoopToReverse = identifyLoopBy(ApplyOnArg);
-      auto NewBandId = makeTransformLoopId(S.getIslCtx(), OpMD, "reversed");
-      applyLoopReversal(S, Sched, LoopToReverse, NewBandId, D);
-
-      Changed = true;
-      continue;
-    }
-
-
-    if (WhichStr == "llvm.data.pack") {
-      assert(OpMD->getNumOperands() == 4);
-
-      auto ApplyOnArg = OpMD->getOperand(1).get();
-      auto LoopToPack = identifyLoopBy(ApplyOnArg);
-
-      auto AccessList = cast<MDNode>(OpMD->getOperand(2).get());
-
-      DenseSet<MDNode *> AccMDs;
-      AccMDs.reserve(AccessList->getNumOperands());
-      for (auto &AccMD : AccessList->operands()) {
-        AccMDs.insert(cast<MDNode>(AccMD.get()));
-      }
-
-      SmallVector<Instruction *, 32> AccInsts;
-      collectAccessInstList(AccInsts, AccMDs, F);
-      SmallVector<polly::MemoryAccess *, 32> MemAccs;
-      collectMemoryAccessList(MemAccs, AccInsts, S);
-
-      SmallPtrSet<const ScopArrayInfo *, 2> SAIs;
-      for (auto MemAcc : MemAccs) {
-        SAIs.insert(MemAcc->getLatestScopArrayInfo());
-      }
-      // TODO: Check consistency: Are all MemoryAccesses for all selected SAIs
-      // in MemAccs?
-      // TODO: What should happen for polly::MemoryAccess that got their SAI
-      // changed?
-
-      auto OnHeap =
-          cast<MDString>(OpMD->getOperand(3).get())->getString() == "malloc";
-
-      for (auto *SAI : SAIs)
-        applyDataPack(S, Sched, LoopToPack, SAI, OnHeap);
-      continue;
-    }
-
-  
-
-    if (WhichStr == "llvm.loop.parallelize_thread") {
-      auto ApplyOnArg = OpMD->getOperand(1).get();
-      auto LoopToParallelize = identifyLoopBy(ApplyOnArg);
-
-      auto NewBandId = makeTransformLoopId(S.getIslCtx(), OpMD, "threaded");
-      applyParallelizeThread(S, Sched, LoopToParallelize, NewBandId, D);
-
-      Changed = true;
-      continue;
-    }
-
-    llvm_unreachable("unknown loop transformation");
-  }
-#endif
 
   return Sched;
 }
@@ -4549,7 +4501,7 @@ bool IslScheduleOptimizer::runOnScop(Scop &S) {
 
 
   auto ManuallyTransformed =
-      applyManualTransformations(S, AnnotatedSchedule, SC, D);
+      applyManualTransformations(S, AnnotatedSchedule, SC, D,& getAnalysis<OptimizationRemarkEmitterWrapperPass>().getORE());
   if (AnnotatedSchedule.plain_is_equal(ManuallyTransformed))
     ManuallyTransformed = nullptr;
 
@@ -4635,8 +4587,10 @@ void IslScheduleOptimizer::getAnalysisUsage(AnalysisUsage &AU) const {
   ScopPass::getAnalysisUsage(AU);
   AU.addRequired<DependenceInfo>();
   AU.addRequired<TargetTransformInfoWrapperPass>();
+  AU.addRequired<OptimizationRemarkEmitterWrapperPass>();
 
   AU.addPreserved<DependenceInfo>();
+  AU.addPreserved<OptimizationRemarkEmitterWrapperPass>();
 }
 
 Pass *polly::createIslScheduleOptimizerPass() {
@@ -4648,5 +4602,6 @@ INITIALIZE_PASS_BEGIN(IslScheduleOptimizer, "polly-opt-isl",
 INITIALIZE_PASS_DEPENDENCY(DependenceInfo);
 INITIALIZE_PASS_DEPENDENCY(ScopInfoRegionPass);
 INITIALIZE_PASS_DEPENDENCY(TargetTransformInfoWrapperPass);
+INITIALIZE_PASS_DEPENDENCY(OptimizationRemarkEmitterWrapperPass);
 INITIALIZE_PASS_END(IslScheduleOptimizer, "polly-opt-isl",
                     "Polly - Optimize schedule of SCoP", false, false)
