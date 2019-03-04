@@ -3546,7 +3546,8 @@ static isl::schedule hoistExtensionNodes(isl::schedule Sched) {
 
 static void applyDataPack(Scop &S, isl::schedule &Sched,
 	isl::schedule_node TheBand, const ScopArrayInfo *SAI,
-	bool OnHeap) {
+	bool OnHeap, StringRef &ErrorDesc) {
+	ErrorDesc = StringRef();
 	auto Ctx = S.getIslCtx();
 
 	// auto TheBand = findBand(Sched, TheLoop);
@@ -3559,6 +3560,12 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
 
 	SmallVector<polly::MemoryAccess *, 16> MemAccs;
 	collectSubtreeAccesses(TheBand, SAI, MemAccs);
+
+	if (MemAccs.empty()) {
+		LLVM_DEBUG(dbgs() << "#pragma clang loop pack failed: No access found");
+		ErrorDesc = "No access to array in loop";
+		return;
+	}
 
 	auto SchedMap = Sched.get_map();
 	auto SchedSpace = getScatterSpace(SchedMap);
@@ -3583,11 +3590,6 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
 		AllSchedRel = AllSchedRel.unite(SingleSchedRel);
 	}
 
-#if 0
-	FindDataLayout LayoutFinder;
-	LayoutFinder.SAI = SAI;
-	LayoutFinder.visit(TheBand);
-#endif
 
 	bool WrittenTo = false;
 	bool ReadFrom = false;
@@ -3600,8 +3602,8 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
 		if (Acc->isAffine())
 			continue;
 
-		LLVM_DEBUG(dbgs() << "#pragma clang loop pack failed: Can only transform "
-			"affine access relations");
+		LLVM_DEBUG(dbgs() << "#pragma clang loop pack failed: Can only transform affine access relations");
+		ErrorDesc = "All array accesses must be affine";
 		return;
 	}
 
@@ -3813,7 +3815,7 @@ static void applyDataPack(Scop &S, isl::schedule &Sched,
 }
 
 
-static isl::schedule applyArrayPacking(MDNode *LoopMD, isl:: schedule_node LoopToPack, Function *F, Scop *S) {
+static isl::schedule applyArrayPacking(MDNode *LoopMD, isl:: schedule_node LoopToPack, Function *F, Scop *S, OptimizationRemarkEmitter *ORE, Value*CodeRegion) {
 	assert(LoopToPack);
 	auto Ctx = LoopToPack.get_ctx();
 
@@ -3836,12 +3838,45 @@ static isl::schedule applyArrayPacking(MDNode *LoopMD, isl:: schedule_node LoopT
 	for (auto MemAcc : MemAccs) 
 		SAIs.insert(MemAcc->getLatestScopArrayInfo());
 
+	StringRef ErrorDesc="unknown error";
+	bool AnySuccess = false;
+
 	// TODO: Check consistency: Are all MemoryAccesses for all selected SAIs in MemAccs?
 	// TODO: What should happen for polly::MemoryAccess that got their SAI changed?
 
 	auto Sched = LoopToPack.get_schedule();
-	for (auto *SAI : SAIs)
-		applyDataPack(*S, Sched, LoopToPack, SAI, OnHeap);
+	
+	if (SAIs.empty()) {
+		LLVM_DEBUG(dbgs() << "No ScopArrayInfo found\n");
+		ErrorDesc = "No access to array in loop";
+	} else {
+		for (auto *SAI : SAIs) {
+			StringRef NewErrorDesc;
+			applyDataPack(*S, Sched, LoopToPack, SAI, OnHeap, NewErrorDesc);
+			if (NewErrorDesc.empty())
+				AnySuccess = true;
+			else if (!ErrorDesc.empty())
+				ErrorDesc = NewErrorDesc;
+		}
+	}
+
+	if (!AnySuccess) {
+		auto &Ctx = LoopMD->getContext();
+		LLVM_DEBUG(dbgs() << "Could not apply array packing\n");
+
+		if (ORE) {
+			auto Loc = findOptionalDebugLoc(LoopMD, "llvm.data.pack.loc");
+			ORE->emit(DiagnosticInfoOptimizationFailure(DEBUG_TYPE,"RequestedArrayPackingFailed" , Loc, CodeRegion) << (Twine("array not packed: ") + ErrorDesc).str());
+		}
+
+		// If illegal, revert and remove the transformation.
+		auto NewLoopMD = makePostTransformationMetadata(Ctx, LoopMD, { "llvm.data.pack." }, {});
+		auto Attr = getBandAttr(LoopToPack);
+		Attr->Metadata = NewLoopMD;
+
+		// Roll back old schedule.
+		return LoopToPack.get_schedule();
+	}
 
 	auto Mark = moveToBandMark(LoopToPack);
 	if (isBandMark(Mark)) {
@@ -3849,8 +3884,6 @@ static isl::schedule applyArrayPacking(MDNode *LoopMD, isl:: schedule_node LoopT
 
 		auto NewLoopMD = makePostTransformationMetadata( F->getContext() , Attr->Metadata, {"llvm.data.pack."}, {} );
 		Attr->Metadata = NewLoopMD;
-
-
 	}
 
 	return Sched;
@@ -4344,7 +4377,8 @@ public:
 				// Also: llvm.loop.unroll.disable is a thing
 				Result = applyLoopUnroll(LoopMD, Band);
 			} else if (AttrName == "llvm.data.pack.enable") {
-				Result = applyArrayPacking (LoopMD, Band, F, S);
+				// TODO: When is this transformation illegal? E.g. non-access?
+				Result = applyArrayPacking(LoopMD, Band, F, S, ORE, CodeRegion);
 			} else if (AttrName == "llvm.loop.parallelize_thread.enable") {
 				auto IsCoincident = Band.band_member_get_coincident(0);
 				if (!IsCoincident) {
