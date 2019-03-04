@@ -4256,6 +4256,8 @@ static isl::schedule applyParallelizeThread(MDNode *LoopMD, isl:: schedule_node 
 }
 
 
+
+
 class SearchTransformVisitor : public RecursiveScheduleTreeVisitor<SearchTransformVisitor> {
 private:
 	using BaseTy = RecursiveScheduleTreeVisitor<SearchTransformVisitor>;
@@ -4272,9 +4274,33 @@ public:
 
 	isl::schedule Result;
 
-	void visitBand(const isl::schedule_node &Band) {
-		auto IslCtx = Band.get_ctx();
+	isl::schedule checkDependencyViolation(llvm::MDNode * LoopMD, llvm::Value * CodeRegion, const isl::noexceptions::schedule_node & OrigBand, StringRef DebugLocAttr, StringRef TransPrefix, StringRef RemarkName, StringRef ViolationEffect)	{
+		// Check legality 
+		// FIXME: This assumes that there was no dependency violation before; If there are any before, we should remove those dependencies.
+		if (D->isValidSchedule(*S, Result)) 
+			return Result;
 
+		auto &Ctx = LoopMD->getContext();
+			LLVM_DEBUG(dbgs() << "Dependency violation detected\n");
+			LLVM_DEBUG(dbgs() << "Rolling back transformation\n");
+
+			if (ORE) {
+				auto Loc = findOptionalDebugLoc(LoopMD, DebugLocAttr);
+				// Each '<<' on ORE is visible in the YAML output; to avoid breaking changes, use Twine.
+				ORE->emit(DiagnosticInfoOptimizationFailure(DEBUG_TYPE,RemarkName , Loc, CodeRegion) << (Twine(ViolationEffect) + ": transformation would violate dependencies").str());
+			}
+
+			// If illegal, revert and remove the transformation.
+			auto NewLoopMD = makePostTransformationMetadata(Ctx, LoopMD, { TransPrefix}, {});
+			auto Attr = getBandAttr(OrigBand);
+			Attr->Metadata = NewLoopMD;
+
+			// Roll back old schedule.
+			Result = OrigBand.get_schedule();
+			return Result;
+	}
+
+	void visitBand(const isl::schedule_node &Band) {
 		// Transform inn loops first.
 		getBase().visitBand(Band); 
 		if (Result)
@@ -4304,37 +4330,50 @@ public:
 			if (AttrName == "llvm.loop.reverse.enable") {
 				// TODO: Read argument (0 to disable)
 				Result = applyLoopReversal(LoopMD, Band);
-
-				// Check legality 
-				if (!D->isValidSchedule(*S, Result)) {
-					LLVM_DEBUG(dbgs() << "Illegal loop reversal\n");
-
-					if (ORE ){
-					auto Loc = findOptionalDebugLoc(LoopMD,  "llvm.loop.reverse.loc");
-					ORE->emit(DiagnosticInfoOptimizationFailure(DEBUG_TYPE, "FailedRequestedReversal", Loc, CodeRegion)
-						<< "loop not reversed: reversing the loop would violate dependencies");
-					}
-
-					// If illegal, revert and remove the transformation.
-					auto NewLoopMD = makePostTransformationMetadata(Ctx, LoopMD,{ "llvm.loop.reverse."}, {} );
-					auto Attr = getBandAttr(Band);
-					Attr->Metadata = NewLoopMD;
-					Result = Band.get_schedule();
-				}
-
+				checkDependencyViolation(LoopMD, CodeRegion,  Band,  "llvm.loop.reverse.loc", "llvm.loop.reverse.", "FailedRequestedReversal", "loop not reversed");
 			} else if (AttrName == "llvm.loop.tile.enable") {
 				// TODO: Read argument (0 to disable)
 				Result = applyLoopTiling(LoopMD, Band);
+				checkDependencyViolation(LoopMD, CodeRegion,  Band,  "llvm.loop.tile.loc", "llvm.loop.tile.", "FailedRequestedTiling", "loop(s) not tiled");
 			} else if (AttrName == "llvm.loop.interchange.enable"){
 				// TODO: Read argument (0 to disable)
 				Result = applyLoopInterchange(LoopMD, Band);
+				checkDependencyViolation(LoopMD, CodeRegion,  Band,  "llvm.loop.interchange.loc", "llvm.loop.interchange.", "FailedRequestedInterchange", "loops not interchanged");
 			} else if (AttrName == "llvm.loop.unroll.enable") {
 				// TODO: Read argument (0 to disable)
 				// Also: llvm.loop.unroll.disable is a thing
 				Result = applyLoopUnroll(LoopMD, Band);
 			} else if (AttrName == "llvm.data.pack.enable") {
 				Result = applyArrayPacking (LoopMD, Band, F, S);
-			} else if (AttrName == "llvm.loop.llvm.loop.parallelize_thread.enable") {
+			} else if (AttrName == "llvm.loop.parallelize_thread.enable") {
+				auto IsCoincident = Band.band_member_get_coincident(0);
+				if (!IsCoincident) {
+				auto DepsAll = D->getDependences(Dependences::TYPE_RAW | Dependences::TYPE_WAW | Dependences::TYPE_WAR | Dependences:: TYPE_RED);
+				auto MySchedMap = Band.first_child().get_prefix_schedule_relation();
+				auto IsParallel = D->isParallel(MySchedMap.get(),DepsAll.release() );
+				if (!IsParallel) {
+					LLVM_DEBUG(dbgs() << "Dependency violation detected\n");
+					LLVM_DEBUG(dbgs() << "Rolling back transformation\n");
+
+					if (ORE) {
+						auto Loc = findOptionalDebugLoc(LoopMD,  "llvm.loop.parallelize_thread.loc");
+						// Each '<<' on ORE is visible in the YAML output; to avoid breaking changes, use Twine.
+						ORE->emit(
+							DiagnosticInfoOptimizationFailure(DEBUG_TYPE, "FailedRequestedThreadParallelism", Loc, CodeRegion) << "loop not thread-parallelized: transformation would violate dependencies"
+							);
+					}
+
+					// If illegal, revert and remove the transformation.
+					auto NewLoopMD = makePostTransformationMetadata(Ctx, LoopMD, { "llvm.loop.parallelize_thread."}, {});
+					auto Attr = getBandAttr(Band);
+					Attr->Metadata = NewLoopMD;
+
+					// Roll back old schedule.
+					Result = Band.get_schedule();
+					return;
+				}
+			}
+
 				Result = applyParallelizeThread(LoopMD, Band);
 			} else {
 				continue;
