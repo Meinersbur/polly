@@ -2569,7 +2569,7 @@ static isl::schedule applyLoopTiling( MDNode *LoopMD,const isl:: schedule_node &
 	InnerBand = separateBand(InnerBand);
 	for (auto TileId : TileIds) {
 		//TODO: Merge TileId
-		auto Mark = makeTransformLoopId(IslCtx, nullptr, "inner tile");
+		auto Mark = makeTransformLoopId(IslCtx, TileId, "inner tile");
 		InnerBand = insertMark(InnerBand, Mark);
 
 		InnerBand = InnerBand.get_child(0);
@@ -2586,7 +2586,7 @@ static isl::schedule applyLoopTiling( MDNode *LoopMD,const isl:: schedule_node &
 	OuterBand = separateBand(OuterBand);
 	for (auto PitId : FloorIds) {
 		//TODO: Merge PitId
-		auto Mark = makeTransformLoopId(IslCtx, nullptr, "outer floor");
+		auto Mark = makeTransformLoopId(IslCtx, PitId, "outer floor");
 		OuterBand = insertMark(OuterBand, Mark);
 
 		OuterBand = OuterBand.get_child(0);
