@@ -1943,6 +1943,25 @@ static isl::schedule_node removeMark(isl::schedule_node MarkOrBand) {
   return MarkOrBand;
 }
 
+
+static isl::schedule_node removeBandAndMarks(isl::schedule_node MarkOrBand) {
+	while (true) {
+		auto Parent = MarkOrBand.parent();
+		if (isl_schedule_node_get_type(Parent.get()) != isl_schedule_node_mark)
+			break;
+		MarkOrBand = Parent;
+	}
+
+	while (true) {
+		auto RemovedKind  = isl_schedule_node_get_type(MarkOrBand.get());
+		MarkOrBand = isl::manage(isl_schedule_node_delete(MarkOrBand.release()));
+		if (RemovedKind!= isl_schedule_node_mark)
+			break;
+	}
+	return MarkOrBand;
+}
+
+
 static isl::schedule_node insertMark(isl::schedule_node Band, isl::id Mark) {
   assert(isl_schedule_node_get_type(Band.get()) == isl_schedule_node_band);
   assert(moveToBandMark(Band).is_equal(Band) &&
@@ -2421,7 +2440,7 @@ static isl::schedule_node tileBand(isl::schedule_node BandToTile,
 static void applyLoopTiling(Scop &S, isl::schedule &Sched,
                             ArrayRef<LoopIdentification> TheLoops,
                             ArrayRef<int64_t> TileSizes, const Dependences &D,
-                            ArrayRef<StringRef> PitIds,
+                            ArrayRef<StringRef> FloorIds,
                             ArrayRef<StringRef> TileIds) {
   auto IslCtx = S.getIslCtx();
 
@@ -2461,7 +2480,7 @@ static void applyLoopTiling(Scop &S, isl::schedule &Sched,
   OuterBand = InnerBand.parent();
 
   OuterBand = separateBand(OuterBand);
-  for (auto PitId : PitIds) {
+  for (auto PitId : FloorIds) {
     auto Mark = makeTransformLoopId(IslCtx, nullptr, "outer floor", PitId);
     // isl::id::alloc(IslCtx, (Twine("Loop_") + PitId).str(), nullptr);
     OuterBand = insertMark(OuterBand, Mark);
@@ -2470,7 +2489,7 @@ static void applyLoopTiling(Scop &S, isl::schedule &Sched,
   }
 
   // Jump back to first of the pit loops
-  for (int i = PitIds.size(); i >= 1; i -= 1) {
+  for (int i = FloorIds.size(); i >= 1; i -= 1) {
     OuterBand = OuterBand.parent();
     OuterBand = moveToBandMark(OuterBand);
   }
@@ -2702,7 +2721,6 @@ static isl::schedule applyLoopInterchange(MDNode *LoopMD, const isl:: schedule_n
 	collectVerticalLoops(TopBand, Depth, Bands);
 	assert(Depth == Bands.size());
 
-
 	SmallVector<isl::schedule_node, 4> NewOrder; 
 	NewOrder.resize(Depth);
 	auto PermMD = findNamedMetadataNode(LoopMD, "llvm.loop.interchange.permutation");
@@ -2717,12 +2735,14 @@ static isl::schedule applyLoopInterchange(MDNode *LoopMD, const isl:: schedule_n
 
 	// Remove old order
 	auto Band = TopBand;
-	for (int i = 0; i < Depth; i += 1) {
-		Band = isl::manage(isl_schedule_node_delete(Band.release()));
-	}
-
+	for (int i = 0; i < Depth; i += 1) 
+		Band = removeBandAndMarks(Band);
+	
 	// Rebuild loop nest bottom-up according to new order.
 	for (auto & OldBand : reverse(NewOrder)) {
+		 	auto Attr = getBandAttr(OldBand);
+		auto FollowUp =  findOptionalMDOperand(Attr->Metadata ,"llvm.loop.interchange.followup_interchanged").getValueOr(nullptr);
+
 		//auto OldBand =   findBand(OldBands, NewBandId);
 		//assert(OldBand);
 		// TODO: Check that no band is used twice
@@ -2730,7 +2750,7 @@ static isl::schedule applyLoopInterchange(MDNode *LoopMD, const isl:: schedule_n
 		auto TheOldBand = ignoreMarkChild(OldBand);
 		auto TheOldSchedule = isl::manage(isl_schedule_node_band_get_partial_schedule(TheOldBand.get()));
 
-		auto Marker = makeTransformLoopId(IslCtx, nullptr, "interchange");
+		auto Marker = makeTransformLoopId(IslCtx, FollowUp, "interchange");
 
 		Band = Band.insert_partial_schedule(TheOldSchedule);
 		Band = Band.insert_mark(Marker);
