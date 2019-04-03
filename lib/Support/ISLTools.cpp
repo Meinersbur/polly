@@ -14,7 +14,9 @@
 #include "polly/Support/ISLTools.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SetVector.h"
-#include "llvm/ADT/StringRef.h"
+#include "llvm/Support/raw_ostream.h"
+#include <cassert>
+#include <vector>
 
 using namespace polly;
 using namespace llvm;
