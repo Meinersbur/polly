@@ -701,9 +701,28 @@ void RegisterPollyPasses(PassBuilder &PB) {
 }
 } // namespace polly
 
-// Plugin Entrypoint:
-extern "C" ::llvm::PassPluginLibraryInfo LLVM_ATTRIBUTE_WEAK
-llvmGetPassPluginInfo() {
+/// Initialize Polly passes when library is loaded (shared library mode) or
+/// linked into executable (static library mode)
+///
+/// We use the constructor of a statically declared object to initialize the
+/// different Polly passes right after the Polly library is loaded. This ensures
+/// that the Polly passes are available e.g. in the 'opt' tool.
+
+class StaticInitializer {
+public:
+  StaticInitializer() {
+    llvm::PassRegistry &Registry = *llvm::PassRegistry::getPassRegistry();
+    polly::initializePollyPasses(Registry);
+  }
+};
+static StaticInitializer InitializeEverything;
+
+// Pass Plugin Entrypoints
+llvm::PassPluginLibraryInfo getPollyPluginInfo() {
   return {LLVM_PLUGIN_API_VERSION, "Polly", LLVM_VERSION_STRING,
           polly::RegisterPollyPasses};
+}
+
+extern "C" ::llvm::PassPluginLibraryInfo llvmGetPassPluginInfo() {
+  return getPollyPluginInfo();
 }
